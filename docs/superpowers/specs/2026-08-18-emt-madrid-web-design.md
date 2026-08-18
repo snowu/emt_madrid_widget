@@ -86,16 +86,36 @@ CORS restricted to the GitHub Pages origin.
 
 ### EMT auth
 
+Verified against `fermartv/EMTMadrid`, a working Python client (2026-08-18).
+
+```
+Login    GET  v1/mobilitylabs/user/login/
+         headers: email, password        (headers, not body or query)
+         codes:   01 ok | 89 bad password | 92 no such user | 98 quota exceeded
+
+Arrivals POST v2/transport/busemtmad/stops/{stop_id}/arrives/
+         headers: accessToken
+         body:    {stopId, Text_EstimationsRequired_YN: "Y"}
+         codes:   00 ok | 80 stop not found
+```
+
+**EMT signals failure as a `code` field inside a 200 response, not as an HTTP
+status.** Handle both: an HTTP error, and a 200 carrying an error code. Code 80
+also means invalid token on the stop-detail endpoint, so treat it as the
+re-login trigger rather than waiting for a 401.
+
 1. Log in against the EMT auth endpoint with credentials from worker env vars.
 2. Response carries `accessToken` and `tokenSecExpiration` (~24h).
 3. Cache the token in Worker KV with its expiry.
-4. Check expiry before each call; re-login lazily on 401 rather than on a timer.
+4. Check expiry before each call; re-login lazily on an auth-failure code.
 
-Arrivals response fields, per incoming bus â verify exact names against the
-live docs before coding against them:
-- `lineId` â line number
-- `busTimeLeft` â seconds until arrival
-- `busDistance` â metres from the stop
+Arrivals response fields, per incoming bus:
+- `line` — line number (string)
+- `estimateArrive` — seconds until arrival
+- `DistanceBus` — metres from the stop (capital D)
+
+Arrivals live at `data[0].Arrive[]`. Each entry also carries `bus`,
+`destination`, `geometry.coordinates`, and `isHead`.
 
 Quota is ~20,000 calls/day on the generic login, enormous for one user. If it
 ever binds, register an app in MobilityLabs for a dedicated
@@ -151,7 +171,10 @@ manually per-card (tap one stop) or all at once via a single control.
 
 ## Error handling
 
-- EMT 401 â re-login once, retry, then surface the failure.
+- EMT auth failure (code 89/92, or code 80 read as an invalid token) â re-login
+  once, retry, then surface the failure.
+- EMT quota exceeded (code 98) â show cached arrivals; say the quota is spent
+  rather than reporting a generic failure, since it resolves at the daily reset.
 - EMT unreachable or slow â keep showing cached arrivals with staleness.
 - Supabase unreachable â render cached stop list; disable add/remove.
 - Unknown stop ID â EMT returns no arrivals; show that plainly rather than as an
@@ -159,7 +182,7 @@ manually per-card (tap one stop) or all at once via a single control.
 
 ## Testing
 
-- Worker: EMT auth handshake, token cache hit/expiry/401-relogin, arrivals
+- Worker: EMT auth handshake, token cache hit/expiry/re-login on auth-failure code, arrivals
   parsing against a recorded response, CORS, write-secret rejection.
 - Page: countdown ticking, staleness formatting, cache fallback when the worker
   is down.

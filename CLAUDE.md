@@ -36,13 +36,28 @@ Auth flow, all inside the worker:
 1. Log in against the auth endpoint to receive an `accessToken`.
 2. Token is valid roughly 24h (`tokenSecExpiration` in the login response).
 3. Cache it in Worker KV with its expiry; check before each call.
-4. Re-login lazily on 401 rather than on a timer.
+4. Re-login lazily on an auth-failure code rather than on a timer.
 
-Arrivals response, per incoming bus (verify exact field names against the live
-docs before coding against them):
-- `lineId` — line number
-- `busTimeLeft` — seconds until arrival
-- `busDistance` — metres from the stop
+EMT reports failure as a `code` field inside a 200 response, not as an HTTP
+status: `01` login ok, `89` bad password, `92` no such user, `98` quota spent;
+`00` arrivals ok, `80` stop not found / invalid token. Handle both an HTTP error
+and a 200 carrying an error code.
+
+Endpoints, verified 2026-08-18 against `fermartv/EMTMadrid`:
+
+```
+Login    GET  v1/mobilitylabs/user/login/   headers: email, password
+Arrivals POST v2/transport/busemtmad/stops/{stop_id}/arrives/
+         headers: accessToken
+         body:    {stopId, Text_EstimationsRequired_YN: "Y"}
+```
+
+Arrivals live at `data[0].Arrive[]`. Per bus:
+- `line` — line number (string)
+- `estimateArrive` — seconds until arrival
+- `DistanceBus` — metres from the stop (capital D)
+
+Also present: `bus`, `destination`, `geometry.coordinates`, `isHead`.
 
 Quota: ~20,000 calls/day on the generic login. If it ever binds, register an app
 in MobilityLabs for a dedicated `X-ClientId` / `passKey` pair.
@@ -80,7 +95,7 @@ for what was rejected and when to revisit.
 
 Two arrivals per stop: the next bus and the fallback if you miss it.
 
-1. **Local countdown.** Tick `busTimeLeft` down in the browser between fetches
+1. **Local countdown.** Tick `estimateArrive` down in the browser between fetches
    so numbers move every second instead of freezing.
 2. **Staleness marker.** Every rendering of arrival data carries "updated N ago".
 3. **Never render empty.** Show last-known arrivals from localStorage rather
