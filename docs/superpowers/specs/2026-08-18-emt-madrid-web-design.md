@@ -1,4 +1,4 @@
-# EMT Madrid Arrivals â Web App Design
+# EMT Madrid Arrivals — Web App Design
 
 Date: 2026-08-18
 Status: approved (pending spec review)
@@ -14,7 +14,7 @@ This replaces the original Android widget design. See "History" below.
 
 - **In:** EMT Madrid city buses. Saved stops shared across devices. Live
   arrivals, local countdown, staleness marker.
-- **Out:** Metro, CercanÃ­as, interurbanos (CRTM â different API, different stop
+- **Out:** Metro, CercanÃ­as, interurbanos (CRTM — different API, different stop
   ID namespace; do not mix without an explicit decision). GTFS stop-name search.
   Native app of any kind.
 
@@ -23,18 +23,18 @@ This replaces the original Android widget design. See "History" below.
 Three pieces, two deploy targets:
 
 ```
-web/    static page          â GitHub Pages (public, holds no secrets)
-api/    Cloudflare Worker    â holds EMT credentials + SUPABASE_SERVICE_KEY
-        Supabase Postgres    â bus_stops table (RLS on, zero policies)
+web/    static page          — GitHub Pages (public, holds no secrets)
+api/    Cloudflare Worker    — holds EMT credentials + SUPABASE_SERVICE_KEY
+        Supabase Postgres    — bus_stops table (RLS on, zero policies)
 ```
 
-Data flow: page â worker â (EMT API | Supabase). The page never talks to EMT or
+Data flow: page — worker — (EMT API | Supabase). The page never talks to EMT or
 Supabase directly.
 
 ### Why a backend at all
 
 The original design had none: an APK on one device could hold its own
-credentials. A public webpage cannot â browser JS keeps no secrets, and EMT
+credentials. A public webpage cannot — browser JS keeps no secrets, and EMT
 almost certainly sends no CORS headers, so direct calls would be blocked
 regardless. The worker exists to hold credentials and to be a CORS-allowed
 origin. It is deliberately minimal: secrets plus request forwarding.
@@ -47,7 +47,7 @@ Cloudflare's pricing page before relying on exact figures.)
 
 ### Why Supabase
 
-Saved stops must be identical on every device â that was the requirement that
+Saved stops must be identical on every device — that was the requirement that
 killed both localStorage-only and a committed JSON file. Shared mutable state
 needs a shared store. Follows the pattern already used in `innocent_project`:
 RLS enabled with zero policies, so only the service-role key can read or write.
@@ -70,16 +70,16 @@ alter table bus_stops enable row level security;
 -- No policies: service-role key only.
 ```
 
-Stop IDs are typed in by hand. No GTFS index in v1 â that pipeline is only
+Stop IDs are typed in by hand. No GTFS index in v1 — that pipeline is only
 worth building if hand-entry becomes annoying.
 
 ## Worker endpoints
 
 ```
-GET    /stops              â list saved stops
-POST   /stops              â add one (stop_id, optional label)
-DELETE /stops/:id          â remove one
-GET    /arrivals?stop=1234 â live arrivals for one stop
+GET    /stops              — list saved stops
+POST   /stops              — add one (stop_id, optional label)
+DELETE /stops/:id          — remove one
+GET    /arrivals?stop=1234 — live arrivals for one stop
 ```
 
 CORS restricted to the GitHub Pages origin.
@@ -157,7 +157,7 @@ One page, no router. Stops listed as cards, each showing its next arrivals.
 2. **Staleness marker.** Every rendering of arrival data carries "updated N ago".
 3. **Never render empty.** On load or failure, show last-known arrivals from
    localStorage with their staleness marker instead of a spinner or blank. A
-   stale number beats a spinner â but only ever shown with its age attached.
+   stale number beats a spinner — but only ever shown with its age attached.
 4. **Add/remove stops in the page**, since the phone is the device that has this
    problem. A TUI was considered and dropped: it would run on the laptop, which
    is exactly where you are not when you want to add a stop.
@@ -171,13 +171,13 @@ manually per-card (tap one stop) or all at once via a single control.
 
 ## Error handling
 
-- EMT auth failure (code 89/92, or code 80 read as an invalid token) â re-login
+- EMT auth failure (code 89/92, or code 80 read as an invalid token) — re-login
   once, retry, then surface the failure.
-- EMT quota exceeded (code 98) â show cached arrivals; say the quota is spent
+- EMT quota exceeded (code 98) — show cached arrivals; say the quota is spent
   rather than reporting a generic failure, since it resolves at the daily reset.
-- EMT unreachable or slow â keep showing cached arrivals with staleness.
-- Supabase unreachable â render cached stop list; disable add/remove.
-- Unknown stop ID â EMT returns no arrivals; show that plainly rather than as an
+- EMT unreachable or slow — keep showing cached arrivals with staleness.
+- Supabase unreachable — render cached stop list; disable add/remove.
+- Unknown stop ID — EMT returns no arrivals; show that plainly rather than as an
   error, since a typo'd ID looks identical to a stop with nothing due.
 
 ## Testing
@@ -202,6 +202,6 @@ manually per-card (tap one stop) or all at once via a single control.
 Originally specified as an Android home screen widget (Glance, WorkManager,
 sideloaded APK). Dropped: install and update friction, and platform limits,
 outweighed the benefit over a home-screen webpage. The widget design's good
-parts â tap-to-refresh, local countdown, staleness marker, never-empty state â
+parts — tap-to-refresh, local countdown, staleness marker, never-empty state —
 carried over intact. The "no backend" decision did not survive the move to a
 public page.
