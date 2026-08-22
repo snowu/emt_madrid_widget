@@ -5,7 +5,7 @@ compatibility_date = "2026-08-18"
 compatibility_flags = ["nodejs_compat"]
 
 kv_namespaces = [
-  { binding = "KV", id = "placeholder" }
+  { binding = "KV", id = "cb1456cfd7644e5cbbcee852d3eed51e" }
 ]
 
 [vars]
@@ -18,3 +18,5 @@ ALLOWED_ORIGIN = "https://snowu.github.io"
 EMT_EMAIL = "test@example.com"
 EMT_PASSWORD = "test-password"
 APP_KEY = "test-app-key"
+SUPABASE_URL = "https://test.supabase.co"
+SUPABASE_SERVICE_KEY = "test-service-key"
