@@ -1,0 +1,40 @@
+{
+  "code": "00",
+  "description": "Data recovered OK",
+  "data": [
+    {
+      "Arrive": [
+        {
+          "line": "27",
+          "stop": "1234",
+          "bus": 4821,
+          "destination": "PLAZA CASTILLA",
+          "estimateArrive": 640,
+          "DistanceBus": 3120,
+          "isHead": "False",
+          "geometry": { "type": "Point", "coordinates": [-3.6903, 40.4501] }
+        },
+        {
+          "line": "27",
+          "stop": "1234",
+          "bus": 4802,
+          "destination": "PLAZA CASTILLA",
+          "estimateArrive": 145,
+          "DistanceBus": 610,
+          "isHead": "True",
+          "geometry": { "type": "Point", "coordinates": [-3.6899, 40.4477] }
+        },
+        {
+          "line": "150",
+          "stop": "1234",
+          "bus": 5510,
+          "destination": "MONCLOA",
+          "estimateArrive": 1980,
+          "DistanceBus": 8400,
+          "isHead": "False",
+          "geometry": { "type": "Point", "coordinates": [-3.7011, 40.4402] }
+        }
+      ]
+    }
+  ]
+}

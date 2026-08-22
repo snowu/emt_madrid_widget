@@ -1,9 +1,11 @@
 import { env } from "cloudflare:test";
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
-import { getToken } from "../src/emt.js";
+import { getToken, getArrivals } from "../src/emt.js";
 import { EmtError } from "../src/errors.js";
 import loginOk from "./fixtures/login-ok.json";
 import loginBadPassword from "./fixtures/login-bad-password.json";
+import arrivalsOk from "./fixtures/arrivals-ok.json";
+import arrivalsEmpty from "./fixtures/arrivals-empty.json";
 
 function mockFetch(body, init = {}) {
   // A fresh Response per call: response bodies are single-use.
@@ -69,5 +71,84 @@ describe("getToken", () => {
       new Response("gateway timeout", { status: 504 })
     );
     await expect(getToken(env)).rejects.toMatchObject({ kind: "upstream" });
+  });
+});
+
+describe("getArrivals", () => {
+  beforeEach(async () => {
+    await env.KV.put("emt:token", "cached-token");
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("parses line, seconds, and metres from data[0].Arrive[]", async () => {
+    mockFetch(arrivalsOk);
+    const result = await getArrivals(env, "1234");
+    expect(result.arrivals[0]).toEqual({ line: "27", seconds: 145, metres: 610 });
+  });
+
+  it("sorts soonest-first and returns at most two", async () => {
+    mockFetch(arrivalsOk);
+    const { arrivals } = await getArrivals(env, "1234");
+    expect(arrivals.map((a) => a.seconds)).toEqual([145, 640]);
+  });
+
+  it("stamps fetchedAt so the page can show staleness", async () => {
+    mockFetch(arrivalsOk);
+    const before = Date.now();
+    const { fetchedAt } = await getArrivals(env, "1234");
+    expect(fetchedAt).toBeGreaterThanOrEqual(before);
+  });
+
+  it("posts stopId and the estimations flag in the body", async () => {
+    const spy = mockFetch(arrivalsOk);
+    await getArrivals(env, "1234");
+    const [url, init] = spy.mock.calls[0];
+    expect(url).toContain("v2/transport/busemtmad/stops/1234/arrives/");
+    expect(init.method).toBe("POST");
+    expect(init.headers.accessToken).toBe("cached-token");
+    expect(JSON.parse(init.body)).toEqual({
+      stopId: "1234",
+      Text_EstimationsRequired_YN: "Y",
+    });
+  });
+
+  it("returns an empty list, not an error, when nothing is due", async () => {
+    mockFetch(arrivalsEmpty);
+    const { arrivals } = await getArrivals(env, "1234");
+    expect(arrivals).toEqual([]);
+  });
+
+  it("re-logs in once and retries when the token is rejected with code 80", async () => {
+    const spy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({ code: "80", data: [] })))
+      .mockResolvedValueOnce(new Response(JSON.stringify(loginOk)))
+      .mockResolvedValueOnce(new Response(JSON.stringify(arrivalsOk)));
+
+    const { arrivals } = await getArrivals(env, "1234");
+    expect(arrivals).toHaveLength(2);
+    expect(spy).toHaveBeenCalledTimes(3);
+  });
+
+  it("gives up with not_found after one failed retry", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({ code: "80", data: [] })))
+      .mockResolvedValueOnce(new Response(JSON.stringify(loginOk)))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ code: "80", data: [] })));
+
+    await expect(getArrivals(env, "9999")).rejects.toMatchObject({
+      kind: "not_found",
+    });
+  });
+
+  it("tolerates a missing DistanceBus", async () => {
+    mockFetch({
+      code: "00",
+      data: [{ Arrive: [{ line: "27", estimateArrive: 100 }] }],
+    });
+    const { arrivals } = await getArrivals(env, "1234");
+    expect(arrivals[0]).toEqual({ line: "27", seconds: 100, metres: null });
   });
 });
