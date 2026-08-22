@@ -252,3 +252,46 @@ describe("getStopDetail", () => {
     });
   });
 });
+
+describe("EMT 5xx blip retry", () => {
+  // Cloudflare's edge intermittently fails its own TLS handshake to EMT with
+  // a 5xx (HTTP 525); one retry gets through.
+  beforeEach(async () => {
+    await env.KV.put("emt:token", "cached-token");
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("retries arrivals once on a 502 and succeeds", async () => {
+    const spy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response("bad gateway", { status: 502 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(arrivalsOk)));
+    const { arrivals } = await getArrivals(env, "1234");
+    expect(arrivals).toHaveLength(2);
+    expect(spy).toHaveBeenCalledTimes(2);
+  });
+
+  it("gives up after one retry when both attempts are 5xx", async () => {
+    const spy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async () => new Response("gateway timeout", { status: 504 }));
+    await expect(getArrivals(env, "1234")).rejects.toMatchObject({
+      kind: "upstream",
+      message: expect.stringContaining("504"),
+    });
+    expect(spy).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not burn a retry on a 4xx", async () => {
+    const spy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response("forbidden", { status: 403 }));
+    await expect(getArrivals(env, "1234")).rejects.toMatchObject({
+      kind: "upstream",
+      message: expect.stringContaining("403"),
+    });
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+});

@@ -19,16 +19,30 @@ function raiseForCode(code) {
   throw new EmtError("upstream", `unexpected EMT code ${code}`);
 }
 
-async function login(env) {
+/** fetch to EMT with one retry on a 5xx.
+ *
+ * Cloudflare's edge intermittently fails its own TLS handshake to
+ * openapi.emtmadrid.es with an HTTP 5xx (525-class, workerd#776); a single
+ * retry gets through. A 4xx is an answer, not a blip — pass it through.
+ */
+async function emtFetch(url, init = {}) {
   let res;
   try {
-    res = await fetch(`${BASE}v1/mobilitylabs/user/login/`, {
-      method: "GET",
-      headers: { email: env.EMT_EMAIL, password: env.EMT_PASSWORD },
-    });
+    res = await fetch(url, init);
+    if (res.status >= 500) {
+      res = await fetch(url, init);
+    }
   } catch (cause) {
     throw new EmtError("upstream", `EMT unreachable: ${cause.message}`);
   }
+  return res;
+}
+
+async function login(env) {
+  const res = await emtFetch(`${BASE}v1/mobilitylabs/user/login/`, {
+    method: "GET",
+    headers: { email: env.EMT_EMAIL, password: env.EMT_PASSWORD },
+  });
 
   if (!res.ok) {
     throw new EmtError("upstream", `EMT login HTTP ${res.status}`);
@@ -62,19 +76,14 @@ export async function getToken(env, { force = false } = {}) {
 const MAX_ARRIVALS = 2;
 
 async function requestArrivals(env, stopId, token) {
-  let res;
-  try {
-    res = await fetch(`${BASE}v2/transport/busemtmad/stops/${stopId}/arrives/`, {
-      method: "POST",
-      headers: { accessToken: token, "content-type": "application/json" },
-      body: JSON.stringify({
-        stopId: String(stopId),
-        Text_EstimationsRequired_YN: "Y",
-      }),
-    });
-  } catch (cause) {
-    throw new EmtError("upstream", `EMT unreachable: ${cause.message}`);
-  }
+  const res = await emtFetch(`${BASE}v2/transport/busemtmad/stops/${stopId}/arrives/`, {
+    method: "POST",
+    headers: { accessToken: token, "content-type": "application/json" },
+    body: JSON.stringify({
+      stopId: String(stopId),
+      Text_EstimationsRequired_YN: "Y",
+    }),
+  });
   if (!res.ok) throw new EmtError("upstream", `EMT arrivals HTTP ${res.status}`);
   return res.json();
 }
@@ -113,15 +122,10 @@ export async function getArrivals(env, stopId) {
 }
 
 async function requestDetail(env, stopId, token) {
-  let res;
-  try {
-    res = await fetch(`${BASE}v1/transport/busemtmad/stops/${stopId}/detail/`, {
-      method: "GET",
-      headers: { accessToken: token },
-    });
-  } catch (cause) {
-    throw new EmtError("upstream", `EMT unreachable: ${cause.message}`);
-  }
+  const res = await emtFetch(`${BASE}v1/transport/busemtmad/stops/${stopId}/detail/`, {
+    method: "GET",
+    headers: { accessToken: token },
+  });
   if (!res.ok) throw new EmtError("upstream", `EMT stop detail HTTP ${res.status}`);
   return res.json();
 }
