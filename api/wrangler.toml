@@ -1,6 +1,8 @@
 name = "emt-arrivals"
 main = "src/index.js"
 compatibility_date = "2026-08-18"
+# Required by @cloudflare/vitest-pool-workers.
+compatibility_flags = ["nodejs_compat"]
 
 kv_namespaces = [
   { binding = "KV", id = "placeholder" }
@@ -10,3 +12,9 @@ kv_namespaces = [
 # Secrets are NOT here. Set them with `wrangler secret put <NAME>`,
 # or locally in .dev.vars (gitignored).
 ALLOWED_ORIGIN = "https://snowu.github.io"
+
+# Test placeholders so `cloudflare:test` supplies them. Real values go in
+# .dev.vars (local) or `wrangler secret put` (production); both override [vars].
+EMT_EMAIL = "test@example.com"
+EMT_PASSWORD = "test-password"
+APP_KEY = "test-app-key"

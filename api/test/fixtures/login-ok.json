@@ -1,0 +1,10 @@
+{
+  "code": "01",
+  "description": "Token 24 hours",
+  "data": [
+    {
+      "accessToken": "fake-token-abc123",
+      "tokenSecExpiration": 86400
+    }
+  ]
+}
