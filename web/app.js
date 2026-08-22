@@ -1,7 +1,7 @@
 import { readCache, writeCache, readStops, writeStops } from "./cache.js";
 
-const API = "https://emt-arrivals.<your-subdomain>.workers.dev";
-const APP_KEY = "replace-me"; // public by design; filters scanners, not people
+const API = "https://emt-arrivals.zancato-t.workers.dev";
+const APP_KEY = "a3ca225683a89f9f394968f1081ee2ad"; // public by design; filters scanners, not people
 
 const stopsEl = document.getElementById("stops");
 const statusEl = document.getElementById("status");

@@ -10,13 +10,6 @@ kv_namespaces = [
 
 [vars]
 # Secrets are NOT here. Set them with `wrangler secret put <NAME>`,
-# or locally in .dev.vars (gitignored).
+# or locally in .dev.vars (gitignored). Test fakes live in vitest.config.js,
+# NOT here — a [vars] name collides with its secret at creation time.
 ALLOWED_ORIGIN = "https://snowu.github.io"
-
-# Test placeholders so `cloudflare:test` supplies them. Real values go in
-# .dev.vars (local) or `wrangler secret put` (production); both override [vars].
-EMT_EMAIL = "test@example.com"
-EMT_PASSWORD = "test-password"
-APP_KEY = "test-app-key"
-SUPABASE_URL = "https://test.supabase.co"
-SUPABASE_SERVICE_KEY = "test-service-key"
