@@ -1,0 +1,12 @@
+name = "emt-arrivals"
+main = "src/index.js"
+compatibility_date = "2026-08-18"
+
+kv_namespaces = [
+  { binding = "KV", id = "placeholder" }
+]
+
+[vars]
+# Secrets are NOT here. Set them with `wrangler secret put <NAME>`,
+# or locally in .dev.vars (gitignored).
+ALLOWED_ORIGIN = "https://snowu.github.io"

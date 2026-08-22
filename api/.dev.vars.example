@@ -1,0 +1,5 @@
+EMT_EMAIL=you@example.com
+EMT_PASSWORD=
+SUPABASE_URL=https://<project>.supabase.co
+SUPABASE_SERVICE_KEY=
+APP_KEY=any-random-string
