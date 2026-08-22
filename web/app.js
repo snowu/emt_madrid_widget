@@ -1,4 +1,11 @@
-import { readCache, writeCache, readStops, writeStops } from "./cache.js";
+import {
+  readCache,
+  writeCache,
+  readStops,
+  writeStops,
+  readDetails,
+  writeDetail,
+} from "./cache.js";
 
 const API = "https://emt-arrivals.zancato-t.workers.dev";
 const APP_KEY = "a3ca225683a89f9f394968f1081ee2ad"; // public by design; filters scanners, not people
@@ -8,6 +15,11 @@ const statusEl = document.getElementById("status");
 
 let stops = readStops();
 let arrivals = readCache();
+let details = readDetails();
+
+function stopTitle(stop) {
+  return stop.label || details[stop.stop_id]?.name || `Stop ${stop.stop_id}`;
+}
 
 function fmtCountdown(seconds) {
   if (seconds <= 0) return "due";
@@ -32,7 +44,7 @@ function render() {
       card.className = "stop";
 
       const title = document.createElement("h2");
-      title.textContent = stop.label || `Stop ${stop.stop_id}`;
+      title.textContent = stopTitle(stop);
 
       const refresh = document.createElement("button");
       refresh.textContent = "↻";
@@ -120,6 +132,26 @@ async function refreshAll() {
   await Promise.all(stops.map((s) => refreshStop(s.stop_id)));
 }
 
+/** Fetch and remember a stop's official name; returns null if EMT rejects it. */
+async function resolveStop(stopId) {
+  if (details[stopId]) return details[stopId];
+  try {
+    const detail = await api(`/stops/${encodeURIComponent(stopId)}/detail`);
+    details[stopId] = detail;
+    writeDetail(stopId, detail);
+    return detail;
+  } catch {
+    return null;
+  }
+}
+
+/** Stops saved before names were resolved get their titles filled in. */
+async function hydrateNames() {
+  const missing = stops.filter((s) => !s.label && !details[s.stop_id]);
+  await Promise.all(missing.map((s) => resolveStop(s.stop_id)));
+  render();
+}
+
 async function loadStops() {
   try {
     stops = await api("/stops");
@@ -128,7 +160,8 @@ async function loadStops() {
     statusEl.textContent = `Showing saved stops: ${err.message}`;
   }
   render();
-  await refreshAll();
+  refreshAll();
+  hydrateNames();
 }
 
 async function deleteStop(id) {
@@ -146,17 +179,31 @@ document.getElementById("add-stop").addEventListener("submit", async (event) => 
   event.preventDefault();
   const idInput = document.getElementById("stop-id");
   const labelInput = document.getElementById("stop-label");
+  const stopId = idInput.value.trim();
+  const userLabel = labelInput.value.trim();
+  if (!/^[0-9]+$/.test(stopId)) {
+    statusEl.textContent = "Stop numbers are digits only.";
+    return;
+  }
   try {
+    statusEl.textContent = `Looking up stop ${stopId}…`;
+    // Resolving first validates the stop exists and gives us its real name.
+    const detail = await resolveStop(stopId);
+    if (!detail) {
+      statusEl.textContent = `No EMT stop ${stopId} — check the number on the stop sign.`;
+      return;
+    }
     const row = await api("/stops", {
       method: "POST",
-      body: JSON.stringify({ stopId: idInput.value.trim(), label: labelInput.value.trim() || null }),
+      body: JSON.stringify({ stopId, label: userLabel || detail.name }),
     });
     stops.push(row);
     writeStops(stops);
     idInput.value = "";
     labelInput.value = "";
+    statusEl.textContent = "";
     render();
-    await refreshStop(row.stop_id);
+    refreshStop(row.stop_id);
   } catch (err) {
     statusEl.textContent = `Could not add stop: ${err.message}`;
   }

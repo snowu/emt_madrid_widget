@@ -1,5 +1,6 @@
 const ARRIVALS_KEY = "emt:arrivals";
 const STOPS_KEY = "emt:stops";
+const DETAILS_KEY = "emt:details";
 
 function read(key, fallback) {
   try {
@@ -26,4 +27,15 @@ export function readStops() {
 
 export function writeStops(stops) {
   localStorage.setItem(STOPS_KEY, JSON.stringify(stops));
+}
+
+/** Stop names/locations never move; a per-device cache of them is safe. */
+export function readDetails() {
+  return read(DETAILS_KEY, {});
+}
+
+export function writeDetail(stopId, detail) {
+  const all = readDetails();
+  all[stopId] = detail;
+  localStorage.setItem(DETAILS_KEY, JSON.stringify(all));
 }
