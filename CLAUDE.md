@@ -39,18 +39,38 @@ Auth flow, all inside the worker:
 4. Re-login lazily on an auth-failure code rather than on a timer.
 
 EMT reports failure as a `code` field inside a 200 response, not as an HTTP
-status: `01` login ok, `89` bad password, `92` no such user, `98` quota spent;
-`00` arrivals ok, `80` stop not found / invalid token. Handle both an HTTP error
-and a 200 carrying an error code.
+status: `01` login ok **and** arrivals-with-no-estimations (empty `Arrive[]`,
+e.g. night hours — it is a success there), `89` bad password, `92` no such
+user, `98` quota spent; `00` ok (arrivals with data, stop detail), `80` stop
+not found / invalid token, `81` no such record (nonexistent stop id). Handle
+both an HTTP error and a 200 carrying an error code.
 
-Endpoints, verified 2026-08-18 against `fermartv/EMTMadrid`:
+Versioning is per endpoint family and the docs overstate v1 coverage: auth is
+v1, bus data is v2. Some transport endpoints exist under both but only answer
+on v2 (`stops/arroundxy/` silently returns "no records" on v1) — verified live
+2026-08-23. When a call comes back empty on principle, try the other version.
+
+Cloudflare↔EMT quirk: outbound TLS from Workers to `openapi.emtmadrid.es`
+fails intermittently with HTTP 525 (same class as workerd#776 vs DeepL).
+Retries get through; the token cache means most calls skip login entirely.
+
+Endpoints, verified 2026-08-18 against `fermartv/EMTMadrid`, re-verified live
+2026-08-23:
 
 ```
-Login    GET  v1/mobilitylabs/user/login/   headers: email, password
-Arrivals POST v2/transport/busemtmad/stops/{stop_id}/arrives/
-         headers: accessToken
-         body:    {stopId, Text_EstimationsRequired_YN: "Y"}
+Login      GET  v1/mobilitylabs/user/login/     headers: email, password
+Arrivals   POST v2/transport/busemtmad/stops/{stop_id}/arrives/
+                headers: accessToken
+                body:    {stopId, Text_EstimationsRequired_YN: "Y"}
+Stop detail GET  v1/transport/busemtmad/stops/{stop_id}/detail/
+                headers: accessToken  → data[0].stops[0]:
+                {stop, name, postalAddress, geometry.coordinates, lines}
+Area search GET  v2/transport/busemtmad/stops/arroundxy/{lon}/{lat}/{radius}/
+                headers: accessToken  → data[]: {stopId, stopName, lines[]}
 ```
+
+`estimateArrive = 888888` is EMT's "running on schedule, no GPS estimate yet"
+sentinel, not a real countdown.
 
 Arrivals live at `data[0].Arrive[]`. Per bus:
 - `line` — line number (string)
