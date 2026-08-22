@@ -1,4 +1,4 @@
-import { getArrivals } from "./emt.js";
+import { getArrivals, getStopDetail } from "./emt.js";
 import { listStops, addStop, removeStop } from "./stops.js";
 import { EmtError, errorResponse } from "./errors.js";
 
@@ -6,6 +6,8 @@ import { EmtError, errorResponse } from "./errors.js";
 // TTL decided here; the 60s write only bounds how long junk can linger.
 const ARRIVALS_KV_TTL = 60;
 const ARRIVALS_FRESH_MS = 20_000;
+// Stop names/locations never move. A week of cache is quota-free.
+const DETAIL_KV_TTL = 7 * 24 * 3600;
 
 function cors(env) {
   return {
@@ -36,6 +38,15 @@ async function cachedArrivals(env, stopId) {
   return fresh;
 }
 
+async function cachedStopDetail(env, stopId) {
+  const key = `detail:${stopId}`;
+  const hit = await env.KV.get(key, "json");
+  if (hit) return hit;
+  const fresh = await getStopDetail(env, stopId);
+  await env.KV.put(key, JSON.stringify(fresh), { expirationTtl: DETAIL_KV_TTL });
+  return fresh;
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -60,6 +71,11 @@ export default {
 
       if (pathname === "/stops" && method === "GET") {
         return json(await listStops(env), env);
+      }
+
+      const detail = pathname.match(/^\/stops\/([^/]+)\/detail$/);
+      if (detail && method === "GET") {
+        return json(await cachedStopDetail(env, decodeURIComponent(detail[1])), env);
       }
 
       if (pathname === "/stops" && method === "POST") {

@@ -1,0 +1,17 @@
+{
+  "code": "00",
+  "description": "Data recovered OK",
+  "data": [
+    {
+      "stops": [
+        {
+          "stop": "1547",
+          "name": "PLAZA DE CASTILLA",
+          "postalAddress": "PASEO DE LA CASTELLANA 42",
+          "geometry": { "type": "Point", "coordinates": [-3.6897, 40.4669] },
+          "lines": ["27", "150", "N23"]
+        }
+      ]
+    }
+  ]
+}

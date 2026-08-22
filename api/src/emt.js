@@ -9,6 +9,8 @@ const CODE_KIND = {
   "92": ["auth", "EMT user does not exist"],
   "98": ["quota", "EMT daily API quota exceeded"],
   "80": ["not_found", "stop not found or token invalid"],
+  // Unambiguous: no point retrying with a fresh token the way we do for 80.
+  "81": ["not_found", "no such EMT record"],
 };
 
 function raiseForCode(code) {
@@ -108,4 +110,46 @@ export async function getArrivals(env, stopId) {
   if (body.code !== "00" && body.code !== "01") raiseForCode(body.code);
 
   return { stopId: String(stopId), arrivals: parseArrivals(body), fetchedAt: Date.now() };
+}
+
+async function requestDetail(env, stopId, token) {
+  let res;
+  try {
+    res = await fetch(`${BASE}v1/transport/busemtmad/stops/${stopId}/detail/`, {
+      method: "GET",
+      headers: { accessToken: token },
+    });
+  } catch (cause) {
+    throw new EmtError("upstream", `EMT unreachable: ${cause.message}`);
+  }
+  if (!res.ok) throw new EmtError("upstream", `EMT stop detail HTTP ${res.status}`);
+  return res.json();
+}
+
+function parseDetail(body) {
+  const raw = body.data?.[0]?.stops?.[0];
+  if (!raw) throw new EmtError("not_found", "EMT returned no stop detail");
+  return {
+    stopId: String(raw.stop),
+    name: raw.name ?? null,
+    address: raw.postalAddress ?? null,
+    // GeoJSON order: [lon, lat]. Kept as-is; Leaflet wants [lat, lon].
+    coordinates: raw.geometry?.coordinates ?? null,
+    lines: Array.isArray(raw.lines) ? raw.lines.map(String) : [],
+  };
+}
+
+/** Fetch one stop's static detail (name, address, location, lines). */
+export async function getStopDetail(env, stopId) {
+  let token = await getToken(env);
+  let body = await requestDetail(env, stopId, token);
+
+  // Same ambiguity as arrivals: 80 can mean a stale token.
+  if (body.code === "80") {
+    token = await getToken(env, { force: true });
+    body = await requestDetail(env, stopId, token);
+  }
+
+  if (body.code !== "00") raiseForCode(body.code);
+  return parseDetail(body);
 }

@@ -1,11 +1,12 @@
 import { env } from "cloudflare:test";
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
-import { getToken, getArrivals } from "../src/emt.js";
+import { getToken, getArrivals, getStopDetail } from "../src/emt.js";
 import { EmtError } from "../src/errors.js";
 import loginOk from "./fixtures/login-ok.json";
 import loginBadPassword from "./fixtures/login-bad-password.json";
 import arrivalsOk from "./fixtures/arrivals-ok.json";
 import arrivalsEmpty from "./fixtures/arrivals-empty.json";
+import stopDetailOk from "./fixtures/stop-detail-ok.json";
 
 function mockFetch(body, init = {}) {
   // A fresh Response per call: response bodies are single-use.
@@ -178,6 +179,76 @@ describe("getArrivals success codes", () => {
     await expect(getArrivals(env, "1234")).rejects.toMatchObject({
       kind: "upstream",
       message: expect.stringContaining("42"),
+    });
+  });
+});
+
+describe("getStopDetail", () => {
+  beforeEach(async () => {
+    await env.KV.put("emt:token", "cached-token");
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("parses name, address, coordinates, and lines from data[0].stops[0]", async () => {
+    mockFetch(stopDetailOk);
+    const detail = await getStopDetail(env, "1547");
+    expect(detail).toEqual({
+      stopId: "1547",
+      name: "PLAZA DE CASTILLA",
+      address: "PASEO DE LA CASTELLANA 42",
+      coordinates: [-3.6897, 40.4669],
+      lines: ["27", "150", "N23"],
+    });
+  });
+
+  it("GETs the v1 detail URL with the cached token", async () => {
+    const spy = mockFetch(stopDetailOk);
+    await getStopDetail(env, "1547");
+    const [url, init] = spy.mock.calls[0];
+    expect(url).toContain("v1/transport/busemtmad/stops/1547/detail/");
+    expect(init.method).toBe("GET");
+    expect(init.headers.accessToken).toBe("cached-token");
+  });
+
+  it("re-logs in once and retries when the token is rejected with code 80", async () => {
+    const spy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({ code: "80", data: [] })))
+      .mockResolvedValueOnce(new Response(JSON.stringify(loginOk)))
+      .mockResolvedValueOnce(new Response(JSON.stringify(stopDetailOk)));
+    const detail = await getStopDetail(env, "1547");
+    expect(detail.name).toBe("PLAZA DE CASTILLA");
+    expect(spy).toHaveBeenCalledTimes(3);
+  });
+
+  it("gives up with not_found when code 80 persists after a re-login", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({ code: "80", data: [] })))
+      .mockResolvedValueOnce(new Response(JSON.stringify(loginOk)))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ code: "80", data: [] })));
+    await expect(getStopDetail(env, "9999")).rejects.toMatchObject({
+      kind: "not_found",
+    });
+  });
+
+  it("maps code 81 (no such record) straight to not_found without a retry", async () => {
+    const spy = mockFetch({
+      code: "81",
+      description: "There are no such records",
+      data: [],
+    });
+    await expect(getStopDetail(env, "99999999")).rejects.toMatchObject({
+      kind: "not_found",
+    });
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a success code carrying no stops data", async () => {
+    mockFetch({ code: "00", description: "Data recovered OK", data: [{}] });
+    await expect(getStopDetail(env, "1547")).rejects.toMatchObject({
+      kind: "not_found",
     });
   });
 });

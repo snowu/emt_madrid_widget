@@ -2,6 +2,7 @@ import { env, createExecutionContext, waitOnExecutionContext } from "cloudflare:
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import worker from "../src/index.js";
 import arrivalsOk from "./fixtures/arrivals-ok.json";
+import stopDetailOk from "./fixtures/stop-detail-ok.json";
 
 async function call(path, init) {
   const ctx = createExecutionContext();
@@ -82,6 +83,42 @@ describe("GET /arrivals", () => {
     const res = await call("/arrivals?stop=1234");
     expect(res.status).toBe(503);
     expect((await res.json()).error).toBe("quota");
+  });
+});
+
+describe("GET /stops/:id/detail", () => {
+  beforeEach(async () => {
+    await env.KV.delete("detail:1547");
+  });
+
+  it("returns parsed stop detail", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
+      new Response(JSON.stringify(stopDetailOk), { status: 200 })
+    );
+    const res = await call("/stops/1547/detail");
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ name: "PLAZA DE CASTILLA" });
+  });
+
+  it("serves the second call from cache, making no upstream request", async () => {
+    const spy = vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
+      new Response(JSON.stringify(stopDetailOk), { status: 200 })
+    );
+    await call("/stops/1547/detail");
+    const res = await call("/stops/1547/detail");
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect((await res.json()).stopId).toBe("1547");
+  });
+
+  it("reports an unknown stop as 404", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
+      new Response(
+        JSON.stringify({ code: "81", description: "no such records", data: [] }),
+        { status: 200 }
+      )
+    );
+    const res = await call("/stops/99999999/detail");
+    expect(res.status).toBe(404);
   });
 });
 
