@@ -4,33 +4,62 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#12141a" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>Buses</title>
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" href="icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="icon.svg" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
     <header>
       <h1>Buses</h1>
-      <button id="refresh-all" type="button">Refresh all</button>
+      <button id="refresh-all" type="button" aria-label="Refresh all" title="Refresh all">↻</button>
+      <nav id="view-toggle" class="segmented" aria-label="View">
+        <button id="view-list" type="button" aria-selected="true">List</button>
+        <button id="view-map" type="button" aria-selected="false">Map</button>
+      </nav>
     </header>
+
+    <p id="status" role="status"></p>
 
     <main id="stops" aria-live="polite"></main>
 
-    <form id="add-stop">
-      <input
-        id="stop-id"
-        inputmode="numeric"
-        pattern="[0-9]*"
-        placeholder="Stop number"
-        required
-        aria-label="EMT stop number"
-      />
-      <input id="stop-label" placeholder="Label (optional)" aria-label="Label" />
-      <button type="submit">Add</button>
-    </form>
+    <div id="map" hidden></div>
 
-    <p id="status" role="status"></p>
     <footer>Data from <a href="https://mobilitylabs.emtmadrid.es">EMT MobilityLabs</a>.</footer>
 
+    <button id="fab" type="button" aria-label="Add stop" title="Add stop">+</button>
+
+    <dialog id="add-dialog">
+      <form id="add-stop" method="dialog">
+        <h2>Add stop</h2>
+        <input
+          id="stop-id"
+          inputmode="numeric"
+          pattern="[0-9]*"
+          placeholder="Stop number"
+          autocomplete="off"
+          required
+          aria-label="EMT stop number"
+        />
+        <input
+          id="stop-label"
+          placeholder="Label (optional)"
+          autocomplete="off"
+          aria-label="Label"
+        />
+        <div class="dialog-actions">
+          <button type="button" id="add-cancel">Cancel</button>
+          <button type="submit" id="add-save">Add</button>
+        </div>
+      </form>
+    </dialog>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script type="module" src="app.js"></script>
   </body>
 </html>

@@ -10,8 +10,12 @@ import {
 const API = "https://emt-arrivals.zancato-t.workers.dev";
 const APP_KEY = "a3ca225683a89f9f394968f1081ee2ad"; // public by design; filters scanners, not people
 
-const stopsEl = document.getElementById("stops");
+const listEl = document.getElementById("stops");
 const statusEl = document.getElementById("status");
+const mapEl = document.getElementById("map");
+const viewListBtn = document.getElementById("view-list");
+const viewMapBtn = document.getElementById("view-map");
+const addDialog = document.getElementById("add-dialog");
 
 let stops = readStops();
 let arrivals = readCache();
@@ -22,6 +26,9 @@ function stopTitle(stop) {
 }
 
 function fmtCountdown(seconds) {
+  // EMT's sentinel: "running on schedule, no GPS estimate yet". Not a
+  // countdown; render it as words.
+  if (seconds >= 888888) return "scheduled";
   if (seconds <= 0) return "due";
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
@@ -37,7 +44,7 @@ function fmtAge(ms) {
 }
 
 function render() {
-  stopsEl.replaceChildren(
+  listEl.replaceChildren(
     ...stops.map((stop) => {
       const cached = arrivals[stop.stop_id];
       const card = document.createElement("article");
@@ -147,10 +154,119 @@ async function resolveStop(stopId) {
 
 /** Stops saved before names were resolved get their titles filled in. */
 async function hydrateNames() {
-  const missing = stops.filter((s) => !s.label && !details[s.stop_id]);
+  const missing = stops.filter((s) => !details[s.stop_id]);
+  if (missing.length === 0) return;
   await Promise.all(missing.map((s) => resolveStop(s.stop_id)));
   render();
+  rebuildMarkers();
 }
+
+/* ---- List / Map views ------------------------------------------------- */
+
+let leafletMap = null;
+let markers = null; // L.LayerGroup
+
+function popupHtml(stop) {
+  // Built as DOM, never as a string: line names/labels come from EMT.
+  const wrap = document.createElement("div");
+  const title = document.createElement("h3");
+  title.textContent = stopTitle(stop);
+  const ul = document.createElement("ul");
+
+  const cached = arrivals[stop.stop_id];
+  if (!cached || cached.arrivals.length === 0) {
+    const li = document.createElement("li");
+    li.className = "muted";
+    li.textContent = cached ? "Nothing due" : "No data yet";
+    ul.append(li);
+  } else {
+    const elapsed = Math.floor((Date.now() - cached.fetchedAt) / 1000);
+    for (const bus of cached.arrivals) {
+      const li = document.createElement("li");
+      const line = document.createElement("span");
+      line.className = "line";
+      line.textContent = String(bus.line);
+      const eta = document.createElement("span");
+      eta.className = "eta";
+      eta.textContent = fmtCountdown(bus.seconds - elapsed);
+      li.append(line, eta);
+      ul.append(li);
+    }
+    const age = document.createElement("p");
+    age.className = "muted";
+    age.textContent = `updated ${fmtAge(cached.fetchedAt)}`;
+    wrap.append(title, ul, age);
+    return wrap;
+  }
+  wrap.append(title, ul);
+  return wrap;
+}
+
+function ensureMap() {
+  if (leafletMap) return;
+  leafletMap = L.map(mapEl, { tap: false });
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19,
+    attribution: "&copy; OpenStreetMap contributors",
+  }).addTo(leafletMap);
+
+  markers = L.layerGroup().addTo(leafletMap);
+  rebuildMarkers();
+
+  // Fit once, on the first build, when all pins are known.
+  const points = stops
+    .map((s) => details[s.stop_id]?.coordinates)
+    .filter(Boolean)
+    .map(([lon, lat]) => [lat, lon]);
+  if (points.length > 0) {
+    leafletMap.fitBounds(L.latLngBounds(points).pad(0.35));
+  } else if (points.length === 0 && stops.length > 0) {
+    // Madrid centre; details may still be resolving.
+    leafletMap.setView([40.4168, -3.7038], 12);
+  }
+}
+
+function rebuildMarkers() {
+  if (!markers) return;
+  markers.clearLayers();
+  for (const stop of stops) {
+    const coords = details[stop.stop_id]?.coordinates;
+    if (!coords) continue;
+    // GeoJSON order is [lon, lat]; Leaflet wants [lat, lon].
+    const marker = L.marker([coords[1], coords[0]]);
+    marker.bindPopup(() => popupHtml(stop));
+    marker.stopId = stop.stop_id; // for popup refresh ticks
+    marker.addTo(markers);
+  }
+}
+
+/** Re-render any open popup so its countdown ticks like the list. */
+function tickPopups() {
+  if (!markers || mapEl.hidden) return;
+  markers.eachLayer((marker) => {
+    if (marker.isPopupOpen()) {
+      marker.setPopupContent(popupHtml(stops.find((s) => s.stop_id === marker.stopId)));
+    }
+  });
+}
+
+function showView(view) {
+  const isMap = view === "map";
+  listEl.hidden = isMap;
+  mapEl.hidden = !isMap;
+  viewListBtn.setAttribute("aria-selected", String(!isMap));
+  viewMapBtn.setAttribute("aria-selected", String(isMap));
+  if (isMap) {
+    ensureMap();
+    rebuildMarkers();
+    leafletMap.invalidateSize();
+  } else {
+    render(); // the interval skips list renders while the map is up
+  }
+}
+
+viewListBtn.addEventListener("click", () => showView("list"));
+viewMapBtn.addEventListener("click", () => showView("map"));
 
 async function loadStops() {
   try {
@@ -170,12 +286,24 @@ async function deleteStop(id) {
     stops = stops.filter((s) => s.id !== id);
     writeStops(stops);
     render();
+    rebuildMarkers();
   } catch (err) {
     statusEl.textContent = `Could not remove stop: ${err.message}`;
   }
 }
 
-document.getElementById("add-stop").addEventListener("submit", async (event) => {
+const fab = document.getElementById("fab");
+const addForm = document.getElementById("add-stop");
+
+fab.addEventListener("click", () => {
+  statusEl.textContent = "";
+  addDialog.showModal();
+  document.getElementById("stop-id").focus();
+});
+
+document.getElementById("add-cancel").addEventListener("click", () => addDialog.close());
+
+addForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const idInput = document.getElementById("stop-id");
   const labelInput = document.getElementById("stop-label");
@@ -186,6 +314,8 @@ document.getElementById("add-stop").addEventListener("submit", async (event) => 
     return;
   }
   try {
+    fab.disabled = true;
+    document.getElementById("add-save").disabled = true;
     statusEl.textContent = `Looking up stop ${stopId}…`;
     // Resolving first validates the stop exists and gives us its real name.
     const detail = await resolveStop(stopId);
@@ -203,16 +333,24 @@ document.getElementById("add-stop").addEventListener("submit", async (event) => 
     labelInput.value = "";
     statusEl.textContent = "";
     render();
+    rebuildMarkers();
     refreshStop(row.stop_id);
+    addDialog.close();
   } catch (err) {
     statusEl.textContent = `Could not add stop: ${err.message}`;
+  } finally {
+    fab.disabled = false;
+    document.getElementById("add-save").disabled = false;
   }
 });
 
 document.getElementById("refresh-all").addEventListener("click", refreshAll);
 
 // Re-render every second so countdowns and ages tick without refetching.
-setInterval(render, 1000);
+setInterval(() => {
+  if (mapEl.hidden) render();
+  tickPopups();
+}, 1000);
 
 // Coming back to a backgrounded tab is exactly when the data is most stale.
 document.addEventListener("visibilitychange", () => {
