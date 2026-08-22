@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#12141a" />
+    <title>Buses</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Buses</h1>
+      <button id="refresh-all" type="button">Refresh all</button>
+    </header>
+
+    <main id="stops" aria-live="polite"></main>
+
+    <form id="add-stop">
+      <input
+        id="stop-id"
+        inputmode="numeric"
+        pattern="[0-9]*"
+        placeholder="Stop number"
+        required
+        aria-label="EMT stop number"
+      />
+      <input id="stop-label" placeholder="Label (optional)" aria-label="Label" />
+      <button type="submit">Add</button>
+    </form>
+
+    <p id="status" role="status"></p>
+    <footer>Data from <a href="https://mobilitylabs.emtmadrid.es">EMT MobilityLabs</a>.</footer>
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
