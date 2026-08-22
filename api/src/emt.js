@@ -103,7 +103,9 @@ export async function getArrivals(env, stopId) {
     body = await requestArrivals(env, stopId, token);
   }
 
-  if (body.code !== "00") raiseForCode(body.code);
+  // Both are success: "00" carries estimations; "01" is
+  // "No estimations found" with an empty Arrive[] (e.g. night hours).
+  if (body.code !== "00" && body.code !== "01") raiseForCode(body.code);
 
   return { stopId: String(stopId), arrivals: parseArrivals(body), fetchedAt: Date.now() };
 }

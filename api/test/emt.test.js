@@ -152,3 +152,32 @@ describe("getArrivals", () => {
     expect(arrivals[0]).toEqual({ line: "27", seconds: 100, metres: null });
   });
 });
+
+describe("getArrivals success codes", () => {
+  beforeEach(async () => {
+    await env.KV.put("emt:token", "cached-token");
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("treats code 01 'No estimations found' as an empty success", async () => {
+    // Verbatim shape observed live from EMT at night hours, 2026-08-23.
+    mockFetch({
+      code: "01",
+      description: "No estimations found (lapsed: 90 millsecs)",
+      datetime: "2026-08-23T00:28:43.293626",
+      data: [{ Arrive: [], StopInfo: [], ExtraInfo: [], Incident: {} }],
+    });
+    const { arrivals } = await getArrivals(env, "213");
+    expect(arrivals).toEqual([]);
+  });
+
+  it("still rejects genuinely unknown codes", async () => {
+    mockFetch({ code: "42", description: "???", data: [] });
+    await expect(getArrivals(env, "1234")).rejects.toMatchObject({
+      kind: "upstream",
+      message: expect.stringContaining("42"),
+    });
+  });
+});
