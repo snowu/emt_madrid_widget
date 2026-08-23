@@ -1508,10 +1508,6 @@ let bikeUserMarker = null;
 // sweep, or the by-ids lookup that keeps saved stations current even when
 // they are nowhere near the map.
 const bikeById = new Map();
-// Half of using BiciMAD is the other half: arriving somewhere and needing a
-// free dock. Same stations, opposite number.
-let bikeMode = localStorage.getItem("emt:bikes:mode") === "docks" ? "docks" : "bikes";
-
 function showBikeAccount(text, tone = "") {
   bikeAccountText.textContent = text;
   bikeAccountDot.className = `bike-account-dot${tone ? ` ${tone}` : ""}`;
@@ -1796,51 +1792,34 @@ bikeTripsGrouped.addEventListener("click", () => {
   renderBikeTrips();
 });
 
-const bikeModeEl = document.getElementById("bike-mode");
-const modeBikes = document.getElementById("mode-bikes");
-const modeDocks = document.getElementById("mode-docks");
-
-function wanted(station) {
-  return bikeMode === "docks" ? station.freeBases : station.bikes;
-}
-
-/** Bikes or docks — whichever you are short of is the one you care about. */
-function bikeTone(station) {
-  if (!station.inService) return "#8b93a7";
-  if (bikeMode === "bikes" && station.renting === false) return "#8b93a7";
-  if (bikeMode === "docks" && station.returning === false) return "#8b93a7";
-  const n = wanted(station);
-  if (n === 0) return "#ff6b6b";
-  if (n <= 2) return "#ffb454";
-  return "#4ade80";
+function availabilityClass(value, enabled = true) {
+  if (!enabled || value == null) return "unavailable";
+  if (value === 0) return "empty";
+  if (value <= 2) return "low";
+  return "good";
 }
 
 function bikeTitle(station, saved) {
   return saved?.label || station?.name || `Station ${station?.number ?? ""}`;
 }
 
-/** A station's counts as a compact bar: bikes vs free docks. */
+/** A station always answers both halves of a ride; show both without asking
+ * the user to put the whole screen into a mode first. */
 function bikeCounts(station) {
   const wrap = document.createElement("div");
   wrap.className = "bike-counts";
 
-  // Both numbers are controls: a station answers both halves of a journey,
-  // and tapping either one changes what every card and map pin prioritises.
-  for (const [mode, value, icon, description] of [
-    ["bikes", station.bikes, "🚲", "bikes to take"],
-    ["docks", station.freeBases, "🅿️", "docks to leave"],
+  for (const [value, icon, label, enabled] of [
+    [station.bikes, "🚲", "Take", station.inService && station.renting !== false],
+    [station.freeBases, "🅿️", "Return", station.inService && station.returning !== false],
   ]) {
-    const metric = document.createElement("button");
-    metric.type = "button";
-    metric.className = `bike-metric${bikeMode === mode ? " selected" : ""}`;
-    metric.innerHTML = `<strong>${value ?? "—"}</strong><span>${icon}</span>`;
-    metric.title = `${value ?? "Unknown"} ${description}`;
-    metric.setAttribute("aria-label", metric.title);
-    metric.addEventListener("click", (event) => {
-      event.stopPropagation();
-      setBikeMode(mode);
-      if (bikeDialog.open) renderBikeSheet();
-    });
+    const metric = document.createElement("div");
+    metric.className = `bike-metric ${availabilityClass(value, enabled)}`;
+    const description = document.createElement("span");
+    description.textContent = `${icon} ${label}`;
+    const count = document.createElement("strong");
+    count.textContent = value ?? "—";
+    metric.append(description, count);
     wrap.append(metric);
   }
 
@@ -2272,14 +2251,20 @@ function rebuildBikeMarkers() {
   const savedIdSet = new Set(bikeSaved.map((s) => s.station_id));
   for (const station of bikeNear.stations ?? []) {
     if (!station.coordinates) continue;
-    // The count goes in the pin: on a bike map the number is the whole point.
+    const takeClass = availabilityClass(station.bikes,
+      station.inService && station.renting !== false);
+    const returnClass = availabilityClass(station.freeBases,
+      station.inService && station.returning !== false);
+    // Both halves of the journey stay visible on the map too.
     const icon = L.divIcon({
       className: "bike-pin",
-      iconSize: [30, 30],
-      iconAnchor: [15, 15],
+      iconSize: [58, 30],
+      iconAnchor: [29, 15],
       html:
         `<div class="bike-pin-inner${savedIdSet.has(station.id) ? " saved" : ""}" ` +
-        `style="border-color:${bikeTone(station)}">${wanted(station)}</div>`,
+        `aria-label="${station.bikes ?? "Unknown"} bikes, ${station.freeBases ?? "unknown"} free docks">` +
+        `<span class="${takeClass}">🚲 ${station.bikes ?? "—"}</span>` +
+        `<span class="${returnClass}">${station.freeBases ?? "—"} 🅿️</span></div>`,
     });
     L.marker([station.coordinates[1], station.coordinates[0]], { icon })
       .bindPopup(() => bikePopup(station))
@@ -2298,7 +2283,6 @@ function showSection(next) {
   menuBikes.setAttribute("aria-selected", String(bikes));
   fab.hidden = bikes || !authSession;
   bikeAgeEl.hidden = !bikes;
-  bikeModeEl.hidden = !bikes;
   bikeAccountEl.hidden = !bikes || !isOwner;
 
   const mapView = viewMapBtn.getAttribute("aria-selected") === "true";
@@ -2419,16 +2403,4 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
-function setBikeMode(mode) {
-  bikeMode = mode;
-  localStorage.setItem("emt:bikes:mode", mode);
-  modeBikes.setAttribute("aria-selected", String(mode === "bikes"));
-  modeDocks.setAttribute("aria-selected", String(mode === "docks"));
-  renderBikes();
-  rebuildBikeMarkers();
-}
-
-modeBikes.addEventListener("click", () => setBikeMode("bikes"));
-modeDocks.addEventListener("click", () => setBikeMode("docks"));
-setBikeMode(bikeMode);
 initAuth();
