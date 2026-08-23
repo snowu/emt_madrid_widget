@@ -1809,29 +1809,32 @@ function distanceToStation(station) {
   return Math.round(Math.sqrt(x * x + y * y) * 111_320);
 }
 
+function distanceText(station) {
+  const metres = distanceToStation(station);
+  if (metres == null) return null;
+  return metres < 1000 ? `${metres} m` : `${(metres / 1000).toFixed(1)} km`;
+}
+
 function bikeTitle(station, saved) {
   return saved?.label || station?.name || `Station ${station?.number ?? ""}`;
 }
 
-/** A station always answers both halves of a ride; show both without asking
- * the user to put the whole screen into a mode first. */
+/** Rentable bikes as a share of the station's physical capacity. Disabled
+ * bikes are separate in GBFS and therefore never included in `bikes`. */
 function bikeCounts(station) {
   const wrap = document.createElement("div");
   wrap.className = "bike-counts";
 
-  for (const [value, icon, label, enabled] of [
-    [station.bikes, "🚲", "Take", station.inService && station.renting !== false],
-    [station.freeBases, "🅿️", "Return", station.inService && station.returning !== false],
-  ]) {
-    const metric = document.createElement("div");
-    metric.className = `bike-metric ${availabilityClass(value, enabled)}`;
-    const description = document.createElement("span");
-    description.textContent = `${icon} ${label}`;
-    const count = document.createElement("strong");
-    count.textContent = value ?? "—";
-    metric.append(description, count);
-    wrap.append(metric);
-  }
+  const metric = document.createElement("div");
+  metric.className = `bike-metric ${availabilityClass(station.bikes,
+    station.inService && station.renting !== false)}`;
+  const description = document.createElement("span");
+  description.textContent = "🚲 Available";
+  const count = document.createElement("strong");
+  count.textContent = `${station.bikes ?? "—"}/${station.totalBases || "—"}`;
+  count.title = "Rentable bikes / total station capacity";
+  metric.append(description, count);
+  wrap.append(metric);
 
   // What the operator's feed knows and the old one did not: a station can be
   // in service but refusing one direction, and docked bikes are not the same
@@ -1839,13 +1842,9 @@ function bikeCounts(station) {
   const trouble =
     !station.inService
       ? "out of service"
-      : station.renting === false && station.returning === false
-        ? "closed both ways"
-        : station.renting === false
+      : station.renting === false
           ? "not renting"
-          : station.returning === false
-            ? "no returns"
-            : null;
+          : null;
   if (trouble) {
     const out = document.createElement("span");
     out.className = "bike-note warn";
@@ -1855,19 +1854,10 @@ function bikeCounts(station) {
   if (station.broken > 0) {
     const broken = document.createElement("span");
     broken.className = "bike-note muted";
-    broken.textContent = `🔧 ${station.broken}`;
-    broken.title = `${station.broken} disabled bike${station.broken === 1 ? "" : "s"}`;
+    broken.textContent = `🔧 ${station.broken} broken`;
+    broken.title = `${station.broken} separate disabled bike${station.broken === 1 ? "" : "s"}; not included in the available count`;
     broken.setAttribute("aria-label", broken.title);
     wrap.append(broken);
-  }
-  const metres = distanceToStation(station);
-  if (metres != null) {
-    const far = document.createElement("span");
-    far.className = "bike-note bike-distance";
-    far.textContent = metres < 1000
-      ? `◎ ${metres} m away`
-      : `◎ ${(metres / 1000).toFixed(1)} km away`;
-    wrap.append(far);
   }
   return wrap;
 }
@@ -1882,10 +1872,12 @@ function bikeCard(station, saved) {
   titleWrap.className = "title";
   const h2 = document.createElement("h2");
   h2.textContent = bikeTitle(station, saved);
-  const num = document.createElement("span");
-  num.className = "stop-num";
-  num.textContent = station.address ? `Nº ${station.number} · ${station.address}` : `Nº ${station.number}`;
-  titleWrap.append(h2, num);
+  titleWrap.append(h2);
+
+  const distance = document.createElement("span");
+  distance.className = "bike-card-distance";
+  distance.textContent = distanceText(station) ?? "";
+  distance.hidden = !distance.textContent;
 
   const fav = document.createElement("button");
   fav.className = "bike-favourite";
@@ -1901,8 +1893,8 @@ function bikeCard(station, saved) {
   controls.append(fav);
 
   const head = document.createElement("div");
-  head.className = "head";
-  head.append(titleWrap, controls);
+  head.className = "head bike-head";
+  head.append(titleWrap, distance, controls);
 
   if (known) {
     card.append(head, bikeCounts(station));
@@ -2269,18 +2261,15 @@ function rebuildBikeMarkers() {
     if (!station.coordinates) continue;
     const takeClass = availabilityClass(station.bikes,
       station.inService && station.renting !== false);
-    const returnClass = availabilityClass(station.freeBases,
-      station.inService && station.returning !== false);
-    // Both halves of the journey stay visible on the map too.
+    const capacity = station.totalBases || "—";
     const icon = L.divIcon({
       className: "bike-pin",
-      iconSize: [58, 30],
-      iconAnchor: [29, 15],
+      iconSize: [54, 30],
+      iconAnchor: [27, 15],
       html:
         `<div class="bike-pin-inner${savedIdSet.has(station.id) ? " saved" : ""}" ` +
-        `aria-label="${station.bikes ?? "Unknown"} bikes, ${station.freeBases ?? "unknown"} free docks">` +
-        `<span class="${takeClass}">🚲 ${station.bikes ?? "—"}</span>` +
-        `<span class="${returnClass}">${station.freeBases ?? "—"} 🅿️</span></div>`,
+        `aria-label="${station.bikes ?? "Unknown"} rentable bikes out of ${capacity} spaces">` +
+        `<span class="${takeClass}">🚲 ${station.bikes ?? "—"}/${capacity}</span></div>`,
     });
     L.marker([station.coordinates[1], station.coordinates[0]], { icon })
       .bindPopup(() => bikePopup(station))

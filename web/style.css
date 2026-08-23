@@ -177,6 +177,22 @@ button:active { transform: scale(0.97); }
   border-top: 1px solid var(--line);
 }
 
+.bike-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: start;
+  gap: 0.35rem;
+}
+
+.bike-head .title { min-width: 0; }
+.bike-head .title h2 { max-width: 100%; }
+.bike-card-distance {
+  align-self: center;
+  color: var(--muted);
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
 .bike-metric {
   display: flex;
   flex: 1 1 6rem;
@@ -186,8 +202,6 @@ button:active { transform: scale(0.97); }
   min-height: 30px;
   padding: 0.2rem 0.55rem;
 }
-
-.bike-metric + .bike-metric { border-left: 1px solid var(--line); }
 
 .bike-metric.good strong, .bike-pin-inner .good { color: #4ade80; }
 .bike-metric.low strong, .bike-pin-inner .low { color: #ffb454; }
@@ -201,9 +215,8 @@ button:active { transform: scale(0.97); }
 }
 
 .bike-metric span { color: var(--muted); font-size: 0.72rem; }
-.bike-note { flex-basis: 100%; align-self: center; margin-top: 0.2rem; font-size: 0.75rem; }
-.bike-note.warn { color: #ffb454; font-weight: 600; }
-.bike-distance { margin-top: 0.15rem; color: var(--muted); }
+.bike-note { flex: 0 0 auto; align-self: center; padding: 0 0.45rem; font-size: 0.72rem; }
+.bike-note.warn { flex-basis: 100%; color: #ffb454; font-weight: 600; }
 
 .controls .bike-favourite {
   min-width: 32px;
@@ -223,7 +236,7 @@ button:active { transform: scale(0.97); }
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 58px;
+  width: 54px;
   height: 30px;
   border-radius: 15px;
   border: 2px solid var(--muted);
@@ -235,7 +248,6 @@ button:active { transform: scale(0.97); }
 }
 
 .bike-pin-inner span { flex: 1; text-align: center; white-space: nowrap; }
-.bike-pin-inner span + span { border-left: 1px solid var(--line); }
 
 .bike-pin-inner.saved { box-shadow: 0 0 0 3px #000, 0 1px 6px 4px rgb(0 0 0 / 0.65); }
 
