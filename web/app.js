@@ -1993,7 +1993,11 @@ async function refreshSavedBikeCounts() {
   const ids = bikeSaved.map((s) => s.station_id).join(",");
   try {
     const payload = await api(`/bikes/stations?ids=${encodeURIComponent(ids)}`);
-    for (const s of payload.stations ?? []) bikeById.set(s.id, s);
+    // The by-id response has fresh counts but no distance. Preserve fields
+    // learned from the nearby response instead of replacing the whole object.
+    for (const s of payload.stations ?? []) {
+      bikeById.set(s.id, { ...bikeById.get(s.id), ...s });
+    }
     bikeFetchedAt = payload.fetchedAt ?? bikeFetchedAt;
     renderBikes();
     rebuildBikeMarkers();
