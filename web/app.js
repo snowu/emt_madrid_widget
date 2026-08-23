@@ -232,6 +232,16 @@ function fmtAge(ms) {
   return `${Math.floor(mins / 60)}h ago`;
 }
 
+function openWalkingDirections(coordinates) {
+  if (!coordinates) return;
+  const [lon, lat] = coordinates;
+  const url = new URL("https://www.google.com/maps/dir/");
+  url.searchParams.set("api", "1");
+  url.searchParams.set("destination", `${lat},${lon}`);
+  url.searchParams.set("travelmode", "walking");
+  window.open(url.toString(), "_blank", "noopener,noreferrer");
+}
+
 function render() {
   listEl.replaceChildren(
     ...stops.map((stop) => {
@@ -1110,6 +1120,7 @@ const sheetSave = document.getElementById("sheet-save");
 const sheetService = document.getElementById("sheet-service");
 const sheetServiceWrap = document.getElementById("sheet-service-wrap");
 const sheetNote = document.getElementById("sheet-service-note");
+const sheetDirections = document.getElementById("sheet-directions");
 
 let sheetStop = null;
 let sheetMap = null;
@@ -1121,6 +1132,7 @@ function openStop(stop) {
   sheetMeta.replaceChildren(stopMetaNode(stop.stop_id));
   sheetLabel.value = stop.label ?? "";
   sheetLabel.placeholder = details[stop.stop_id]?.name || "EMT's name";
+  sheetDirections.hidden = !details[stop.stop_id]?.coordinates;
   showNameEditor(false);
   renderSheetArrivals();
   renderSheetService();
@@ -1330,6 +1342,9 @@ stopDialog.addEventListener("close", () => {
 });
 
 document.getElementById("sheet-close").addEventListener("click", () => stopDialog.close());
+sheetDirections.addEventListener("click", () => {
+  openWalkingDirections(details[sheetStop?.stop_id]?.coordinates);
+});
 document.getElementById("sheet-refresh").addEventListener("click", () =>
   refreshStop(sheetStop.stop_id)
 );
@@ -1783,6 +1798,7 @@ const bikeSheetSave = document.getElementById("bike-sheet-save");
 const bikeSheetRemove = document.getElementById("bike-sheet-remove");
 const bikeSheetFavourite = document.getElementById("bike-sheet-favourite");
 const bikeSheetMapEl = document.getElementById("bike-sheet-map");
+const bikeSheetDirections = document.getElementById("bike-sheet-directions");
 
 let bikeSheetStation = null;
 let bikeSheetMap = null;
@@ -1862,6 +1878,7 @@ function renderBikeSheet() {
   bikeSheetLabel.placeholder = station.name || "BiciMAD station";
   bikeSheetRemove.hidden = !saved;
   bikeSheetFavourite.hidden = !!saved;
+  bikeSheetDirections.hidden = !station.coordinates;
   showBikeNameEditor(false);
   showBikeSheetMap(station);
 }
@@ -1874,6 +1891,9 @@ function openBikeStation(station) {
 
 bikeSheetEdit.addEventListener("click", () => showBikeNameEditor(true));
 document.getElementById("bike-sheet-close").addEventListener("click", () => bikeDialog.close());
+bikeSheetDirections.addEventListener("click", () => {
+  openWalkingDirections(currentBikeSheetStation()?.coordinates);
+});
 
 bikeSheetFavourite.addEventListener("click", async () => {
   await toggleBikeSaved(currentBikeSheetStation(), null);

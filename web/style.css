@@ -403,7 +403,8 @@ body.map-is-fullscreen { overflow: hidden; }
 
 #sheet-name[hidden], #sheet-save[hidden],
 #bike-sheet-name[hidden], #bike-sheet-save[hidden],
-#bike-sheet-remove[hidden], #bike-sheet-favourite[hidden] { display: none; }
+#bike-sheet-remove[hidden], #bike-sheet-favourite[hidden],
+#sheet-directions[hidden], #bike-sheet-directions[hidden] { display: none; }
 #stop-dialog .stop-num { margin: -0.4rem 0 0; }
 
 #sheet-arrivals { list-style: none; margin: 0; padding: 0; }
@@ -560,6 +561,7 @@ dialog input {
 
 .dialog-actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 0.5rem;
   margin-top: 0.25rem;
