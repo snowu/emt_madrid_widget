@@ -1,6 +1,6 @@
 import { env } from "cloudflare:test";
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
-import { getToken, getArrivals, getStopDetail, getNearbyStops,
+import { getToken, getArrivals, getStopDetail, getNearbyStops, clearTokenMemoryForTest,
   getLineTimetable,
   getLineRoute } from "../src/emt.js";
 import { EmtError } from "../src/errors.js";
@@ -20,6 +20,8 @@ function mockFetch(body, init = {}) {
     async () => new Response(JSON.stringify(body), { status: 200, ...init })
   );
 }
+
+beforeEach(() => clearTokenMemoryForTest());
 
 describe("getToken", () => {
   beforeEach(async () => {

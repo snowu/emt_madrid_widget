@@ -1,6 +1,7 @@
 import {
   readCache,
   writeCache,
+  writeArrivalCache,
   readStops,
   writeStops,
   readDetails,
@@ -231,13 +232,15 @@ function stopLines(stopId) {
   return known;
 }
 
+function metresBetweenCoordinates([lon1, lat1], [lon2, lat2]) {
+  const x = (lon2 - lon1) * Math.cos((lat1 * Math.PI) / 180);
+  const y = lat2 - lat1;
+  return Math.round(Math.sqrt(x * x + y * y) * 111_320);
+}
+
 function metresFromCurrent(coordinates) {
   if (!myLocation || !Array.isArray(coordinates)) return null;
-  const [lon, lat] = coordinates;
-  const [myLat, myLon] = myLocation;
-  const x = (lon - myLon) * Math.cos((myLat * Math.PI) / 180);
-  const y = lat - myLat;
-  return Math.round(Math.sqrt(x * x + y * y) * 111_320);
+  return metresBetweenCoordinates([myLocation[1], myLocation[0]], coordinates);
 }
 
 function proximity(value) {
@@ -331,7 +334,7 @@ function render() {
       refresh.title = "Refresh this stop";
       refresh.addEventListener("click", (event) => {
         event.stopPropagation();
-        refreshStop(stop.stop_id);
+        refreshStop(stop.stop_id, { force: true });
       });
 
       const remove = document.createElement("button");
@@ -369,6 +372,8 @@ function render() {
           const eta = document.createElement("span");
           eta.className = "eta";
           eta.textContent = fmtCountdown(bus.seconds - elapsed);
+          eta.dataset.seconds = String(bus.seconds);
+          eta.dataset.fetchedAt = String(cached.fetchedAt);
           const destination = document.createElement("span");
           destination.className = "destination";
           destination.textContent = bus.destination || "";
@@ -383,6 +388,7 @@ function render() {
       const age = document.createElement("p");
       age.className = "age";
       age.textContent = cached ? `updated ${fmtAge(cached.fetchedAt)}` : "never updated";
+      if (cached) age.dataset.fetchedAt = String(cached.fetchedAt);
 
       const controls = document.createElement("div");
       controls.className = "controls";
@@ -398,25 +404,37 @@ function render() {
   );
 }
 
+const pendingGets = new Map();
+
 async function api(path, init = {}) {
   const isWrite = init.method && init.method !== "GET";
+  const requestKey = isWrite ? null : `${authUser?.id ?? "public"}:${path}`;
+  if (requestKey && pendingGets.has(requestKey)) return pendingGets.get(requestKey);
   const authorization = authSession?.access_token
     ? { Authorization: `Bearer ${authSession.access_token}` }
     : {};
-  const res = await fetch(`${API}${path}`, {
-    ...init,
-    headers: isWrite
-      ? { "content-type": "application/json", ...authorization, ...init.headers }
-      : { ...authorization, ...init.headers },
-  });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    const err = new Error(body.message || body.error || `HTTP ${res.status}`);
-    err.kind = body.error; // "quota" | "auth" | "not_found" | "upstream"
-    if (err.kind === "user_auth") showSignedOut("Session expired — sign in again.");
-    throw err;
+  const operation = (async () => {
+    const res = await fetch(`${API}${path}`, {
+      ...init,
+      headers: isWrite
+        ? { "content-type": "application/json", ...authorization, ...init.headers }
+        : { ...authorization, ...init.headers },
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      const err = new Error(body.message || body.error || `HTTP ${res.status}`);
+      err.kind = body.error; // "quota" | "auth" | "not_found" | "upstream"
+      if (err.kind === "user_auth") showSignedOut("Session expired — sign in again.");
+      throw err;
+    }
+    return res.status === 204 ? null : res.json();
+  })();
+  if (requestKey) pendingGets.set(requestKey, operation);
+  try {
+    return await operation;
+  } finally {
+    if (requestKey && pendingGets.get(requestKey) === operation) pendingGets.delete(requestKey);
   }
-  return res.status === 204 ? null : res.json();
 }
 
 function showSignedOut(message = "") {
@@ -522,27 +540,55 @@ authForm.addEventListener("submit", async (event) => {
     : "Check your email for the secure sign-in link.";
 });
 
-async function refreshStop(stopId) {
+const ARRIVALS_REFRESH_MS = 20_000;
+const stopRefreshes = new Map();
+
+async function refreshStop(stopId, { force = false, updateView = true, persist = true } = {}) {
+  const cached = arrivals[stopId];
+  if (!force && cached && Date.now() - cached.fetchedAt < ARRIVALS_REFRESH_MS) return cached;
+  if (stopRefreshes.has(stopId)) return stopRefreshes.get(stopId);
+  const operation = (async () => {
+    try {
+      const payload = await api(
+        `/arrivals?stop=${encodeURIComponent(stopId)}&limit=${BOARD_ARRIVALS}`
+      );
+      arrivals[stopId] = payload;
+      if (persist) writeCache(stopId, payload);
+      statusEl.textContent = "";
+      if (updateView) {
+        render();
+        renderSheetArrivals();
+      }
+      return payload;
+    } catch (err) {
+      // Keep whatever is on screen; it is labelled with its age already.
+      statusEl.textContent =
+        err.kind === "quota"
+          ? "EMT daily quota spent — showing cached times until it resets."
+          : `Could not refresh stop ${stopId}: ${err.message}`;
+      return null;
+    }
+  })();
+  stopRefreshes.set(stopId, operation);
   try {
-    const payload = await api(
-      `/arrivals?stop=${encodeURIComponent(stopId)}&limit=${BOARD_ARRIVALS}`
-    );
-    arrivals[stopId] = payload;
-    writeCache(stopId, payload);
-    statusEl.textContent = "";
-    render();
-    renderSheetArrivals();
-  } catch (err) {
-    // Keep whatever is on screen; it is labelled with its age already.
-    statusEl.textContent =
-      err.kind === "quota"
-        ? "EMT daily quota spent — showing cached times until it resets."
-        : `Could not refresh stop ${stopId}: ${err.message}`;
+    return await operation;
+  } finally {
+    if (stopRefreshes.get(stopId) === operation) stopRefreshes.delete(stopId);
   }
 }
 
-async function refreshAll() {
-  await Promise.all(stops.map((s) => refreshStop(s.stop_id)));
+async function refreshAll({ force = false } = {}) {
+  const before = new Map(stops.map((stop) => [stop.stop_id, arrivals[stop.stop_id]?.fetchedAt]));
+  await Promise.all(stops.map((s) => refreshStop(s.stop_id, {
+    force,
+    updateView: false,
+    persist: false,
+  })));
+  const changed = stops.some((stop) => before.get(stop.stop_id) !== arrivals[stop.stop_id]?.fetchedAt);
+  if (!changed) return;
+  writeArrivalCache(arrivals);
+  render();
+  renderSheetArrivals();
 }
 
 /** Fetch and remember what EMT knows about a stop; throws not_found if it
@@ -626,14 +672,13 @@ function mergeNearbyDetails(found, { onlySaved = true } = {}) {
  */
 async function healStubs() {
   if (!stops.some((s) => isStub(details[s.stop_id]))) return;
-  const seen = new Set();
   const origins = [];
   for (const stop of stops) {
     const coords = details[stop.stop_id]?.coordinates;
     if (!coords) continue;
-    const cell = `${coords[0].toFixed(3)},${coords[1].toFixed(3)}`;
-    if (seen.has(cell)) continue;
-    seen.add(cell);
+    // One 500m search covers a whole stop cluster. The old 110m grid could
+    // issue several heavily-overlapping queries around the same interchange.
+    if (origins.some((origin) => metresBetweenCoordinates(origin, coords) < 350)) continue;
     origins.push(coords);
   }
   if (origins.length === 0) return;
@@ -1422,7 +1467,7 @@ sheetDirections.addEventListener("click", () => {
   openWalkingDirections(details[sheetStop?.stop_id]?.coordinates);
 });
 document.getElementById("sheet-refresh").addEventListener("click", () =>
-  refreshStop(sheetStop.stop_id)
+  refreshStop(sheetStop.stop_id, { force: true })
 );
 document.getElementById("sheet-remove").addEventListener("click", async () => {
   const id = sheetStop.id;
@@ -1503,20 +1548,32 @@ addForm.addEventListener("submit", async (event) => {
 });
 
 document.getElementById("refresh-all").addEventListener("click", () => {
-  if (section !== "bikes") return refreshAll();
+  if (section !== "bikes") return refreshAll({ force: true });
   const c = bikeMap?.getCenter();
   loadBikesNear(c?.lat ?? myLocation?.[0] ?? 40.4168, c?.lng ?? myLocation?.[1] ?? -3.7038, {
     force: true,
   });
 });
 
-// Re-render every second so countdowns and ages tick without refetching.
+function tickStopList() {
+  const now = Date.now();
+  for (const eta of listEl.querySelectorAll(".eta[data-seconds][data-fetched-at]")) {
+    const elapsed = Math.floor((now - Number(eta.dataset.fetchedAt)) / 1000);
+    eta.textContent = fmtCountdown(Number(eta.dataset.seconds) - elapsed);
+  }
+  for (const age of listEl.querySelectorAll(".age[data-fetched-at]")) {
+    age.textContent = `updated ${fmtAge(Number(age.dataset.fetchedAt))}`;
+  }
+}
+
+// Update only time-bearing text. Rebuilding every card once a second caused
+// needless layout, garbage collection and event-listener churn.
 setInterval(() => {
   if (section === "bikes") {
     bikeAgeEl.textContent = bikeAgeText();
     return;
   }
-  if (mapEl.hidden) render();
+  if (mapEl.hidden) tickStopList();
   tickPopups();
   renderSheetArrivals();
 }, 1000);
@@ -1526,9 +1583,7 @@ document.addEventListener("visibilitychange", () => {
   if (document.visibilityState !== "visible") return;
   if (section === "bikes") {
     const c = bikeMap?.getCenter();
-    loadBikesNear(c?.lat ?? myLocation?.[0] ?? 40.4168, c?.lng ?? myLocation?.[1] ?? -3.7038, {
-      force: true,
-    });
+    loadBikesNear(c?.lat ?? myLocation?.[0] ?? 40.4168, c?.lng ?? myLocation?.[1] ?? -3.7038);
   } else {
     refreshAll();
   }
@@ -1609,6 +1664,10 @@ const bikeTripsFields = document.getElementById("bike-trips-fields");
 const bikeTripsChronological = document.getElementById("bike-trips-chronological");
 const bikeTripsGrouped = document.getElementById("bike-trips-grouped");
 let loadedBikeTrips = [];
+let allBikeTrips = null;
+let bikeTripPages = 0;
+let bikeTripFieldsSeen = [];
+let bikeRatingsLoaded = false;
 let groupBikeTrips = false;
 const bikeRatings = new Map();
 
@@ -1774,9 +1833,11 @@ function renderBikeTrips() {
 }
 
 async function loadBikeRatings() {
+  if (bikeRatingsLoaded) return;
   const rows = await api("/bikes/ratings");
   bikeRatings.clear();
   for (const row of rows) bikeRatings.set(String(row.bike_number).replace(/^0+(?=\d)/, ""), row.rating);
+  bikeRatingsLoaded = true;
   if (loadedBikeTrips.length) renderBikeTrips();
 }
 
@@ -1784,6 +1845,17 @@ async function loadBikeTrips() {
   const bike = bikeTripsNumber.value.trim();
   if (bike && !/^\d+$/.test(bike)) {
     bikeTripsStatus.textContent = "Enter the number painted on the bike.";
+    return;
+  }
+  if (allBikeTrips) {
+    loadedBikeTrips = bike
+      ? allBikeTrips.filter((trip) => String(trip.bikeNumber) === bike.replace(/^0+(?=\d)/, ""))
+      : allBikeTrips;
+    renderBikeTrips();
+    const uniqueBikes = new Set(loadedBikeTrips.map((trip) => trip.bikeNumber)).size;
+    bikeTripsStatus.textContent = loadedBikeTrips.length
+      ? `${loadedBikeTrips.length} trips · ${uniqueBikes} bikes · cached this session`
+      : `No rides for bike ${bike}`;
     return;
   }
   bikeTripsStatus.textContent = "Loading…";
@@ -1797,7 +1869,6 @@ async function loadBikeTrips() {
     for (; pages < maxPages; pages += 1) {
       bikeTripsStatus.textContent = `Loading page ${pages + 1}…`;
       const query = new URLSearchParams({ page: String(pages) });
-      if (bike) query.set("bike", bike.padStart(8, "0"));
       const payload = await api(`/bikes/trips?${query}`);
       const signature = payload.matchedOnPage
         .map((trip) => `${trip.tripId}:${trip.bikeNumber}:${trip.interval}`)
@@ -1812,27 +1883,36 @@ async function loadBikeTrips() {
       }
     }
 
-    loadedBikeTrips = allTrips;
+    allBikeTrips = allTrips;
+    bikeTripPages = pages;
+    bikeTripFieldsSeen = [...fields].sort();
+    loadedBikeTrips = bike
+      ? allTrips.filter((trip) => String(trip.bikeNumber) === bike.replace(/^0+(?=\d)/, ""))
+      : allTrips;
     renderBikeTrips();
-    const uniqueBikes = new Set(allTrips.map((trip) => trip.bikeNumber)).size;
-    bikeTripsStatus.textContent = allTrips.length
-      ? `${allTrips.length} trips · ${uniqueBikes} bikes · ${pages} pages`
-      : `No matching rides across ${pages} pages`;
-    bikeTripsFields.hidden = fields.size === 0;
-    bikeTripsFields.querySelector("code").textContent = [...fields].sort().join(", ");
+    const uniqueBikes = new Set(loadedBikeTrips.map((trip) => trip.bikeNumber)).size;
+    bikeTripsStatus.textContent = loadedBikeTrips.length
+      ? `${loadedBikeTrips.length} trips · ${uniqueBikes} bikes · ${bikeTripPages} pages`
+      : bike ? `No rides for bike ${bike}` : `No rides across ${bikeTripPages} pages`;
+    bikeTripsFields.hidden = bikeTripFieldsSeen.length === 0;
+    bikeTripsFields.querySelector("code").textContent = bikeTripFieldsSeen.join(", ");
   } catch (err) {
     bikeTripsStatus.textContent = err.message;
   }
 }
 
 bikeTripsOpen.addEventListener("click", () => {
-  bikeTripsStatus.textContent = "";
-  bikeTripsResults.replaceChildren();
   bikeTripsDialog.showModal();
   void loadBikeRatings().catch((err) => {
     bikeTripsStatus.textContent = `Ratings unavailable: ${err.message}`;
   });
-  void loadBikeTrips();
+  if (allBikeTrips) {
+    void loadBikeTrips();
+  } else {
+    bikeTripsStatus.textContent = "";
+    bikeTripsResults.replaceChildren();
+    void loadBikeTrips();
+  }
 });
 bikeTripsForm.addEventListener("submit", (event) => {
   event.preventDefault();
@@ -1964,6 +2044,9 @@ function bikeCard(station, saved) {
 function renderBikes() {
   if (section !== "bikes") return;
   for (const s of bikeNear.stations ?? []) bikeById.set(s.id, s);
+  for (const s of bikeNear.savedStations ?? []) {
+    bikeById.set(s.id, { ...bikeById.get(s.id), ...s });
+  }
   const savedIdSet = new Set(bikeSaved.map((s) => s.station_id));
 
   const blocks = [];
@@ -2021,38 +2104,22 @@ async function loadBikesNear(lat, lon, { force = false } = {}) {
   if (!force && cell === bikeCell && Date.now() - (bikeFetchedAt ?? 0) < 45_000) return;
   const seq = ++bikeSeq;
   try {
-    const payload = await api(`/bikes/nearby?lat=${lat}&lon=${lon}&radius=${BIKE_RADIUS}`);
+    const query = new URLSearchParams({ lat: String(lat), lon: String(lon), radius: String(BIKE_RADIUS) });
+    if (bikeSaved.length) query.set("ids", bikeSaved.map((row) => row.station_id).join(","));
+    const payload = await api(`/bikes/nearby?${query}`);
     if (seq !== bikeSeq) return;
     bikeNear = payload;
     for (const st of payload.stations ?? []) bikeById.set(st.id, st);
+    for (const st of payload.savedStations ?? []) {
+      bikeById.set(st.id, { ...bikeById.get(st.id), ...st });
+    }
     bikeFetchedAt = payload.fetchedAt;
     bikeCell = cell;
     writeBikeNear(payload);
     renderBikes();
     rebuildBikeMarkers();
-    refreshSavedBikeCounts();
   } catch (err) {
     statusEl.textContent = `Could not load bike stations: ${err.message}`;
-  }
-}
-
-/** Saved stations are the ones you check without looking at a map, so their
- *  counts cannot depend on being near the view. */
-async function refreshSavedBikeCounts() {
-  if (bikeSaved.length === 0) return;
-  const ids = bikeSaved.map((s) => s.station_id).join(",");
-  try {
-    const payload = await api(`/bikes/stations?ids=${encodeURIComponent(ids)}`);
-    // The by-id response has fresh counts but no distance. Preserve fields
-    // learned from the nearby response instead of replacing the whole object.
-    for (const s of payload.stations ?? []) {
-      bikeById.set(s.id, { ...bikeById.get(s.id), ...s });
-    }
-    bikeFetchedAt = payload.fetchedAt ?? bikeFetchedAt;
-    renderBikes();
-    rebuildBikeMarkers();
-  } catch {
-    // The cards say "not loaded yet" rather than inventing a zero.
   }
 }
 
@@ -2072,7 +2139,13 @@ async function loadBikeSaved() {
       "Saved bike stations need supabase/bike_stations.sql run once — everything else works.";
   }
   renderBikes();
-  refreshSavedBikeCounts();
+  if (section === "bikes" && bikeSaved.some((row) => !bikeById.has(row.station_id))) {
+    const centre = bikeMap?.getCenter() ?? {
+      lat: myLocation?.[0] ?? 40.4168,
+      lng: myLocation?.[1] ?? -3.7038,
+    };
+    void loadBikesNear(centre.lat, centre.lng, { force: true });
+  }
 }
 
 async function toggleBikeSaved(station, saved) {

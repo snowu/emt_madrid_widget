@@ -4,6 +4,13 @@ const USERDATA_URL = "https://apiemtpay.emtmadrid.es/v2/bicimad/userdata/";
 const TRIPS_URL = "https://apiemtpay.emtmadrid.es/v2/bicimad/trips/";
 const LOGIN_URL = "https://api.mpass.mobi/v1/core/identity/login/integrator";
 const TOKEN_KEY = "bicimad:owner-session";
+let hotSession = null;
+let sessionLoad = null;
+
+export function clearBikeSessionMemoryForTest() {
+  hotSession = null;
+  sessionLoad = null;
+}
 
 function required(env, name) {
   const value = env[name];
@@ -13,6 +20,12 @@ function required(env, name) {
 
 function mpassCredential(env, name, fallbackName) {
   return env[name] || required(env, fallbackName);
+}
+
+async function cacheSession(env, session) {
+  const ttl = Math.max(60, Math.floor(((session.expiresAt ?? Date.now() + 3600_000) - Date.now()) / 1000));
+  await env.KV.put(TOKEN_KEY, JSON.stringify(session), { expirationTtl: ttl });
+  hotSession = session;
 }
 
 function deviceHeaders(env) {
@@ -34,43 +47,59 @@ function deviceHeaders(env) {
 }
 
 async function login(env, { force = false } = {}) {
-  if (!force) {
-    const cached = await env.KV.get(TOKEN_KEY, "json");
-    if (cached?.accessToken && cached?.userId && cached?.email) return cached;
-  }
+  if (!force && hotSession?.accessToken && hotSession?.userId && hotSession?.email &&
+      (!hotSession.expiresAt || hotSession.expiresAt > Date.now())) return hotSession;
+  if (!force && sessionLoad) return sessionLoad;
+  if (force) hotSession = null;
+  const operation = (async () => {
+    if (!force) {
+      const cached = await env.KV.get(TOKEN_KEY, "json");
+      if (cached?.accessToken && cached?.userId && cached?.email &&
+          (!cached.expiresAt || cached.expiresAt > Date.now())) {
+        hotSession = cached;
+        return cached;
+      }
+    }
 
-  const clientId = required(env, "MPASS_CLIENT_ID");
-  const response = await fetch(LOGIN_URL, {
-    method: "POST",
-    headers: {
-      ...deviceHeaders(env),
-      "content-type": "application/json",
-      "X-ClientId": clientId,
-      debug: "1",
-    },
-    body: JSON.stringify({
-      "X-ClientId": clientId,
-      passKey: required(env, "MPASS_PASSKEY"),
-      email: mpassCredential(env, "MPASS_EMAIL", "EMT_EMAIL"),
-      password: mpassCredential(env, "MPASS_PASSWORD", "EMT_PASSWORD"),
-    }),
-  });
-  const body = await response.json().catch(() => null);
-  const data = body?.data?.[0];
-  if (!response.ok || !data?.accessToken || !data?.idUser) {
-    throw new EmtError(
-      "auth",
-      `MPass login failed: HTTP ${response.status}, code ${body?.code ?? "unknown"}`,
-    );
+    const clientId = required(env, "MPASS_CLIENT_ID");
+    const response = await fetch(LOGIN_URL, {
+      method: "POST",
+      headers: {
+        ...deviceHeaders(env),
+        "content-type": "application/json",
+        "X-ClientId": clientId,
+        debug: "1",
+      },
+      body: JSON.stringify({
+        "X-ClientId": clientId,
+        passKey: required(env, "MPASS_PASSKEY"),
+        email: mpassCredential(env, "MPASS_EMAIL", "EMT_EMAIL"),
+        password: mpassCredential(env, "MPASS_PASSWORD", "EMT_PASSWORD"),
+      }),
+    });
+    const body = await response.json().catch(() => null);
+    const data = body?.data?.[0];
+    if (!response.ok || !data?.accessToken || !data?.idUser) {
+      throw new EmtError(
+        "auth",
+        `MPass login failed: HTTP ${response.status}, code ${body?.code ?? "unknown"}`,
+      );
+    }
+    const session = {
+      accessToken: data.accessToken,
+      userId: data.idUser,
+      email: data.email || mpassCredential(env, "MPASS_EMAIL", "EMT_EMAIL"),
+      expiresAt: Date.now() + Math.max(60, Number(data.tokenSecExpiration || 3600) - 60) * 1000,
+    };
+    await cacheSession(env, session);
+    return session;
+  })();
+  if (!force) sessionLoad = operation;
+  try {
+    return await operation;
+  } finally {
+    if (sessionLoad === operation) sessionLoad = null;
   }
-  const session = {
-    accessToken: data.accessToken,
-    userId: data.idUser,
-    email: data.email || mpassCredential(env, "MPASS_EMAIL", "EMT_EMAIL"),
-  };
-  const ttl = Math.max(60, Number(data.tokenSecExpiration || 3600) - 60);
-  await env.KV.put(TOKEN_KEY, JSON.stringify(session), { expirationTtl: ttl });
-  return session;
 }
 
 async function requestAccount(env, session) {
@@ -160,18 +189,25 @@ function tripSummary(trip) {
  * without leaking its values during research. */
 export async function getBikeTrips(env, { page = 0, bikeNumber = null } = {}) {
   let session = await login(env);
-  let accountResponse = await requestAccount(env, session);
-  let accountBody = await jsonResponse(accountResponse, "BiciMAD account");
-  if (rejectedSession(accountResponse, accountBody)) {
-    session = await login(env, { force: true });
-    accountResponse = await requestAccount(env, session);
-    accountBody = await jsonResponse(accountResponse, "BiciMAD account");
+  let nif = session.nif;
+  if (!nif) {
+    let accountResponse = await requestAccount(env, session);
+    let accountBody = await jsonResponse(accountResponse, "BiciMAD account");
+    if (rejectedSession(accountResponse, accountBody)) {
+      session = await login(env, { force: true });
+      accountResponse = await requestAccount(env, session);
+      accountBody = await jsonResponse(accountResponse, "BiciMAD account");
+    }
+    if (rejectedSession(accountResponse, accountBody)) {
+      throw new EmtError("auth", "BiciMAD account authentication failed");
+    }
+    const account = Array.isArray(accountBody?.data) ? accountBody.data[0] : accountBody?.data;
+    nif = account?.DS_NIF || account?.DS_DN;
+    if (nif) {
+      session = { ...session, nif };
+      await cacheSession(env, session);
+    }
   }
-  if (rejectedSession(accountResponse, accountBody)) {
-    throw new EmtError("auth", "BiciMAD account authentication failed");
-  }
-  const account = Array.isArray(accountBody?.data) ? accountBody.data[0] : accountBody?.data;
-  const nif = account?.DS_NIF || account?.DS_DN;
   if (!nif) throw new EmtError("upstream", "BiciMAD account returned no document id for trips");
 
   let tripsResponse = await requestTrips(env, session, nif, page);

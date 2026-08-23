@@ -1,6 +1,8 @@
 import { env, createExecutionContext, waitOnExecutionContext } from "cloudflare:test";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import worker from "../src/index.js";
+import { clearTokenMemoryForTest } from "../src/emt.js";
+import { clearBikeSessionMemoryForTest } from "../src/bicimad-account.js";
 import arrivalsOk from "./fixtures/arrivals-ok.json";
 import stopDetailOk from "./fixtures/stop-detail-ok.json";
 import arroundxyOk from "./fixtures/arroundxy-ok.json";
@@ -13,6 +15,8 @@ async function call(path, init) {
 }
 
 beforeEach(async () => {
+  clearTokenMemoryForTest();
+  clearBikeSessionMemoryForTest();
   await env.KV.put("emt:token", "cached-token");
   await env.KV.delete("bicimad:owner-session");
   await env.KV.delete("arrivals:v4:1234");
@@ -25,6 +29,11 @@ describe("CORS", () => {
     expect(res.status).toBe(204);
     expect(res.headers.get("access-control-allow-origin")).toBe(env.ALLOWED_ORIGIN);
     expect(res.headers.get("access-control-allow-headers")).toContain("authorization");
+  });
+
+  it("lets browsers reuse the public auth configuration", async () => {
+    const res = await call("/auth/config");
+    expect(res.headers.get("cache-control")).toBe("public, max-age=86400");
   });
 });
 
@@ -75,6 +84,23 @@ describe("GET /arrivals", () => {
     const res = await call("/arrivals?stop=1234");
     expect(spy).toHaveBeenCalledTimes(1);
     expect((await res.json()).arrivals).toHaveLength(2);
+  });
+
+  it("coalesces simultaneous cache misses into one upstream request", async () => {
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    const spy = vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      await gate;
+      return new Response(JSON.stringify(arrivalsOk), { status: 200 });
+    });
+    const first = call("/arrivals?stop=987654");
+    await Promise.resolve();
+    const second = call("/arrivals?stop=987654&limit=20");
+    release();
+    const [firstResponse, secondResponse] = await Promise.all([first, second]);
+    expect(firstResponse.status).toBe(200);
+    expect(secondResponse.status).toBe(200);
+    expect(spy).toHaveBeenCalledTimes(1);
   });
 
   it("serves two arrivals by default and the whole board on request", async () => {
@@ -199,6 +225,39 @@ describe("GET /bikes/account", () => {
     expect(JSON.stringify(body)).not.toContain("private@example.com");
   });
 
+  it("shares one MPass login across simultaneous owner requests", async () => {
+    let releaseLogin;
+    let markLoginStarted;
+    const loginGate = new Promise((resolve) => { releaseLogin = resolve; });
+    const loginStarted = new Promise((resolve) => { markLoginStarted = resolve; });
+    const spy = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      if (String(url).includes("/auth/v1/user")) return new Response(JSON.stringify({
+        id: env.OWNER_USER_ID, email: "owner@example.com",
+      }), { status: 200 });
+      if (String(url).includes("/identity/login/integrator")) {
+        markLoginStarted();
+        await loginGate;
+        return new Response(JSON.stringify({
+          code: "00", data: [{ accessToken: "shared-token", idUser: "mpass-user", email: "owner@example.com", tokenSecExpiration: 3600 }],
+        }), { status: 200 });
+      }
+      return new Response(JSON.stringify({
+        code: "01", data: { IT_STATUS: true, IT_BLOCKED: false, NM_BLOCK_CHANGES: false, NM_STATE: 4,
+          dataContract: [{ IT_ACTIVE: true, IT_STATUS: true }] },
+      }), { status: 200 });
+    });
+
+    const first = call("/bikes/account", userAuth);
+    await loginStarted;
+    const second = call("/bikes/account", userAuth);
+    await Promise.resolve();
+    releaseLogin();
+    const responses = await Promise.all([first, second]);
+    expect(responses.every((response) => response.status === 200)).toBe(true);
+    expect(spy.mock.calls.filter(([url]) => String(url).includes("/identity/login/integrator")))
+      .toHaveLength(1);
+  });
+
   it("reports an expired BiciMAD session as auth, not blocked", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
       if (String(url).includes("/auth/v1/user")) return new Response(JSON.stringify({
@@ -261,6 +320,48 @@ describe("GET /bikes/trips", () => {
     expect(JSON.stringify(body)).not.toContain("nope");
     const [, init] = spy.mock.calls.find(([url]) => String(url).includes("/bicimad/trips/"));
     expect(init.headers).toMatchObject({ nif: "private-nif", session: "mpass-user", page: "2" });
+
+    // The NIF is retained only inside the secret owner session. Later pages
+    // skip the otherwise-identical userdata request.
+    expect((await call("/bikes/trips?page=3", userAuth)).status).toBe(200);
+    expect(spy.mock.calls.filter(([url]) => String(url).includes("/bicimad/userdata/")))
+      .toHaveLength(1);
+  });
+});
+
+describe("bike request consolidation", () => {
+  it("returns nearby and saved stations from one pair of GBFS reads", async () => {
+    const spy = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      if (String(url).endsWith("station_information")) return new Response(JSON.stringify({
+        data: { stations: [
+          { station_id: "a", short_name: "1", name: "Near", lat: 40.41, lon: -3.70, capacity: 20 },
+          { station_id: "b", short_name: "2", name: "Saved far", lat: 40.43, lon: -3.72, capacity: 25 },
+        ] },
+      }));
+      return new Response(JSON.stringify({ data: { stations: [
+        { station_id: "a", num_bikes_available: 3, num_bikes_disabled: 1, num_docks_available: 16, is_renting: 1, is_returning: 1, is_installed: 1, status: "IN_SERVICE" },
+        { station_id: "b", num_bikes_available: 5, num_bikes_disabled: 0, num_docks_available: 20, is_renting: 1, is_returning: 1, is_installed: 1, status: "IN_SERVICE" },
+      ] } }));
+    });
+
+    const res = await call("/bikes/nearby?lat=40.41&lon=-3.70&radius=100&ids=b");
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.stations.map((station) => station.id)).toEqual(["a"]);
+    expect(body.savedStations.map((station) => station.id)).toEqual(["b"]);
+    expect(spy).toHaveBeenCalledTimes(2);
+  });
+
+  it("lets PostgREST validate rating JWTs without a redundant auth lookup", async () => {
+    const spy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify([
+      { bike_number: "18302", rating: 5, updated_at: "2026-08-23T00:00:00Z" },
+    ]), { status: 200 }));
+    const res = await call("/bikes/ratings", {
+      headers: { Authorization: "Bearer user-jwt" },
+    });
+    expect(res.status).toBe(200);
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(String(spy.mock.calls[0][0])).toContain("/rest/v1/bike_ratings");
   });
 });
 

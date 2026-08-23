@@ -2,6 +2,15 @@ import { EmtError } from "./errors.js";
 
 const BASE = "https://openapi.emtmadrid.es/";
 const TOKEN_KEY = "emt:token";
+let hotToken = null;
+let hotTokenUntil = 0;
+let tokenLoad = null;
+
+export function clearTokenMemoryForTest() {
+  hotToken = null;
+  hotTokenUntil = 0;
+  tokenLoad = null;
+}
 
 // EMT reports failure as a `code` inside a 200 response, not as an HTTP status.
 const CODE_KIND = {
@@ -66,13 +75,35 @@ async function login(env) {
 
 /** Return a usable EMT access token, logging in only when needed. */
 export async function getToken(env, { force = false } = {}) {
-  if (!force) {
-    const cached = await env.KV.get(TOKEN_KEY);
-    if (cached) return cached;
+  if (!force && hotToken && Date.now() < hotTokenUntil) return hotToken;
+  if (!force && tokenLoad) return tokenLoad;
+  if (force) {
+    hotToken = null;
+    hotTokenUntil = 0;
   }
-  const { token, ttl } = await login(env);
-  await env.KV.put(TOKEN_KEY, token, { expirationTtl: ttl });
-  return token;
+  const load = (async () => {
+    if (!force) {
+      const cached = await env.KV.get(TOKEN_KEY);
+      if (cached) {
+        hotToken = cached;
+        // KV owns the real expiry; this short isolate-local window eliminates
+        // bursts of repeated KV reads without trusting a token for too long.
+        hotTokenUntil = Date.now() + 60_000;
+        return cached;
+      }
+    }
+    const { token, ttl } = await login(env);
+    await env.KV.put(TOKEN_KEY, token, { expirationTtl: ttl });
+    hotToken = token;
+    hotTokenUntil = Date.now() + ttl * 1000;
+    return token;
+  })();
+  if (!force) tokenLoad = load;
+  try {
+    return await load;
+  } finally {
+    if (tokenLoad === load) tokenLoad = null;
+  }
 }
 
 async function requestArrivals(env, stopId, token) {

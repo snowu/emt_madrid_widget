@@ -26,10 +26,10 @@ web/                 static page, deployed to GitHub Pages. Holds no secrets.
   index.html         every dialog and view lives here; nothing is templated in JS
   app.js             the whole page (~1.6k lines), one ES module, no framework
   cache.js           localStorage read/write, the only module app.js imports
-  style.css          dark, phone-first; no preprocessor
+  style.css          system/light/dark themes, phone-first; no preprocessor
   manifest.webmanifest, icon.svg    home-screen install
 api/                 Cloudflare Worker. Holds EMT and optional owner MPass credentials.
-  src/index.js       routing, CORS, auth boundaries, every KV cache decision
+  src/index.js       routing, CORS, auth boundaries, every edge-cache decision
   src/emt.js         EMT auth + buses: token, arrivals, detail, nearby, timetable, route
   src/bikes.js       BiciMAD stations + local distance filtering
   src/stops.js       Supabase REST for saved bus stops and saved bike stations
@@ -67,8 +67,11 @@ GET    /stops/nearby?lat=&lon=&radius=   radius 50–1000, default 500
 GET    /lines/:line/route          both directions: paths + stops
 GET    /lines/:line/timetable      service window per day type
 GET    /bikes/stations?ids=a,b     all 680, or just the ids asked for
-GET    /bikes/nearby?lat=&lon=&radius=   radius 50–3000, default 700
+GET    /bikes/nearby?lat=&lon=&radius=&ids=   nearby plus optional saved stations
 GET    /bikes/account                 minimal private account eligibility summary
+GET    /bikes/trips?page=&bike=       owner-only normalized trip history
+GET    /bikes/ratings                 current user's bike ratings
+PUT    /bikes/ratings/:bikeNumber     {rating: 1..5}
 GET    /bikes/saved                favourite stations
 POST   /bikes/saved                {stationId, label?}       → 201
 PATCH  /bikes/saved/:rowId         {label}
@@ -83,30 +86,31 @@ Upstream auth and upstream failures are 502; quota is 503 until daily reset.
 
 ### Cache keys and TTLs
 
-Everything the worker caches is in KV under `<kind>:<CACHE_VERSION>:<key>`, all
-declared at the top of `src/index.js`:
+Public transport payloads use the Workers Cache API, which does not consume KV
+operations. Only shared credentials remain in KV. TTLs are declared at the top
+of `src/index.js`:
 
-| key | KV TTL | freshness | why |
+| key | storage | TTL | why |
 | --- | --- | --- | --- |
-| `emt:token` | login's `tokenSecExpiration` − 60s | — | not versioned; it is a token, not a shape |
-| `arrivals:` | 60s | 20s soft | KV rejects a TTL under 60, so freshness is checked in code against `fetchedAt` |
-| `bikes:` | 60s | 45s soft | one call serves the whole city and every area query |
-| `detail:` | 7 days | — | stops do not move |
-| `route:` | 7 days | — | geometry changes when EMT redraws a line |
-| `nearby:` | 24h | — | keyed on a ~110m grid (`grid3`), so map pans reuse cells |
-| `timetable:` | 24h | — | changes with the season, not the hour |
+| `emt:token` | KV + isolate memory | login expiry − 60s | shared credential, not public data |
+| `bicimad:owner-session` | KV + isolate memory | login expiry − 60s | private MPass session and cached NIF |
+| `arrivals/` | Cache API | 20s | one full board serves card and detail views |
+| `bikes` | Cache API | 45s | one call serves the whole city, nearby and saved stations |
+| `bike-info` | Cache API | 24h | station names and coordinates are nearly static |
+| `detail/` | Cache API | 7 days | stops do not move |
+| `route/` | Cache API | 7 days | geometry changes when EMT redraws a line |
+| `nearby/` | Cache API | 24h | keyed on a ~110m grid (`grid3`) |
+| `timetable/` | Cache API | 24h | changes with the season, not the hour |
 
-`CACHE_VERSION` is currently **v3**. Bump it when a *parsed payload shape*
-changes, or week-old detail entries keep serving the old one to devices that
-never notice. Tests reference the version in KV keys (`arrivals:v3:1234`), so a
-bump means touching `api/test/index.test.js` too.
+`CACHE_VERSION` is currently **v4**. Bump it when a parsed public payload shape
+changes so old Cache API objects cannot serve an incompatible response.
 
 ## Development
 
 ```bash
 cd api
 npm install
-npm test          # vitest under workerd; 75 tests, no network, no quota burnt
+npm test          # vitest under workerd; 94 tests, no network, no quota burnt
 npm run dev       # wrangler dev, needs .dev.vars
 npm run deploy    # wrangler deploy
 ```
@@ -149,9 +153,9 @@ saying when they were recorded.
 
 Conventions, worth matching:
 
-- `import { env } from "cloudflare:test"` gives the real KV. Tests that touch a
-  cache **must** clear the key in `beforeEach`, or a neighbour's write serves
-  their assertion.
+- `import { env } from "cloudflare:test"` gives real bindings. Reset module-level
+  token/session state in `beforeEach`; use unique request keys where a Cache API
+  assertion must guarantee a cold miss.
 - Upstream is stubbed with `vi.spyOn(globalThis, "fetch")` returning a **fresh
   `Response` per call** — bodies are single-use, and the retry paths call twice.
 - `src/index.js` is exercised through `worker.fetch` with
@@ -161,9 +165,9 @@ Conventions, worth matching:
 - A cache test asserts the *second* call makes no upstream request. That is the
   actual contract — not that the value came back.
 
-Currently untested: the `/lines/:line/route`, `/lines/:line/timetable` and
-`/bikes/*` HTTP routes (their underlying `emt.js` / `bikes.js` functions are
-covered), and everything in `web/`.
+The Worker routes, auth boundaries, Cache API reuse, concurrent-miss
+coalescing, and underlying parsers are covered. The browser UI still relies on
+syntax checks and manual browser verification rather than DOM tests.
 
 ## Data source
 
@@ -173,7 +177,7 @@ API reference: https://apidocs.emtmadrid.es
 Auth flow, all inside the worker:
 1. Log in against the auth endpoint to receive an `accessToken`.
 2. Token is valid roughly 24h (`tokenSecExpiration` in the login response).
-3. Cache it in Worker KV with its expiry; check before each call.
+3. Cache it in Worker KV with its expiry and in isolate memory for hot calls.
 4. Re-login lazily on an auth-failure code rather than on a timer.
 
 EMT reports failure as a `code` field inside a 200 response, not as an HTTP
@@ -367,15 +371,16 @@ differ, 1409 is signed "5"), `name`, `address`, `geometry`, `dock_bikes`,
 2 red / 3 black), `no_available` (out of service), `overflow`,
 `tipo_estacionPBSC` (FIXED, one VIRTUAL), `bikesGo` (empty everywhere so far).
 
-All 680 arrive in one answer, so the worker fetches the whole city once a
-minute and slices it locally — `arroundxy` is never needed, and an area query
-costs no EMT call at all. `stationsNear()` filters by an equirectangular
+All stations arrive in one answer, so the worker fetches the whole city at
+most once per 45-second edge-cache window and slices it locally — `arroundxy`
+is never needed, and an area query usually costs no upstream call at all.
+`stationsNear()` filters by an equirectangular
 distance, which over a few km in Madrid is accurate to centimetres and far
 cheaper than haversine per station. `parseStation()` trims EMT's record to
 about a fifth of its size (318KB → ~60KB for the city) and inverts
 `no_available` into `inService`, so the page reads the field the way it renders
-it. Counts move constantly: KV's 60s floor is the freshness contract, and every
-rendering carries its age.
+it. Counts move constantly: the Cache API's 45-second TTL is the freshness
+contract, and every rendering carries its age.
 
 **Public transport endpoints do not expose subscriber accounts.** A sweep of
 MobilityLabs' transport families found stations but no customer account data.
@@ -519,7 +524,7 @@ is most stale), and manually per-card or all at once.
    Saved stations are optional — if `bike_stations` was never created, the page
    says so once and the rest of the section still works.
 
-Cached payload shapes are versioned in the worker's KV keys (`CACHE_VERSION`).
+Cached payload shapes are versioned in the worker's Cache API keys (`CACHE_VERSION`).
 Bump it when a parsed shape changes, or week-old detail entries keep serving
 the old one.
 

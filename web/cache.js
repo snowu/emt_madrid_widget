@@ -29,6 +29,10 @@ export function writeCache(stopId, payload) {
   localStorage.setItem(ARRIVALS_KEY, JSON.stringify(all));
 }
 
+export function writeArrivalCache(all) {
+  localStorage.setItem(ARRIVALS_KEY, JSON.stringify(all));
+}
+
 /** Mirrors the stop list so a cold start with no network still renders. */
 export function readStops() {
   return read(userKey(STOPS_KEY), []);

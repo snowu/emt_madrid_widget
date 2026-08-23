@@ -7,6 +7,7 @@ import {
   mergeBikeStations,
   stationsNear,
 } from "../src/bikes.js";
+import { clearTokenMemoryForTest } from "../src/emt.js";
 
 // Recorded live from EMT 2026-08-23; two stations, fields left as EMT sends them.
 const stationsOk = {
@@ -54,6 +55,7 @@ function mockFetch(body, init = {}) {
 }
 
 beforeEach(async () => {
+  clearTokenMemoryForTest();
   await env.KV.put("emt:token", "cached-token");
 });
 afterEach(() => vi.restoreAllMocks());
