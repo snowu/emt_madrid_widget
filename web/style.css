@@ -82,10 +82,15 @@ button:active { transform: scale(0.97); }
 }
 
 .head { display: flex; align-items: center; justify-content: space-between; }
-.head h2 {
+.title h2 {
   font-size: 1rem;
   margin: 0;
   overflow-wrap: anywhere;
+}
+.stop-num {
+  margin: 0.1rem 0 0;
+  font-size: 0.75rem;
+  color: var(--muted);
 }
 .controls { display: flex; gap: 0.35rem; }
 .controls button { min-width: var(--tap); padding: 0.25rem 0.6rem; }
@@ -135,6 +140,12 @@ button:active { transform: scale(0.97); }
 .leaflet-popup-content h3 { margin: 0 0 0.25rem; font-size: 1rem; }
 .leaflet-popup-content .eta { font-size: 1.05rem; }
 .leaflet-popup-content ul { list-style: none; margin: 0.25rem 0 0; padding: 0; }
+.leaflet-popup-content .stop-num { margin: 0; font-size: 0.75rem; color: var(--muted); }
+.leaflet-popup-content button {
+  margin-top: 0.5rem;
+  min-height: 38px;
+  padding: 0.35rem 0.75rem;
+}
 
 #fab {
   position: fixed;

@@ -50,8 +50,14 @@ function render() {
       const card = document.createElement("article");
       card.className = "stop";
 
+      const titleWrap = document.createElement("div");
+      titleWrap.className = "title";
       const title = document.createElement("h2");
       title.textContent = stopTitle(stop);
+      const num = document.createElement("span");
+      num.className = "stop-num";
+      num.textContent = `Nº ${stop.stop_id}`;
+      titleWrap.append(title, num);
 
       const refresh = document.createElement("button");
       refresh.textContent = "↻";
@@ -97,7 +103,7 @@ function render() {
 
       const head = document.createElement("div");
       head.className = "head";
-      head.append(title, controls);
+      head.append(titleWrap, controls);
 
       card.append(head, list, age);
       return card;
@@ -139,7 +145,14 @@ async function refreshAll() {
   await Promise.all(stops.map((s) => refreshStop(s.stop_id)));
 }
 
-/** Fetch and remember a stop's official name; returns null if EMT rejects it. */
+/** Fetch and remember what EMT knows about a stop; throws not_found if it
+ *  genuinely does not exist.
+ *
+ * Detail is preferred (name + coordinates) but EMT's detail table has holes
+ * for real stops — stop 30 Plaza Castilla answers 81 there while arrivals
+ * serves it happily. So on a detail miss we ask arrivals: code 80 means
+ * "disabled or not exists", anything else means the stop is real.
+ */
 async function resolveStop(stopId) {
   if (details[stopId]) return details[stopId];
   try {
@@ -148,8 +161,17 @@ async function resolveStop(stopId) {
     writeDetail(stopId, detail);
     return detail;
   } catch {
-    return null;
+    // Detail knows nothing; arrivals is the authority on existence.
   }
+  try {
+    await api(`/arrivals?stop=${encodeURIComponent(stopId)}`);
+  } catch (err) {
+    throw err; // not_found = bogus id; quota/upstream = try again later
+  }
+  const stub = { stopId, name: null, address: null, coordinates: null, lines: [] };
+  details[stopId] = stub;
+  writeDetail(stopId, stub);
+  return stub;
 }
 
 /** Stops saved before names were resolved get their titles filled in. */
@@ -164,13 +186,22 @@ async function hydrateNames() {
 /* ---- List / Map views ------------------------------------------------- */
 
 let leafletMap = null;
-let markers = null; // L.LayerGroup
+let markers = null; // L.LayerGroup — saved stops
+let nearbyLayer = null; // L.LayerGroup — unsaved stops around the view
+let nearbyCell = null;
+let nearbyStops = [];
+let nearbySeq = 0;
+
+const NEARBY_RADIUS = 500;
 
 function popupHtml(stop) {
   // Built as DOM, never as a string: line names/labels come from EMT.
   const wrap = document.createElement("div");
   const title = document.createElement("h3");
   title.textContent = stopTitle(stop);
+  const num = document.createElement("p");
+  num.className = "stop-num";
+  num.textContent = `Nº ${stop.stop_id}`;
   const ul = document.createElement("ul");
 
   const cached = arrivals[stop.stop_id];
@@ -195,10 +226,10 @@ function popupHtml(stop) {
     const age = document.createElement("p");
     age.className = "muted";
     age.textContent = `updated ${fmtAge(cached.fetchedAt)}`;
-    wrap.append(title, ul, age);
+    wrap.append(title, num, ul, age);
     return wrap;
   }
-  wrap.append(title, ul);
+  wrap.append(title, num, ul);
   return wrap;
 }
 
@@ -211,7 +242,9 @@ function ensureMap() {
   }).addTo(leafletMap);
 
   markers = L.layerGroup().addTo(leafletMap);
+  nearbyLayer = L.layerGroup().addTo(leafletMap);
   rebuildMarkers();
+  leafletMap.on("moveend", loadNearby);
 
   // Fit once, on the first build, when all pins are known.
   const points = stops
@@ -224,6 +257,7 @@ function ensureMap() {
     // Madrid centre; details may still be resolving.
     leafletMap.setView([40.4168, -3.7038], 12);
   }
+  loadNearby();
 }
 
 function rebuildMarkers() {
@@ -259,9 +293,86 @@ function showView(view) {
   if (isMap) {
     ensureMap();
     rebuildMarkers();
+    renderNearbyPins();
     leafletMap.invalidateSize();
   } else {
     render(); // the interval skips list renders while the map is up
+  }
+}
+
+/* ---- Nearby stops on the map ------------------------------------------ */
+
+function savedIds() {
+  return new Set(stops.map((s) => s.stop_id));
+}
+
+function nearbyPopupHtml(s) {
+  const wrap = document.createElement("div");
+  const title = document.createElement("h3");
+  title.textContent = s.name || `Stop ${s.stopId}`;
+  const num = document.createElement("p");
+  num.className = "stop-num";
+  num.textContent = `Nº ${s.stopId}`;
+  wrap.append(title, num);
+  if (s.lines?.length) {
+    const lines = document.createElement("p");
+    lines.className = "muted";
+    lines.textContent = s.lines.join(" · ");
+    wrap.append(lines);
+  }
+  const add = document.createElement("button");
+  add.type = "button";
+  add.textContent = "Add this stop";
+  add.addEventListener("click", async () => {
+    add.disabled = true;
+    try {
+      await addStopById(s.stopId, null);
+      leafletMap.closePopup();
+      statusEl.textContent = "";
+    } catch {
+      add.disabled = false;
+    }
+  });
+  wrap.append(add);
+  return wrap;
+}
+
+function renderNearbyPins() {
+  if (!nearbyLayer) return;
+  const saved = savedIds();
+  nearbyLayer.clearLayers();
+  for (const s of nearbyStops) {
+    if (saved.has(s.stopId) || !s.coordinates) continue;
+    // GeoJSON order is [lon, lat]; Leaflet wants [lat, lon].
+    L.circleMarker([s.coordinates[1], s.coordinates[0]], {
+      radius: 7,
+      color: "#8b93a7",
+      weight: 2,
+      fillColor: "#3a4150",
+      fillOpacity: 0.9,
+    })
+      .bindPopup(() => nearbyPopupHtml(s))
+      .addTo(nearbyLayer);
+  }
+}
+
+/** Load stops within 500m of the map centre; one fetch per ~110m cell. */
+async function loadNearby() {
+  if (!leafletMap || mapEl.hidden) return;
+  const centre = leafletMap.getCenter();
+  const cell = `${centre.lat.toFixed(3)},${centre.lng.toFixed(3)}`;
+  if (cell === nearbyCell) return;
+  const seq = ++nearbySeq;
+  try {
+    const found = await api(
+      `/stops/nearby?lat=${centre.lat}&lon=${centre.lng}&radius=${NEARBY_RADIUS}`
+    );
+    if (seq !== nearbySeq) return; // a newer pan superseded this request
+    nearbyStops = found;
+    nearbyCell = cell;
+    renderNearbyPins();
+  } catch {
+    // Map stays usable without the halo of nearby pins.
   }
 }
 
@@ -287,6 +398,7 @@ async function deleteStop(id) {
     writeStops(stops);
     render();
     rebuildMarkers();
+    renderNearbyPins(); // the removed stop may now show as nearby
   } catch (err) {
     statusEl.textContent = `Could not remove stop: ${err.message}`;
   }
@@ -294,6 +406,43 @@ async function deleteStop(id) {
 
 const fab = document.getElementById("fab");
 const addForm = document.getElementById("add-stop");
+
+/** Shared by the dialog form and the map's nearby-pin buttons. */
+async function addStopById(stopId, label) {
+  if (!/^[0-9]+$/.test(stopId)) {
+    const err = new Error("Stop numbers are digits only.");
+    err.kind = "invalid";
+    throw err;
+  }
+  statusEl.textContent = `Looking up stop ${stopId}…`;
+  let detail;
+  try {
+    detail = await resolveStop(stopId);
+  } catch (err) {
+    statusEl.textContent =
+      err.kind === "not_found"
+        ? `No EMT stop ${stopId} — check the number on the stop sign.`
+        : `Could not check stop ${stopId}: ${err.message}`;
+    throw err;
+  }
+  try {
+    const row = await api("/stops", {
+      method: "POST",
+      body: JSON.stringify({ stopId, label: label || detail.name }),
+    });
+    stops.push(row);
+    writeStops(stops);
+    statusEl.textContent = "";
+    render();
+    rebuildMarkers();
+    renderNearbyPins(); // its grey pin becomes an accent one
+    refreshStop(row.stop_id);
+    return row;
+  } catch (err) {
+    statusEl.textContent = `Could not add stop: ${err.message}`;
+    throw err;
+  }
+}
 
 fab.addEventListener("click", () => {
   statusEl.textContent = "";
@@ -309,35 +458,15 @@ addForm.addEventListener("submit", async (event) => {
   const labelInput = document.getElementById("stop-label");
   const stopId = idInput.value.trim();
   const userLabel = labelInput.value.trim();
-  if (!/^[0-9]+$/.test(stopId)) {
-    statusEl.textContent = "Stop numbers are digits only.";
-    return;
-  }
+  fab.disabled = true;
+  document.getElementById("add-save").disabled = true;
   try {
-    fab.disabled = true;
-    document.getElementById("add-save").disabled = true;
-    statusEl.textContent = `Looking up stop ${stopId}…`;
-    // Resolving first validates the stop exists and gives us its real name.
-    const detail = await resolveStop(stopId);
-    if (!detail) {
-      statusEl.textContent = `No EMT stop ${stopId} — check the number on the stop sign.`;
-      return;
-    }
-    const row = await api("/stops", {
-      method: "POST",
-      body: JSON.stringify({ stopId, label: userLabel || detail.name }),
-    });
-    stops.push(row);
-    writeStops(stops);
+    await addStopById(stopId, userLabel || null);
     idInput.value = "";
     labelInput.value = "";
-    statusEl.textContent = "";
-    render();
-    rebuildMarkers();
-    refreshStop(row.stop_id);
     addDialog.close();
-  } catch (err) {
-    statusEl.textContent = `Could not add stop: ${err.message}`;
+  } catch {
+    // statusEl already explains; dialog stays open for correcting.
   } finally {
     fab.disabled = false;
     document.getElementById("add-save").disabled = false;
