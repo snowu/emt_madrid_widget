@@ -5,11 +5,55 @@
     {
       "stops": [
         {
-          "stop": "1547",
-          "name": "PLAZA DE CASTILLA",
-          "postalAddress": "PASEO DE LA CASTELLANA 42",
-          "geometry": { "type": "Point", "coordinates": [-3.6897, 40.4669] },
-          "lines": ["27", "150", "N23"]
+          "stop": "31",
+          "name": "Plaza Castilla",
+          "postalAddress": "Mateo Inurria, 1 frente Canal de Isabel II",
+          "geometry": {
+            "type": "Point",
+            "coordinates": [
+              -3.68832522654066,
+              40.4664651874285
+            ]
+          },
+          "pmv": "60992",
+          "dataLine": [
+            {
+              "line": "005",
+              "label": "5",
+              "direction": "A",
+              "maxFreq": "33",
+              "minFreq": "18",
+              "headerA": "SOL/SEVILLA",
+              "headerB": "CHAMARTIN",
+              "startTime": "07:30",
+              "stopTime": "23:30",
+              "dayType": "FE"
+            },
+            {
+              "line": "066",
+              "label": "66",
+              "direction": "A",
+              "maxFreq": "38",
+              "minFreq": "19",
+              "headerA": "CUATRO CAMINOS",
+              "headerB": "FUENCARRAL",
+              "startTime": "07:30",
+              "stopTime": "23:45",
+              "dayType": "FE"
+            },
+            {
+              "line": "070",
+              "label": "70",
+              "direction": "A",
+              "maxFreq": "30",
+              "minFreq": "16",
+              "headerA": "PLAZA CASTILLA",
+              "headerB": "ALSACIA",
+              "startTime": "07:00",
+              "stopTime": "23:45",
+              "dayType": "FE"
+            }
+          ]
         }
       ]
     }

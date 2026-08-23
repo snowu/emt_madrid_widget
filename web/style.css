@@ -147,6 +147,91 @@ button:active { transform: scale(0.97); }
   padding: 0.35rem 0.75rem;
 }
 
+/* Cards are tappable now: they open the stop sheet. */
+.stop { cursor: pointer; }
+.stop:active { background: #202531; }
+
+#sheet-map {
+  height: 150px;
+  border-radius: 10px;
+  margin: 0.25rem 0;
+}
+
+#sheet-map[hidden] { display: none; }
+
+#stop-dialog h2 { overflow-wrap: anywhere; }
+#stop-dialog .stop-num { margin: -0.4rem 0 0; }
+
+#sheet-arrivals { list-style: none; margin: 0; padding: 0; }
+
+#sheet-arrivals li {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid #252a35;
+}
+
+#sheet-arrivals li:last-child { border-bottom: none; }
+#sheet-arrivals .dest {
+  margin-left: auto;
+  font-size: 0.75rem;
+  color: var(--muted);
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+#sheet-arrivals .eta { margin-left: auto; }
+#sheet-arrivals .dest + .eta { margin-left: 0.5rem; }
+
+#sheet-age { margin: 0; }
+
+#sheet-service-wrap summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: var(--muted);
+  padding: 0.35rem 0;
+}
+
+#sheet-service { list-style: none; margin: 0.25rem 0 0; padding: 0; }
+
+#sheet-service li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.15rem 0.6rem;
+  padding: 0.35rem 0;
+  font-size: 0.85rem;
+  border-bottom: 1px solid #252a35;
+}
+
+#sheet-service li:last-child { border-bottom: none; }
+#sheet-service .line { flex: 0 0 4ch; font-size: 0.9rem; }
+#sheet-service .hours {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+/* The route wraps to its own line under the hours rather than squeezing them. */
+#sheet-service .route {
+  flex: 1 0 100%;
+  margin-left: calc(4ch + 0.6rem);
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.field { display: flex; flex-direction: column; gap: 0.25rem; }
+.field span { font-size: 0.8rem; color: var(--muted); }
+
+#sheet-save {
+  background: var(--accent);
+  color: #06121f;
+  border: none;
+  font-weight: 600;
+}
+
+.danger { color: #ff8f8f; margin-right: auto; }
+
+.dialog-actions button { padding: 0.5rem 0.7rem; }
+
 #fab {
   position: fixed;
   right: calc(1rem + env(safe-area-inset-right, 0px));

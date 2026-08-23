@@ -1,20 +1,26 @@
 import { getArrivals, getStopDetail, getNearbyStops } from "./emt.js";
-import { listStops, addStop, removeStop } from "./stops.js";
+import { listStops, addStop, renameStop, removeStop } from "./stops.js";
 import { EmtError, errorResponse } from "./errors.js";
 
 // KV rejects expirationTtl below 60, so the 20s freshness contract is a soft
 // TTL decided here; the 60s write only bounds how long junk can linger.
 const ARRIVALS_KV_TTL = 60;
 const ARRIVALS_FRESH_MS = 20_000;
+// Bump when a cached payload's *shape* changes: old entries would otherwise
+// keep serving the old shape until their TTL runs out (a week, for detail).
+const CACHE_VERSION = "v2";
 // Stop names/locations never move. A week of cache is quota-free.
 const DETAIL_KV_TTL = 7 * 24 * 3600;
 // Nearby searches are keyed on a ~110m grid so panning the map reuses cells.
 const NEARBY_KV_TTL = 24 * 3600;
+// Cards want the next bus and the one after it; the stop sheet wants the board.
+const DEFAULT_ARRIVALS = 2;
+const MAX_ARRIVALS = 20;
 
 function cors(env) {
   return {
     "access-control-allow-origin": env.ALLOWED_ORIGIN,
-    "access-control-allow-methods": "GET,POST,DELETE,OPTIONS",
+    "access-control-allow-methods": "GET,POST,PATCH,DELETE,OPTIONS",
     "access-control-allow-headers": "content-type,X-App-Key",
   };
 }
@@ -32,7 +38,7 @@ function hasAppKey(request, env) {
 }
 
 async function cachedArrivals(env, stopId) {
-  const key = `arrivals:${stopId}`;
+  const key = `arrivals:${CACHE_VERSION}:${stopId}`;
   const hit = await env.KV.get(key, "json");
   if (hit && Date.now() - hit.fetchedAt < ARRIVALS_FRESH_MS) return hit;
   const fresh = await getArrivals(env, stopId);
@@ -41,7 +47,7 @@ async function cachedArrivals(env, stopId) {
 }
 
 async function cachedStopDetail(env, stopId) {
-  const key = `detail:${stopId}`;
+  const key = `detail:${CACHE_VERSION}:${stopId}`;
   const hit = await env.KV.get(key, "json");
   if (hit) return hit;
   const fresh = await getStopDetail(env, stopId);
@@ -55,7 +61,7 @@ function grid3(n) {
 }
 
 async function cachedNearby(env, lat, lon, radius) {
-  const key = `nearby:${grid3(lon)}:${grid3(lat)}:${radius}`;
+  const key = `nearby:${CACHE_VERSION}:${grid3(lon)}:${grid3(lat)}:${radius}`;
   const hit = await env.KV.get(key, "json");
   if (hit) return hit;
   const fresh = await getNearbyStops(env, { lat, lon, radius });
@@ -73,7 +79,7 @@ export default {
       return new Response(null, { status: 204, headers: cors(env) });
     }
 
-    const isWrite = method === "POST" || method === "DELETE";
+    const isWrite = method === "POST" || method === "PATCH" || method === "DELETE";
     if (isWrite && !hasAppKey(request, env)) {
       return json({ error: "unauthorized" }, env, 401);
     }
@@ -82,7 +88,14 @@ export default {
       if (pathname === "/arrivals" && method === "GET") {
         const stop = url.searchParams.get("stop");
         if (!stop) return json({ error: "missing stop parameter" }, env, 400);
-        return json(await cachedArrivals(env, stop), env);
+        // One cached payload holds every arrival EMT sent; `limit` only trims
+        // what this caller gets, so the sheet and the cards share one fetch.
+        const limit = Math.min(
+          MAX_ARRIVALS,
+          Math.max(1, Number(url.searchParams.get("limit")) || DEFAULT_ARRIVALS)
+        );
+        const payload = await cachedArrivals(env, stop);
+        return json({ ...payload, arrivals: payload.arrivals.slice(0, limit) }, env);
       }
 
       if (pathname === "/stops" && method === "GET") {
@@ -110,6 +123,12 @@ export default {
       if (pathname === "/stops" && method === "POST") {
         const { stopId, label = null } = await request.json();
         return json(await addStop(env, { stopId, label }), env, 201);
+      }
+
+      const rename = pathname.match(/^\/stops\/([^/]+)$/);
+      if (rename && method === "PATCH") {
+        const { label = null } = await request.json();
+        return json(await renameStop(env, decodeURIComponent(rename[1]), label), env);
       }
 
       const del = pathname.match(/^\/stops\/([^/]+)$/);

@@ -87,13 +87,19 @@ describe("getArrivals", () => {
   it("parses line, seconds, and metres from data[0].Arrive[]", async () => {
     mockFetch(arrivalsOk);
     const result = await getArrivals(env, "1234");
-    expect(result.arrivals[0]).toEqual({ line: "27", seconds: 145, metres: 610 });
+    expect(result.arrivals[0]).toEqual({
+      line: "27",
+      seconds: 145,
+      metres: 610,
+      destination: "PLAZA CASTILLA",
+    });
   });
 
-  it("sorts soonest-first and returns at most two", async () => {
+  it("sorts soonest-first and keeps everything EMT sent", async () => {
+    // Trimming is the route layer's job: the cards take two, the sheet takes all.
     mockFetch(arrivalsOk);
     const { arrivals } = await getArrivals(env, "1234");
-    expect(arrivals.map((a) => a.seconds)).toEqual([145, 640]);
+    expect(arrivals.map((a) => a.seconds)).toEqual([145, 640, 1980]);
   });
 
   it("stamps fetchedAt so the page can show staleness", async () => {
@@ -130,7 +136,7 @@ describe("getArrivals", () => {
       .mockResolvedValueOnce(new Response(JSON.stringify(arrivalsOk)));
 
     const { arrivals } = await getArrivals(env, "1234");
-    expect(arrivals).toHaveLength(2);
+    expect(arrivals).toHaveLength(3);
     expect(spy).toHaveBeenCalledTimes(3);
   });
 
@@ -151,7 +157,12 @@ describe("getArrivals", () => {
       data: [{ Arrive: [{ line: "27", estimateArrive: 100 }] }],
     });
     const { arrivals } = await getArrivals(env, "1234");
-    expect(arrivals[0]).toEqual({ line: "27", seconds: 100, metres: null });
+    expect(arrivals[0]).toEqual({
+      line: "27",
+      seconds: 100,
+      metres: null,
+      destination: null,
+    });
   });
 });
 
@@ -192,16 +203,35 @@ describe("getStopDetail", () => {
     vi.restoreAllMocks();
   });
 
-  it("parses name, address, coordinates, and lines from data[0].stops[0]", async () => {
+  it("parses name, address, coordinates, and dataLine from data[0].stops[0]", async () => {
     mockFetch(stopDetailOk);
     const detail = await getStopDetail(env, "1547");
-    expect(detail).toEqual({
-      stopId: "1547",
-      name: "PLAZA DE CASTILLA",
-      address: "PASEO DE LA CASTELLANA 42",
-      coordinates: [-3.6897, 40.4669],
-      lines: ["27", "150", "N23"],
+    expect(detail).toMatchObject({
+      stopId: "31",
+      name: "Plaza Castilla",
+      address: "Mateo Inurria, 1 frente Canal de Isabel II",
+      coordinates: [-3.68832522654066, 40.4664651874285],
     });
+    // The label is what the bus is signed with; the code is what EMT keys on.
+    expect(detail.lines[0]).toEqual({
+      line: "005",
+      label: "5",
+      from: "07:30",
+      to: "23:30",
+      headers: ["SOL/SEVILLA", "CHAMARTIN"],
+    });
+    expect(detail.lines.map((l) => l.label)).toEqual(["5", "66", "70"]);
+  });
+
+  it("reads dataLine, not the lines[] the docs describe", async () => {
+    // A v2 detail answer never carries lines[]; reading it left every stop
+    // looking like it had no service at all.
+    mockFetch({
+      code: "00",
+      data: [{ stops: [{ stop: "9", name: "X", dataLine: [{ line: "070", label: "70" }] }] }],
+    });
+    const detail = await getStopDetail(env, "9");
+    expect(detail.lines.map((l) => l.label)).toEqual(["70"]);
   });
 
   it("GETs the v2 detail URL with the cached token", async () => {
@@ -220,7 +250,7 @@ describe("getStopDetail", () => {
       .mockResolvedValueOnce(new Response(JSON.stringify(loginOk)))
       .mockResolvedValueOnce(new Response(JSON.stringify(stopDetailOk)));
     const detail = await getStopDetail(env, "1547");
-    expect(detail.name).toBe("PLAZA DE CASTILLA");
+    expect(detail.name).toBe("Plaza Castilla");
     expect(spy).toHaveBeenCalledTimes(3);
   });
 
@@ -270,7 +300,7 @@ describe("EMT 5xx blip retry", () => {
       .mockResolvedValueOnce(new Response("bad gateway", { status: 502 }))
       .mockResolvedValueOnce(new Response(JSON.stringify(arrivalsOk)));
     const { arrivals } = await getArrivals(env, "1234");
-    expect(arrivals).toHaveLength(2);
+    expect(arrivals).toHaveLength(3);
     expect(spy).toHaveBeenCalledTimes(2);
   });
 
@@ -312,13 +342,26 @@ describe("getNearbyStops", () => {
       {
         stopId: "30",
         name: "Plaza Castilla",
-        lines: ["107", "129", "005", "070"],
+        // Area search sends bare codes: no label, no service hours to be had.
+        lines: ["107", "129", "005", "070"].map((code) => ({
+          line: code,
+          label: code,
+          from: null,
+          to: null,
+          headers: [],
+        })),
         coordinates: [-3.68967, 40.46737],
       },
       {
         stopId: "31",
         name: "Plaza Castilla",
-        lines: ["107", "129", "174"],
+        lines: ["107", "129", "174"].map((code) => ({
+          line: code,
+          label: code,
+          from: null,
+          to: null,
+          headers: [],
+        })),
         coordinates: [-3.6891, 40.4676],
       },
     ]);
@@ -343,6 +386,6 @@ describe("getNearbyStops", () => {
       data: [{ stopId: "30", stopName: "Plaza Castilla", lines: [{ line: "107" }] }],
     });
     const stops = await getNearbyStops(env, { lat: 40.4674, lon: -3.6897, radius: 500 });
-    expect(stops[0].lines).toEqual(["107"]);
+    expect(stops[0].lines.map((l) => l.label)).toEqual(["107"]);
   });
 });

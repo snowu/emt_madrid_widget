@@ -59,6 +59,31 @@
       </form>
     </dialog>
 
+    <dialog id="stop-dialog">
+      <form id="stop-form" method="dialog">
+        <h2 id="sheet-heading">Stop</h2>
+        <p id="sheet-meta" class="stop-num"></p>
+        <div id="sheet-map"></div>
+        <p id="sheet-no-map" class="muted" hidden>EMT has no location for this stop.</p>
+        <ul id="sheet-arrivals"></ul>
+        <p id="sheet-age" class="age"></p>
+        <details id="sheet-service-wrap">
+          <summary>Lines and hours today</summary>
+          <ul id="sheet-service"></ul>
+        </details>
+        <label class="field">
+          <span>Name</span>
+          <input id="sheet-label" autocomplete="off" placeholder="EMT's name" />
+        </label>
+        <div class="dialog-actions">
+          <button type="button" id="sheet-remove" class="danger">Remove</button>
+          <button type="button" id="sheet-refresh" title="Refresh">↻</button>
+          <button type="button" id="sheet-close">Close</button>
+          <button type="submit" id="sheet-save">Save</button>
+        </div>
+      </form>
+    </dialog>
+
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script type="module" src="app.js"></script>
   </body>

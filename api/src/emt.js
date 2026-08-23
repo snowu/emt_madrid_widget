@@ -75,8 +75,6 @@ export async function getToken(env, { force = false } = {}) {
   return token;
 }
 
-const MAX_ARRIVALS = 2;
-
 async function requestArrivals(env, stopId, token) {
   const res = await emtFetch(`${BASE}v2/transport/busemtmad/stops/${stopId}/arrives/`, {
     method: "POST",
@@ -92,6 +90,8 @@ async function requestArrivals(env, stopId, token) {
 
 function parseArrivals(body) {
   // Arrivals live at data[0].Arrive[]. Capital D in DistanceBus is EMT's, not a typo.
+  // Everything EMT sent is kept, sorted; the route layer decides how many to
+  // serve — the cards want two, the stop sheet wants the whole board.
   const raw = body.data?.[0]?.Arrive ?? [];
   return raw
     .filter((a) => a.line != null && a.estimateArrive != null)
@@ -99,9 +99,9 @@ function parseArrivals(body) {
       line: String(a.line),
       seconds: Number(a.estimateArrive),
       metres: a.DistanceBus == null ? null : Number(a.DistanceBus),
+      destination: a.destination ?? null,
     }))
-    .sort((a, b) => a.seconds - b.seconds)
-    .slice(0, MAX_ARRIVALS);
+    .sort((a, b) => a.seconds - b.seconds);
 }
 
 /** Fetch the next arrivals for one stop, re-logging in once if the token is stale. */
@@ -135,6 +135,35 @@ async function requestDetail(env, stopId, token) {
   return res.json();
 }
 
+/** Normalise one line entry into the shape the page renders.
+ *
+ * EMT sends lines two different ways. Stop detail sends `dataLine[]`: one
+ * entry per line for today's day type, carrying the human label ("5", never
+ * "005"), the two route headers, and the hours that line actually runs — the
+ * answer to "why is nothing due?" at 02:00. Area search sends bare codes with
+ * none of that. The docs' `lines[]` on detail is not what v2 replies with.
+ */
+function lineEntry(l) {
+  if (l && typeof l === "object") {
+    return {
+      line: String(l.line ?? l.label ?? ""),
+      label: String(l.label ?? l.line ?? ""),
+      from: l.startTime ?? null,
+      to: l.stopTime ?? null,
+      headers: [l.headerA, l.headerB].filter(Boolean).map(String),
+    };
+  }
+  // A bare code. The label is not derivable — night line 523 is signed N23 —
+  // so show the code EMT gave rather than inventing a prettier one.
+  const code = String(l ?? "");
+  return { line: code, label: code, from: null, to: null, headers: [] };
+}
+
+function parseLines(raw) {
+  const list = Array.isArray(raw.dataLine) ? raw.dataLine : raw.lines;
+  return Array.isArray(list) ? list.map(lineEntry) : [];
+}
+
 function parseDetail(body) {
   const raw = body.data?.[0]?.stops?.[0];
   if (!raw) throw new EmtError("not_found", "EMT returned no stop detail");
@@ -144,7 +173,7 @@ function parseDetail(body) {
     address: raw.postalAddress ?? null,
     // GeoJSON order: [lon, lat]. Kept as-is; Leaflet wants [lat, lon].
     coordinates: raw.geometry?.coordinates ?? null,
-    lines: Array.isArray(raw.lines) ? raw.lines.map(String) : [],
+    lines: parseLines(raw),
   };
 }
 
@@ -186,9 +215,7 @@ export async function getNearbyStops(env, { lat, lon, radius = 500 }) {
     .map((s) => ({
       stopId: String(s.stopId),
       name: s.stopName ?? null,
-      lines: Array.isArray(s.lines)
-        ? s.lines.map((l) => (l && typeof l === "object" ? String(l.line ?? "") : String(l)))
-        : [],
+      lines: Array.isArray(s.lines) ? s.lines.map(lineEntry) : [],
       coordinates: s.geometry?.coordinates ?? null,
     }));
 }

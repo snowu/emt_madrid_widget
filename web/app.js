@@ -17,12 +17,39 @@ const viewListBtn = document.getElementById("view-list");
 const viewMapBtn = document.getElementById("view-map");
 const addDialog = document.getElementById("add-dialog");
 
+// One fetch feeds both: the card glances at the first two, the sheet shows
+// the board. The worker serves both from a single 20s-cached payload.
+const CARD_ARRIVALS = 2;
+const BOARD_ARRIVALS = 8;
+
 let stops = readStops();
 let arrivals = readCache();
 let details = readDetails();
 
 function stopTitle(stop) {
   return stop.label || details[stop.stop_id]?.name || `Stop ${stop.stop_id}`;
+}
+
+/** The lines EMT says serve this stop — the answer to "why is nothing due?".
+ *
+ * Detail gives objects with the signed label and today's service hours; area
+ * search gives bare codes. Devices that cached the old string-only shape are
+ * still out there, so tolerate both rather than blanking their cards.
+ */
+function stopLines(stopId) {
+  return (details[stopId]?.lines ?? []).map((l) =>
+    typeof l === "string" ? { line: l, label: l, from: null, to: null, headers: [] } : l
+  );
+}
+
+function stopMeta(stopId) {
+  const labels = stopLines(stopId).map((l) => l.label);
+  return labels.length ? `Nº ${stopId} · ${labels.join(" · ")}` : `Nº ${stopId}`;
+}
+
+/** A detail with no coordinates is the stub we save when EMT answers 81. */
+function isStub(detail) {
+  return !detail || !detail.coordinates;
 }
 
 function fmtCountdown(seconds) {
@@ -56,29 +83,43 @@ function render() {
       title.textContent = stopTitle(stop);
       const num = document.createElement("span");
       num.className = "stop-num";
-      num.textContent = `Nº ${stop.stop_id}`;
+      num.textContent = stopMeta(stop.stop_id);
       titleWrap.append(title, num);
+
+      // Card taps open the stop; the buttons on it must not also open it.
+      card.addEventListener("click", () => openStop(stop));
 
       const refresh = document.createElement("button");
       refresh.textContent = "↻";
       refresh.title = "Refresh this stop";
-      refresh.addEventListener("click", () => refreshStop(stop.stop_id));
+      refresh.addEventListener("click", (event) => {
+        event.stopPropagation();
+        refreshStop(stop.stop_id);
+      });
 
       const remove = document.createElement("button");
       remove.textContent = "×";
       remove.title = "Remove this stop";
-      remove.addEventListener("click", () => deleteStop(stop.id));
+      remove.addEventListener("click", (event) => {
+        event.stopPropagation();
+        deleteStop(stop.id);
+      });
 
       const list = document.createElement("ul");
       if (!cached) {
         list.innerHTML = `<li class="muted">No data yet</li>`;
       } else if (cached.arrivals.length === 0) {
-        list.innerHTML = `<li class="muted">Nothing due</li>`;
+        // EMT answering "no estimations" is not a failure — at night, or on a
+        // daytime-only bay, it is the true answer. The lines above say which
+        // buses this stop serves, so an empty board reads as "none running".
+        list.innerHTML = `<li class="muted">No buses due right now</li>`;
       } else {
         // Count down from the age of the fetch, not from the raw value, so a
         // cached payload shows the time remaining now rather than when fetched.
         const elapsed = Math.floor((Date.now() - cached.fetchedAt) / 1000);
-        for (const bus of cached.arrivals) {
+        // The card is the glance: next bus and the one after it. The stop
+        // sheet shows the rest of the board.
+        for (const bus of cached.arrivals.slice(0, CARD_ARRIVALS)) {
           const li = document.createElement("li");
           const line = document.createElement("span");
           line.className = "line";
@@ -127,11 +168,14 @@ async function api(path, init = {}) {
 
 async function refreshStop(stopId) {
   try {
-    const payload = await api(`/arrivals?stop=${encodeURIComponent(stopId)}`);
+    const payload = await api(
+      `/arrivals?stop=${encodeURIComponent(stopId)}&limit=${BOARD_ARRIVALS}`
+    );
     arrivals[stopId] = payload;
     writeCache(stopId, payload);
     statusEl.textContent = "";
     render();
+    renderSheetArrivals();
   } catch (err) {
     // Keep whatever is on screen; it is labelled with its age already.
     statusEl.textContent =
@@ -177,10 +221,74 @@ async function resolveStop(stopId) {
 /** Stops saved before names were resolved get their titles filled in. */
 async function hydrateNames() {
   const missing = stops.filter((s) => !details[s.stop_id]);
-  if (missing.length === 0) return;
-  await Promise.all(missing.map((s) => resolveStop(s.stop_id)));
-  render();
-  rebuildMarkers();
+  if (missing.length > 0) {
+    await Promise.all(missing.map((s) => resolveStop(s.stop_id)));
+    render();
+    rebuildMarkers();
+  }
+  healStubs();
+}
+
+/** Fold area-search records into what we know about stops.
+ *
+ * arroundxy carries name, lines and coordinates for stops whose detail record
+ * EMT simply does not have (stop 30 Plaza Castilla is the standing example).
+ * It is strictly better than the empty stub we save on a code 81, so it wins.
+ *
+ * Only saved stops are kept by default: a pan across town returns dozens of
+ * stops per cell, and none of them belong in a device cache until saved.
+ */
+function mergeNearbyDetails(found, { onlySaved = true } = {}) {
+  const saved = savedIds();
+  let healed = false;
+  for (const s of found) {
+    if (onlySaved && !saved.has(s.stopId)) continue;
+    if (!isStub(details[s.stopId]) || !s.coordinates) continue;
+    const detail = {
+      stopId: s.stopId,
+      name: s.name ?? null,
+      address: null,
+      coordinates: s.coordinates,
+      lines: s.lines ?? [],
+    };
+    details[s.stopId] = detail;
+    writeDetail(s.stopId, detail);
+    healed = true;
+  }
+  return healed;
+}
+
+/** Fill in detail-less saved stops by searching around the ones we can place.
+ *
+ * A stop with no detail record has no coordinates of its own to search from,
+ * but stops travel in clusters — a Plaza Castilla bay is metres from another
+ * Plaza Castilla bay we do know. Searching around each known saved stop heals
+ * its blind neighbours without the map ever being opened. Nearby results are
+ * cached in the worker for a day, so this is close to free.
+ */
+async function healStubs() {
+  if (!stops.some((s) => isStub(details[s.stop_id]))) return;
+  const seen = new Set();
+  const origins = [];
+  for (const stop of stops) {
+    const coords = details[stop.stop_id]?.coordinates;
+    if (!coords) continue;
+    const cell = `${coords[0].toFixed(3)},${coords[1].toFixed(3)}`;
+    if (seen.has(cell)) continue;
+    seen.add(cell);
+    origins.push(coords);
+  }
+  if (origins.length === 0) return;
+
+  const results = await Promise.all(
+    origins.map(([lon, lat]) =>
+      api(`/stops/nearby?lat=${lat}&lon=${lon}&radius=${NEARBY_RADIUS}`).catch(() => [])
+    )
+  );
+  if (mergeNearbyDetails(results.flat())) {
+    render();
+    rebuildMarkers();
+  }
 }
 
 /* ---- List / Map views ------------------------------------------------- */
@@ -201,18 +309,26 @@ function popupHtml(stop) {
   title.textContent = stopTitle(stop);
   const num = document.createElement("p");
   num.className = "stop-num";
-  num.textContent = `Nº ${stop.stop_id}`;
+  num.textContent = stopMeta(stop.stop_id);
   const ul = document.createElement("ul");
+
+  const open = document.createElement("button");
+  open.type = "button";
+  open.textContent = "Open";
+  open.addEventListener("click", () => {
+    leafletMap.closePopup();
+    openStop(stop);
+  });
 
   const cached = arrivals[stop.stop_id];
   if (!cached || cached.arrivals.length === 0) {
     const li = document.createElement("li");
     li.className = "muted";
-    li.textContent = cached ? "Nothing due" : "No data yet";
+    li.textContent = cached ? "No buses due right now" : "No data yet";
     ul.append(li);
   } else {
     const elapsed = Math.floor((Date.now() - cached.fetchedAt) / 1000);
-    for (const bus of cached.arrivals) {
+    for (const bus of cached.arrivals.slice(0, CARD_ARRIVALS)) {
       const li = document.createElement("li");
       const line = document.createElement("span");
       line.className = "line";
@@ -226,10 +342,10 @@ function popupHtml(stop) {
     const age = document.createElement("p");
     age.className = "muted";
     age.textContent = `updated ${fmtAge(cached.fetchedAt)}`;
-    wrap.append(title, num, ul, age);
+    wrap.append(title, num, ul, age, open);
     return wrap;
   }
-  wrap.append(title, num, ul);
+  wrap.append(title, num, ul, open);
   return wrap;
 }
 
@@ -326,7 +442,7 @@ function nearbyPopupHtml(s) {
   add.addEventListener("click", async () => {
     add.disabled = true;
     try {
-      await addStopById(s.stopId, null);
+      await addStopById(s.stopId, null, s);
       leafletMap.closePopup();
       statusEl.textContent = "";
     } catch {
@@ -370,6 +486,11 @@ async function loadNearby() {
     if (seq !== nearbySeq) return; // a newer pan superseded this request
     nearbyStops = found;
     nearbyCell = cell;
+    // A pan over a saved-but-detail-less stop is a free chance to learn it.
+    if (mergeNearbyDetails(found)) {
+      render();
+      rebuildMarkers();
+    }
     renderNearbyPins();
   } catch {
     // Map stays usable without the halo of nearby pins.
@@ -404,16 +525,183 @@ async function deleteStop(id) {
   }
 }
 
+
+/* ---- Stop sheet: one saved stop, up close ------------------------------ */
+
+const stopDialog = document.getElementById("stop-dialog");
+const sheetForm = document.getElementById("stop-form");
+const sheetHeading = document.getElementById("sheet-heading");
+const sheetMeta = document.getElementById("sheet-meta");
+const sheetMapEl = document.getElementById("sheet-map");
+const sheetNoMap = document.getElementById("sheet-no-map");
+const sheetArrivals = document.getElementById("sheet-arrivals");
+const sheetAge = document.getElementById("sheet-age");
+const sheetLabel = document.getElementById("sheet-label");
+const sheetService = document.getElementById("sheet-service");
+const sheetServiceWrap = document.getElementById("sheet-service-wrap");
+
+let sheetStop = null;
+let sheetMap = null;
+let sheetMarker = null;
+
+function openStop(stop) {
+  sheetStop = stop;
+  sheetHeading.textContent = stopTitle(stop);
+  sheetMeta.textContent = stopMeta(stop.stop_id);
+  sheetLabel.value = stop.label ?? "";
+  sheetLabel.placeholder = details[stop.stop_id]?.name || "EMT's name";
+  renderSheetArrivals();
+  renderSheetService();
+  stopDialog.showModal();
+  showSheetMap();
+  // A card's numbers can be a minute old; opening the stop is asking for now.
+  refreshStop(stop.stop_id);
+}
+
+/** Leaflet measures its container, so the map can only be built once the
+ *  dialog is actually laid out. */
+function showSheetMap() {
+  const coords = details[sheetStop.stop_id]?.coordinates;
+  sheetMapEl.hidden = !coords;
+  sheetNoMap.hidden = !!coords;
+  if (!coords) return;
+  const latlng = [coords[1], coords[0]]; // GeoJSON is [lon, lat]
+
+  requestAnimationFrame(() => {
+    if (!sheetMap) {
+      sheetMap = L.map(sheetMapEl, {
+        zoomControl: false,
+        attributionControl: false,
+        // A 150px map inside a dialog is a picture, not something to navigate.
+        dragging: false,
+        scrollWheelZoom: false,
+        doubleClickZoom: false,
+        touchZoom: false,
+        keyboard: false,
+      });
+      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 })
+        .addTo(sheetMap);
+      sheetMarker = L.marker(latlng).addTo(sheetMap);
+    } else {
+      sheetMarker.setLatLng(latlng);
+    }
+    sheetMap.invalidateSize();
+    sheetMap.setView(latlng, 17);
+  });
+}
+
+function renderSheetArrivals() {
+  if (!sheetStop || !stopDialog.open) return;
+  const cached = arrivals[sheetStop.stop_id];
+  sheetMeta.textContent = stopMeta(sheetStop.stop_id);
+
+  if (!cached || cached.arrivals.length === 0) {
+    const li = document.createElement("li");
+    li.className = "muted";
+    li.textContent = cached ? "No buses due right now" : "No data yet";
+    sheetArrivals.replaceChildren(li);
+  } else {
+    const elapsed = Math.floor((Date.now() - cached.fetchedAt) / 1000);
+    sheetArrivals.replaceChildren(
+      ...cached.arrivals.map((bus) => {
+        const li = document.createElement("li");
+        const line = document.createElement("span");
+        line.className = "line";
+        line.textContent = bus.line;
+        const eta = document.createElement("span");
+        eta.className = "eta";
+        eta.textContent = fmtCountdown(bus.seconds - elapsed);
+        li.append(line);
+        if (bus.destination) {
+          const dest = document.createElement("span");
+          dest.className = "dest";
+          dest.textContent = bus.destination;
+          li.append(dest);
+        }
+        li.append(eta);
+        return li;
+      })
+    );
+  }
+  sheetAge.textContent = cached ? `updated ${fmtAge(cached.fetchedAt)}` : "never updated";
+}
+
+/** Which lines call here and between what hours — an empty board at 02:00 is
+ *  a stop whose lines stop at 23:45, not a stop that is broken. Only stop
+ *  detail carries the hours; a stop EMT has no detail record for lists its
+ *  lines without them. */
+function renderSheetService() {
+  const lines = stopLines(sheetStop.stop_id);
+  sheetServiceWrap.hidden = lines.length === 0;
+  sheetService.replaceChildren(
+    ...lines.map((l) => {
+      const li = document.createElement("li");
+      const label = document.createElement("span");
+      label.className = "line";
+      label.textContent = l.label;
+      li.append(label);
+      const hours = document.createElement("span");
+      hours.className = "hours";
+      hours.textContent = l.from && l.to ? `${l.from}–${l.to}` : "hours unknown";
+      li.append(hours);
+      if (l.headers?.length) {
+        const route = document.createElement("span");
+        route.className = "route";
+        route.textContent = l.headers.join(" ↔ ");
+        li.append(route);
+      }
+      return li;
+    })
+  );
+}
+
+sheetForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const stop = sheetStop;
+  const label = sheetLabel.value.trim();
+  if (label === (stop.label ?? "")) {
+    stopDialog.close();
+    return;
+  }
+  try {
+    // An empty name is not a blank title: it hands the stop back to EMT's own.
+    const row = await api(`/stops/${encodeURIComponent(stop.id)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ label: label || null }),
+    });
+    stops = stops.map((s) => (s.id === row.id ? row : s));
+    writeStops(stops);
+    render();
+    rebuildMarkers();
+    stopDialog.close();
+  } catch (err) {
+    statusEl.textContent = `Could not rename stop: ${err.message}`;
+  }
+});
+
+document.getElementById("sheet-close").addEventListener("click", () => stopDialog.close());
+document.getElementById("sheet-refresh").addEventListener("click", () =>
+  refreshStop(sheetStop.stop_id)
+);
+document.getElementById("sheet-remove").addEventListener("click", async () => {
+  const id = sheetStop.id;
+  stopDialog.close();
+  await deleteStop(id);
+});
+
 const fab = document.getElementById("fab");
 const addForm = document.getElementById("add-stop");
 
 /** Shared by the dialog form and the map's nearby-pin buttons. */
-async function addStopById(stopId, label) {
+async function addStopById(stopId, label, seed = null) {
   if (!/^[0-9]+$/.test(stopId)) {
     const err = new Error("Stop numbers are digits only.");
     err.kind = "invalid";
     throw err;
   }
+  // Added from a map pin: the area search already told us everything, and it
+  // knows stops whose detail record EMT is missing. Don't throw that away.
+  if (seed) mergeNearbyDetails([seed], { onlySaved: false });
   statusEl.textContent = `Looking up stop ${stopId}…`;
   let detail;
   try {
@@ -479,6 +767,7 @@ document.getElementById("refresh-all").addEventListener("click", refreshAll);
 setInterval(() => {
   if (mapEl.hidden) render();
   tickPopups();
+  renderSheetArrivals();
 }, 1000);
 
 // Coming back to a backgrounded tab is exactly when the data is most stale.

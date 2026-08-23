@@ -14,7 +14,7 @@ async function call(path, init) {
 
 beforeEach(async () => {
   await env.KV.put("emt:token", "cached-token");
-  await env.KV.delete("arrivals:1234");
+  await env.KV.delete("arrivals:v2:1234");
 });
 afterEach(() => vi.restoreAllMocks());
 
@@ -38,6 +38,14 @@ describe("write protection", () => {
 
   it("rejects a DELETE without the app key", async () => {
     const res = await call("/stops/u1", { method: "DELETE" });
+    expect(res.status).toBe(401);
+  });
+
+  it("rejects a PATCH without the app key", async () => {
+    const res = await call("/stops/u1", {
+      method: "PATCH",
+      body: JSON.stringify({ label: "home" }),
+    });
     expect(res.status).toBe(401);
   });
 
@@ -71,6 +79,16 @@ describe("GET /arrivals", () => {
     expect((await res.json()).arrivals).toHaveLength(2);
   });
 
+  it("serves two arrivals by default and the whole board on request", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
+      new Response(JSON.stringify(arrivalsOk), { status: 200 })
+    );
+    expect((await (await call("/arrivals?stop=1234")).json()).arrivals).toHaveLength(2);
+    // Same cached payload, wider slice — no second upstream call.
+    expect((await (await call("/arrivals?stop=1234&limit=20")).json()).arrivals)
+      .toHaveLength(3);
+  });
+
   it("requires a stop parameter", async () => {
     const res = await call("/arrivals");
     expect(res.status).toBe(400);
@@ -89,7 +107,7 @@ describe("GET /arrivals", () => {
 
 describe("GET /stops/:id/detail", () => {
   beforeEach(async () => {
-    await env.KV.delete("detail:1547");
+    await env.KV.delete("detail:v2:31");
   });
 
   it("returns parsed stop detail", async () => {
@@ -98,7 +116,7 @@ describe("GET /stops/:id/detail", () => {
     );
     const res = await call("/stops/1547/detail");
     expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({ name: "PLAZA DE CASTILLA" });
+    expect(await res.json()).toMatchObject({ name: "Plaza Castilla" });
   });
 
   it("serves the second call from cache, making no upstream request", async () => {
@@ -108,7 +126,7 @@ describe("GET /stops/:id/detail", () => {
     await call("/stops/1547/detail");
     const res = await call("/stops/1547/detail");
     expect(spy).toHaveBeenCalledTimes(1);
-    expect((await res.json()).stopId).toBe("1547");
+    expect((await res.json()).stopId).toBe("31");
   });
 
   it("reports an unknown stop as 404", async () => {
@@ -125,7 +143,7 @@ describe("GET /stops/:id/detail", () => {
 
 describe("GET /stops/nearby", () => {
   beforeEach(async () => {
-    await env.KV.delete("nearby:-3.6897:40.4674:500");
+    await env.KV.delete("nearby:v2:-3.6897:40.4674:500");
   });
 
   it("requires lat and lon", async () => {
@@ -151,6 +169,40 @@ describe("GET /stops/nearby", () => {
     const res = await call("/stops/nearby?lat=40.4674&lon=-3.6897");
     expect(spy).toHaveBeenCalledTimes(1);
     expect(await res.json()).toHaveLength(2);
+  });
+});
+
+describe("PATCH /stops/:id", () => {
+  const key = { headers: { "X-App-Key": env.APP_KEY } };
+
+  it("renames a saved stop", async () => {
+    const spy = vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
+      new Response(JSON.stringify([{ id: "u1", stop_id: "30", label: "Home" }]), {
+        status: 200,
+      })
+    );
+    const res = await call("/stops/u1", {
+      method: "PATCH",
+      body: JSON.stringify({ label: "Home" }),
+      ...key,
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ label: "Home" });
+    const [url, init] = spy.mock.calls[0];
+    expect(url).toContain("id=eq.u1");
+    expect(init.method).toBe("PATCH");
+  });
+
+  it("404s when no such row comes back", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
+      new Response(JSON.stringify([]), { status: 200 })
+    );
+    const res = await call("/stops/nope", {
+      method: "PATCH",
+      body: JSON.stringify({ label: "x" }),
+      ...key,
+    });
+    expect(res.status).toBe(404);
   });
 });
 

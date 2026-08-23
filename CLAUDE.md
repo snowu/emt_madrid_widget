@@ -71,10 +71,29 @@ Arrivals   POST v2/transport/busemtmad/stops/{stop_id}/arrives/
                 body:    {stopId, Text_EstimationsRequired_YN: "Y"}
 Stop detail GET  v2/transport/busemtmad/stops/{stop_id}/detail/
                 headers: accessToken  → data[0].stops[0]:
-                {stop, name, postalAddress, geometry.coordinates, lines}
+                {stop, name, postalAddress, geometry.coordinates, dataLine[]}
 Area search GET  v2/transport/busemtmad/stops/arroundxy/{lon}/{lat}/{radius}/
                 headers: accessToken  → data[]: {stopId, stopName, lines[]}
 ```
+
+**Detail's line list is `dataLine[]`, not the `lines[]` the docs show.** A v2
+detail answer has no `lines` key at all, so reading it yields an empty list for
+every stop — which is how the page spent a day claiming no stop had any lines.
+Each `dataLine` entry is one line for *today's* day type (`dayType` FE/SA/LA)
+and carries what the page actually needs:
+
+```
+{line: "005", label: "5", direction, headerA, headerB,
+ startTime: "07:30", stopTime: "23:30", maxFreq, minFreq}
+```
+
+`line` is EMT's internal code, `label` is what the bus is signed with — they
+differ (005→5, 070→70, 523→N23, 833→SE833) and arrivals report the *label*.
+Area search sends the same pair per line but no hours. A bare code cannot be
+turned into a label by trimming zeros; if you only have the code, show it.
+
+`startTime`/`stopTime` are the answer to "how can nothing be due?" — at 02:00 a
+Plaza Castilla bay running 07:30–23:45 is correctly empty, not broken.
 
 `estimateArrive = 888888` is EMT's "running on schedule, no GPS estimate yet"
 sentinel, not a real countdown.
@@ -85,6 +104,9 @@ Arrivals live at `data[0].Arrive[]`. Per bus:
 - `DistanceBus` — metres from the stop (capital D)
 
 Also present: `bus`, `destination`, `geometry.coordinates`, `isHead`.
+
+`StopInfo[]` in the arrivals answer is always empty — with estimations and
+without. It is not a way to learn about a stop.
 
 Quota: ~20,000 calls/day on the generic login. If it ever binds, register an app
 in MobilityLabs for a dedicated `X-ClientId` / `passKey` pair.
@@ -134,6 +156,20 @@ Two arrivals per stop: the next bus and the fallback if you miss it.
 
 Refresh: automatically on load and on tab focus; manually per-card or all at
 once.
+
+5. **Tap a card to open the stop.** The sheet holds a small map of where it is,
+   the full arrival board rather than the card's two, the lines with today's
+   hours, and an editable name. An empty name hands the title back to EMT's.
+6. **Heal detail-less stops from area search.** A stop EMT has no detail record
+   for (code 81) has no name, lines or coordinates of its own. arroundxy knows
+   all three, so on load the page searches around each saved stop it *can*
+   place and fills in the blind ones — stops cluster, so a Plaza Castilla bay
+   is healed by the bay next to it. Results are cached in the worker for a day,
+   so this costs close to nothing.
+
+Cached payload shapes are versioned in the worker's KV keys (`CACHE_VERSION`).
+Bump it when a parsed shape changes, or week-old detail entries keep serving
+the old one.
 
 ## Testing
 

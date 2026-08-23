@@ -49,6 +49,17 @@ export async function addStop(env, { stopId, label = null }) {
   return rows[0];
 }
 
+/** Change a saved stop's label. An empty label falls back to EMT's own name. */
+export async function renameStop(env, id, label) {
+  const rows = await call(env, `${TABLE}?id=eq.${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: { Prefer: "return=representation" },
+    body: JSON.stringify({ label: label || null }),
+  });
+  if (!rows?.[0]) throw new EmtError("not_found", `no saved stop ${id}`);
+  return rows[0];
+}
+
 export async function removeStop(env, id) {
   await call(env, `${TABLE}?id=eq.${encodeURIComponent(id)}`, { method: "DELETE" });
 }
