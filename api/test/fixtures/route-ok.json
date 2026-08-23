@@ -1,0 +1,70 @@
+{
+  "code": "00",
+  "description": "Data recovered OK",
+  "data": {
+    "label": "27",
+    "line": "027",
+    "nameSectionA": "GLORIETA DE EMBAJADORES",
+    "nameSectionB": "PLAZA DE CASTILLA",
+    "itinerary": {
+      "toA": {
+        "type": "FeatureCollection",
+        "features": [
+          {
+            "type": "Feature",
+            "properties": { "id": 31143, "name": "Plaza de Castilla", "stroke": "#a95516" },
+            "geometry": {
+              "type": "MultiLineString",
+              "coordinates": [
+                [
+                  [-3.689279973454776, 40.466440045520834],
+                  [-3.689369974345859, 40.466450044408994]
+                ]
+              ]
+            }
+          },
+          {
+            "type": "Feature",
+            "properties": { "id": 708, "name": "Plaza de Castilla", "stroke": "#a95516" },
+            "geometry": {
+              "type": "MultiLineString",
+              "coordinates": [
+                [
+                  [-3.689439973833546, 40.46645004538297],
+                  [-3.689509972623324, 40.46644004480826],
+                  [-3.689609972967038, 40.4664100455341]
+                ]
+              ]
+            }
+          },
+          {
+            "type": "Feature",
+            "properties": { "id": 900, "name": "degenerate", "stroke": "#a95516" },
+            "geometry": {
+              "type": "MultiLineString",
+              "coordinates": [[[-3.6, 40.4]]]
+            }
+          }
+        ]
+      },
+      "toB": {
+        "type": "FeatureCollection",
+        "features": [
+          {
+            "type": "Feature",
+            "properties": { "id": 55, "name": "back", "stroke": "#a9559c" },
+            "geometry": {
+              "type": "MultiLineString",
+              "coordinates": [
+                [
+                  [-3.7, 40.45],
+                  [-3.701, 40.451]
+                ]
+              ]
+            }
+          }
+        ]
+      }
+    }
+  }
+}

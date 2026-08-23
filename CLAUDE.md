@@ -79,9 +79,26 @@ Line hours GET  v2/transport/busemtmad/lines/{line}/timetable/
                 {dayType, dateIni, dateEnd, first/endTimeService A and B}
 ```
 
+```
+Line route GET  v2/transport/busemtmad/lines/{line}/route/
+                headers: accessToken  → data:
+                {label, line, nameSectionA, nameSectionB,
+                 itinerary: {toA, toB}, stops: {toA, toB}}
+```
+
+The itinerary arrives as ~160 one-segment GeoJSON Features per direction, not
+one line — they are not guaranteed to join end to end, so keep them as separate
+segments and let Leaflet draw the array as one multi-polyline. Coordinates come
+with 15 decimal places; rounding to 6 (~10cm) roughly halves the payload, which
+takes a line from 114KB to about 21KB.
+
+**EMT's own `stroke` is per direction, not per line** (line 27 is `#a95516` out
+and `#a9559c` back) and looks procedurally generated rather than branded, so it
+is not a line identity. The page derives its own colour per line instead, by
+golden-angle hue rotation over the line code, and uses it for both the drawn
+route and every label of that line — same line, same colour, everywhere.
+
 Other line endpoints, verified 2026-08-23 but not used yet:
-`lines/{line}/route/` (~114KB: both directions as GeoJSON MultiLineString with
-EMT's own stroke colours, plus the stops as GeoJSON Points),
 `lines/{line}/stops/{1|2}/` (ordered stop list + frequency bands),
 `lines/info/{yyyymmdd}/` on v1 (index of all 239 lines).
 `lines/{line}/` and `lines/{line}/grouproute/` are 404.
@@ -197,6 +214,16 @@ once.
    place and fills in the blind ones — stops cluster, so a Plaza Castilla bay
    is healed by the bay next to it. Results are cached in the worker for a day,
    so this costs close to nothing.
+
+7. **Line routes on the map.** Every line in a map popup is a chip that draws
+   that line's route in the line's colour — solid out, dashed back — and fits
+   the map to it. Chips below the map name what is drawn and take it down
+   again. The polylines are `interactive: false`: a route running through a
+   stop must not swallow taps meant for the pin.
+8. **Times before you save a stop.** An unsaved stop's popup shows its live
+   arrivals, so you can tell whether it is the right side of the road before
+   adding it. Those arrivals stay in memory — localStorage is the cache for
+   stops you actually keep.
 
 Cached payload shapes are versioned in the worker's KV keys (`CACHE_VERSION`).
 Bump it when a parsed shape changes, or week-old detail entries keep serving

@@ -270,6 +270,71 @@ async function requestTimetable(env, line, token) {
   return res.json();
 }
 
+async function requestRoute(env, line, token) {
+  const res = await emtFetch(`${BASE}v2/transport/busemtmad/lines/${line}/route/`, {
+    method: "GET",
+    headers: { accessToken: token },
+  });
+  if (!res.ok) throw new EmtError("upstream", `EMT line route HTTP ${res.status}`);
+  return res.json();
+}
+
+// EMT sends 15 decimal places — nanometres. Six is ~10cm, which is finer than
+// the map can draw, and cuts the payload roughly in half.
+const COORD_PRECISION = 1e6;
+
+function roundPair(pair) {
+  return [
+    Math.round(pair[0] * COORD_PRECISION) / COORD_PRECISION,
+    Math.round(pair[1] * COORD_PRECISION) / COORD_PRECISION,
+  ];
+}
+
+/** The drawn path of one direction, as segments of [lon, lat] pairs.
+ *
+ * EMT ships the itinerary as ~160 one-segment Features rather than a single
+ * line, and they are not guaranteed to join end to end, so they stay separate
+ * segments: Leaflet draws an array of them as one multi-polyline anyway.
+ */
+function parsePath(collection) {
+  const segments = [];
+  for (const feature of collection?.features ?? []) {
+    const geom = feature.geometry;
+    if (!geom) continue;
+    const lists = geom.type === "MultiLineString" ? geom.coordinates : [geom.coordinates];
+    for (const seg of lists ?? []) {
+      if (Array.isArray(seg) && seg.length > 1) segments.push(seg.map(roundPair));
+    }
+  }
+  return segments;
+}
+
+/** One bus line's route: both directions, drawable. */
+export async function getLineRoute(env, line) {
+  let token = await getToken(env);
+  let body = await requestRoute(env, line, token);
+
+  if (body.code === "80") {
+    token = await getToken(env, { force: true });
+    body = await requestRoute(env, line, token);
+  }
+  if (body.code !== "00") raiseForCode(body.code);
+
+  const raw = body.data;
+  if (!raw?.itinerary) throw new EmtError("not_found", "EMT returned no route");
+  return {
+    line: String(raw.line ?? line),
+    label: String(raw.label ?? raw.line ?? line),
+    nameA: raw.nameSectionA ?? null,
+    nameB: raw.nameSectionB ?? null,
+    // GeoJSON order throughout this API: [lon, lat]. Leaflet wants them flipped.
+    paths: {
+      toA: parsePath(raw.itinerary.toA),
+      toB: parsePath(raw.itinerary.toB),
+    },
+  };
+}
+
 async function requestNearby(env, lat, lon, radius, token) {
   const res = await emtFetch(
     `${BASE}v2/transport/busemtmad/stops/arroundxy/${lon}/${lat}/${radius}/`,

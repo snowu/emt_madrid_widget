@@ -42,6 +42,27 @@ function normaliseLine(l) {
     : l;
 }
 
+/** A stable colour per line, used for its label everywhere and for its route
+ *  on the map — same line, same colour, on every surface.
+ *
+ * Hue comes from the line code by golden-angle rotation, so neighbouring codes
+ * land far apart on the wheel instead of in the same muddy corner. Saturation
+ * and lightness are fixed where they stay readable on the dark card.
+ */
+const lineColorCache = new Map();
+
+function lineColor(code) {
+  const key = String(code ?? "");
+  const hit = lineColorCache.get(key);
+  if (hit) return hit;
+  let hash = 0;
+  for (const ch of key) hash = (hash * 31 + ch.charCodeAt(0)) % 100000;
+  const hue = Math.round((hash * 137.508) % 360);
+  const color = `hsl(${hue} 72% 62%)`;
+  lineColorCache.set(key, color);
+  return color;
+}
+
 /** Which timetable applies today: LA (weekday), SA, or FE (Sunday/holiday).
  *
  * EMT stamps it on every stop detail it sends, which beats deriving it from
@@ -151,6 +172,7 @@ function render() {
           const line = document.createElement("span");
           line.className = "line";
           line.textContent = bus.line;
+          line.style.color = lineColor(bus.line);
           const eta = document.createElement("span");
           eta.className = "eta";
           eta.textContent = fmtCountdown(bus.seconds - elapsed);
@@ -331,6 +353,128 @@ let nearbySeq = 0;
 
 const NEARBY_RADIUS = 500;
 
+/* ---- Line routes on the map -------------------------------------------- */
+
+let routeLayer = null;
+const shownRoutes = new Map(); // line code → { layer, label }
+const routeCache = new Map(); // line code → route payload
+
+/** Draw or erase one line's route, in that line's colour.
+ *
+ * Route geometry is ~25KB a line and never changes during a session, so it is
+ * fetched once and kept; the worker holds it for a week.
+ */
+async function toggleRoute(code, label) {
+  if (!leafletMap) return;
+  if (shownRoutes.has(code)) {
+    routeLayer.removeLayer(shownRoutes.get(code).layer);
+    shownRoutes.delete(code);
+    renderRouteLegend();
+    return;
+  }
+
+  statusEl.textContent = `Loading route ${label}…`;
+  let route = routeCache.get(code);
+  if (!route) {
+    try {
+      route = await api(`/lines/${encodeURIComponent(code)}/route`);
+      routeCache.set(code, route);
+    } catch (err) {
+      statusEl.textContent = `Could not load route ${label}: ${err.message}`;
+      return;
+    }
+  }
+  statusEl.textContent = "";
+  if (shownRoutes.has(code)) return; // toggled off again while loading
+
+  const color = lineColor(label);
+  // featureGroup, not layerGroup: only this one can report its own bounds.
+  const group = L.featureGroup();
+  for (const [direction, segments] of Object.entries(route.paths ?? {})) {
+    if (!segments?.length) continue;
+    // GeoJSON order is [lon, lat]; Leaflet wants [lat, lon]. The way back is
+    // dashed so the two directions stay tellable apart in one colour.
+    const latlngs = segments.map((seg) => seg.map(([lon, lat]) => [lat, lon]));
+    L.polyline(latlngs, {
+      color,
+      weight: 4,
+      opacity: 0.85,
+      dashArray: direction === "toB" ? "6 6" : null,
+      // Decoration, not a target: an interactive line would swallow taps meant
+      // for the stop pins it runs through.
+      interactive: false,
+    }).addTo(group);
+  }
+  group.addTo(routeLayer);
+  shownRoutes.set(code, { layer: group, label });
+  renderRouteLegend();
+
+  // Drawing a route you can only see a tenth of is not showing it. The legend
+  // chip is how you get rid of it again.
+  const bounds = group.getBounds();
+  if (bounds.isValid()) leafletMap.fitBounds(bounds.pad(0.08));
+}
+
+function clearRoutes() {
+  routeLayer?.clearLayers();
+  shownRoutes.clear();
+  renderRouteLegend();
+}
+
+/** Chips naming what is drawn — the only way to tell one route from another
+ *  once several are up, and the way to take them down again. */
+function renderRouteLegend() {
+  const legend = document.getElementById("route-legend");
+  legend.hidden = shownRoutes.size === 0 || mapEl.hidden;
+  legend.replaceChildren(
+    ...(shownRoutes.size > 1 ? [clearRoutesChip()] : []),
+    ...[...shownRoutes].map(([code, { label }]) => {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "route-chip";
+      chip.textContent = `${label} ×`;
+      chip.style.borderColor = lineColor(label);
+      chip.style.color = lineColor(label);
+      chip.title = `Hide route ${label}`;
+      chip.addEventListener("click", () => toggleRoute(code, label));
+      return chip;
+    })
+  );
+}
+
+function clearRoutesChip() {
+  const chip = document.createElement("button");
+  chip.type = "button";
+  chip.className = "route-chip clear";
+  chip.textContent = "Clear all";
+  chip.addEventListener("click", clearRoutes);
+  return chip;
+}
+
+/** The line list inside a popup, each line a button that draws its route. */
+function lineChips(lines) {
+  const wrap = document.createElement("p");
+  wrap.className = "chips";
+  for (const raw of lines ?? []) {
+    const l = normaliseLine(raw);
+    const chip = document.createElement("button");
+    chip.type = "button";
+    // Drawn-or-not is read from the map, never held on the chip: popups are
+    // rebuilt every second by the countdown tick, which would lose it.
+    chip.className = shownRoutes.has(l.line) ? "line-chip on" : "line-chip";
+    chip.textContent = l.label;
+    chip.style.color = lineColor(l.label);
+    chip.style.borderColor = lineColor(l.label);
+    chip.title = `${shownRoutes.has(l.line) ? "Hide" : "Show"} route ${l.label}`;
+    chip.addEventListener("click", (event) => {
+      event.stopPropagation();
+      toggleRoute(l.line, l.label);
+    });
+    wrap.append(chip);
+  }
+  return wrap;
+}
+
 function popupHtml(stop) {
   // Built as DOM, never as a string: line names/labels come from EMT.
   const wrap = document.createElement("div");
@@ -338,7 +482,8 @@ function popupHtml(stop) {
   title.textContent = stopTitle(stop);
   const num = document.createElement("p");
   num.className = "stop-num";
-  num.textContent = stopMeta(stop.stop_id);
+  num.textContent = `Nº ${stop.stop_id}`;
+  const chips = lineChips(stopLines(stop.stop_id));
   const ul = document.createElement("ul");
 
   const open = document.createElement("button");
@@ -362,6 +507,7 @@ function popupHtml(stop) {
       const line = document.createElement("span");
       line.className = "line";
       line.textContent = String(bus.line);
+      line.style.color = lineColor(bus.line);
       const eta = document.createElement("span");
       eta.className = "eta";
       eta.textContent = fmtCountdown(bus.seconds - elapsed);
@@ -371,10 +517,10 @@ function popupHtml(stop) {
     const age = document.createElement("p");
     age.className = "muted";
     age.textContent = `updated ${fmtAge(cached.fetchedAt)}`;
-    wrap.append(title, num, ul, age, open);
+    wrap.append(title, num, chips, ul, age, open);
     return wrap;
   }
-  wrap.append(title, num, ul, open);
+  wrap.append(title, num, chips, ul, open);
   return wrap;
 }
 
@@ -386,6 +532,8 @@ function ensureMap() {
     attribution: "&copy; OpenStreetMap contributors",
   }).addTo(leafletMap);
 
+  // Routes go down first so pins stay clickable on top of them.
+  routeLayer = L.layerGroup().addTo(leafletMap);
   markers = L.layerGroup().addTo(leafletMap);
   nearbyLayer = L.layerGroup().addTo(leafletMap);
   rebuildMarkers();
@@ -421,10 +569,15 @@ function rebuildMarkers() {
 
 /** Re-render any open popup so its countdown ticks like the list. */
 function tickPopups() {
-  if (!markers || mapEl.hidden) return;
-  markers.eachLayer((marker) => {
+  if (mapEl.hidden) return;
+  markers?.eachLayer((marker) => {
     if (marker.isPopupOpen()) {
       marker.setPopupContent(popupHtml(stops.find((s) => s.stop_id === marker.stopId)));
+    }
+  });
+  nearbyLayer?.eachLayer((pin) => {
+    if (pin.isPopupOpen() && pin.nearbyStop) {
+      pin.setPopupContent(nearbyPopupHtml(pin.nearbyStop));
     }
   });
 }
@@ -439,8 +592,10 @@ function showView(view) {
     ensureMap();
     rebuildMarkers();
     renderNearbyPins();
+    renderRouteLegend();
     leafletMap.invalidateSize();
   } else {
+    renderRouteLegend(); // it lives over the map; the list has no use for it
     render(); // the interval skips list renders while the map is up
   }
 }
@@ -451,6 +606,25 @@ function savedIds() {
   return new Set(stops.map((s) => s.stop_id));
 }
 
+/** Arrivals for stops that are not saved, kept in memory only — localStorage
+ *  is the cache for stops you actually keep. undefined = never asked,
+ *  null = asked and EMT did not answer. */
+const previewArrivals = new Map();
+
+async function loadPreviewArrivals(stopId) {
+  if (previewArrivals.has(stopId)) return;
+  previewArrivals.set(stopId, undefined);
+  try {
+    previewArrivals.set(
+      stopId,
+      await api(`/arrivals?stop=${encodeURIComponent(stopId)}&limit=${BOARD_ARRIVALS}`)
+    );
+  } catch {
+    previewArrivals.set(stopId, null);
+  }
+  tickPopups();
+}
+
 function nearbyPopupHtml(s) {
   const wrap = document.createElement("div");
   const title = document.createElement("h3");
@@ -459,12 +633,35 @@ function nearbyPopupHtml(s) {
   num.className = "stop-num";
   num.textContent = `Nº ${s.stopId}`;
   wrap.append(title, num);
-  if (s.lines?.length) {
-    const lines = document.createElement("p");
-    lines.className = "muted";
-    lines.textContent = lineLabels(s.lines);
-    wrap.append(lines);
+  if (s.lines?.length) wrap.append(lineChips(s.lines));
+
+  // What you actually want to know before saving a stop: is a bus coming.
+  const ul = document.createElement("ul");
+  const preview = previewArrivals.get(s.stopId);
+  if (preview === undefined) {
+    ul.innerHTML = `<li class="muted">Checking arrivals…</li>`;
+    loadPreviewArrivals(s.stopId);
+  } else if (preview === null) {
+    ul.innerHTML = `<li class="muted">Could not reach EMT</li>`;
+  } else if (preview.arrivals.length === 0) {
+    ul.innerHTML = `<li class="muted">No buses due right now</li>`;
+  } else {
+    const elapsed = Math.floor((Date.now() - preview.fetchedAt) / 1000);
+    for (const bus of preview.arrivals.slice(0, CARD_ARRIVALS)) {
+      const li = document.createElement("li");
+      const line = document.createElement("span");
+      line.className = "line";
+      line.textContent = bus.line;
+      line.style.color = lineColor(bus.line);
+      const eta = document.createElement("span");
+      eta.className = "eta";
+      eta.textContent = fmtCountdown(bus.seconds - elapsed);
+      li.append(line, eta);
+      ul.append(li);
+    }
   }
+  wrap.append(ul);
+
   const add = document.createElement("button");
   add.type = "button";
   add.textContent = "Add this stop";
@@ -497,7 +694,7 @@ function renderNearbyPins() {
       fillOpacity: 0.9,
     })
       .bindPopup(() => nearbyPopupHtml(s))
-      .addTo(nearbyLayer);
+      .addTo(nearbyLayer).nearbyStop = s; // for popup refresh ticks
   }
 }
 
@@ -642,6 +839,7 @@ function renderSheetArrivals() {
         const line = document.createElement("span");
         line.className = "line";
         line.textContent = bus.line;
+        line.style.color = lineColor(bus.line);
         const eta = document.createElement("span");
         eta.className = "eta";
         eta.textContent = fmtCountdown(bus.seconds - elapsed);
@@ -702,6 +900,7 @@ function renderSheetService() {
       const label = document.createElement("span");
       label.className = "line";
       label.textContent = l.label;
+      label.style.color = lineColor(l.label);
       li.append(label);
 
       const hours = document.createElement("span");

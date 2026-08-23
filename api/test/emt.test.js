@@ -1,7 +1,8 @@
 import { env } from "cloudflare:test";
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { getToken, getArrivals, getStopDetail, getNearbyStops,
-  getLineTimetable } from "../src/emt.js";
+  getLineTimetable,
+  getLineRoute } from "../src/emt.js";
 import { EmtError } from "../src/errors.js";
 import loginOk from "./fixtures/login-ok.json";
 import loginBadPassword from "./fixtures/login-bad-password.json";
@@ -11,6 +12,7 @@ import stopDetailOk from "./fixtures/stop-detail-ok.json";
 import arroundxyOk from "./fixtures/arroundxy-ok.json";
 import timetableNight from "./fixtures/timetable-night.json";
 import timetableDay from "./fixtures/timetable-day.json";
+import routeOk from "./fixtures/route-ok.json";
 
 function mockFetch(body, init = {}) {
   // A fresh Response per call: response bodies are single-use.
@@ -453,5 +455,38 @@ describe("getLineTimetable", () => {
   it("reports a line EMT does not know as not_found", async () => {
     mockFetch({ code: "80", description: "no records", data: [] });
     await expect(getLineTimetable(env, "9999")).rejects.toMatchObject({ kind: "not_found" });
+  });
+});
+
+describe("getLineRoute", () => {
+  beforeEach(async () => {
+    await env.KV.put("emt:token", "cached-token");
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  it("GETs the v2 route URL", async () => {
+    const spy = mockFetch(routeOk);
+    await getLineRoute(env, "027");
+    expect(spy.mock.calls[0][0]).toContain("v2/transport/busemtmad/lines/027/route/");
+  });
+
+  it("flattens both directions into drawable segments", async () => {
+    mockFetch(routeOk);
+    const route = await getLineRoute(env, "027");
+    expect(route).toMatchObject({ line: "027", label: "27", nameB: "PLAZA DE CASTILLA" });
+    expect(route.paths.toA).toHaveLength(2); // the one-point feature is not a line
+    expect(route.paths.toA[1]).toHaveLength(3);
+    expect(route.paths.toB).toHaveLength(1);
+  });
+
+  it("rounds coordinates to about ten centimetres", async () => {
+    mockFetch(routeOk);
+    const { paths } = await getLineRoute(env, "027");
+    expect(paths.toA[0][0]).toEqual([-3.68928, 40.46644]);
+  });
+
+  it("reports a line with no itinerary as not_found", async () => {
+    mockFetch({ code: "00", data: { line: "027" } });
+    await expect(getLineRoute(env, "027")).rejects.toMatchObject({ kind: "not_found" });
   });
 });

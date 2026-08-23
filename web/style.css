@@ -133,6 +133,30 @@ button:active { transform: scale(0.97); }
 
 #map[hidden] { display: none; }
 
+#route-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.5rem;
+}
+
+#route-legend[hidden] { display: none; }
+
+.route-chip, .line-chip {
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  min-height: 32px;
+  padding: 0.2rem 0.7rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.route-chip.clear { color: var(--muted); font-weight: 400; }
+
+.chips { display: flex; flex-wrap: wrap; gap: 0.3rem; margin: 0.35rem 0 0; }
+.line-chip.on { background: rgb(255 255 255 / 0.12); }
+
 .leaflet-popup-content-wrapper,
 .leaflet-popup-tip { background: var(--card); color: var(--fg); }
 
