@@ -1,6 +1,12 @@
 import { env } from "cloudflare:test";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { getBikeStations, stationsNear } from "../src/bikes.js";
+import {
+  getBikeStations,
+  getBikeStationInfo,
+  getBikeStationStatus,
+  mergeBikeStations,
+  stationsNear,
+} from "../src/bikes.js";
 
 // Recorded live from EMT 2026-08-23; two stations, fields left as EMT sends them.
 const stationsOk = {
@@ -117,5 +123,110 @@ describe("stationsNear", () => {
   it("honours the limit", async () => {
     expect(stationsNear(stations, { lat: 40.4168, lon: -3.7038, radius: 20000, limit: 1 }))
       .toHaveLength(1);
+  });
+});
+
+// Recorded live from PBSC's GBFS feed for Madrid, 2026-08-23.
+const gbfsInfo = {
+  data: {
+    stations: [
+      {
+        station_id: "1406",
+        name: "2 - Metro Callao",
+        address: "Calle Miguel Moya nº 1",
+        lat: 40.4204,
+        lon: -3.70569,
+        capacity: 27,
+        short_name: "2",
+      },
+      { station_id: "999", name: "gone tomorrow", lat: 40.4, lon: -3.7, capacity: 10, short_name: "9" },
+    ],
+  },
+};
+
+const gbfsStatus = {
+  data: {
+    stations: [
+      {
+        station_id: "1406",
+        num_bikes_available: 2,
+        num_bikes_disabled: 5,
+        num_docks_available: 22,
+        num_docks_disabled: 0,
+        status: "IN_SERVICE",
+        is_installed: 1,
+        is_renting: 1,
+        is_returning: 1,
+      },
+    ],
+  },
+};
+
+describe("GBFS station feeds", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("reads names, positions and the painted number", async () => {
+    mockFetch(gbfsInfo);
+    const { stations } = await getBikeStationInfo();
+    expect(stations[0]).toEqual({
+      id: "1406",
+      number: "2",
+      name: "2 - Metro Callao",
+      address: "Calle Miguel Moya nº 1",
+      coordinates: [-3.70569, 40.4204],
+      totalBases: 27,
+    });
+  });
+
+  it("keeps rentable and broken bikes apart", async () => {
+    mockFetch(gbfsStatus);
+    const { status } = await getBikeStationStatus();
+    // MobilityLabs would call this 7 bikes; only 2 of them can be rented.
+    expect(status[0]).toMatchObject({
+      id: "1406",
+      bikes: 2,
+      broken: 5,
+      freeBases: 22,
+      renting: true,
+      returning: true,
+      inService: true,
+    });
+  });
+
+  it("treats a station that is not renting as such", async () => {
+    mockFetch({
+      data: {
+        stations: [
+          { station_id: "1", num_bikes_available: 4, status: "IN_SERVICE", is_installed: 1, is_renting: 0, is_returning: 1 },
+        ],
+      },
+    });
+    const { status } = await getBikeStationStatus();
+    expect(status[0]).toMatchObject({ renting: false, returning: true });
+  });
+
+  it("refuses an empty feed rather than emptying the city", async () => {
+    mockFetch({ data: { stations: [] } });
+    await expect(getBikeStationStatus()).rejects.toMatchObject({ kind: "upstream" });
+    mockFetch({ data: { stations: [] } });
+    await expect(getBikeStationInfo()).rejects.toMatchObject({ kind: "upstream" });
+  });
+
+  it("merges on station id, dropping what the other feed does not know", async () => {
+    mockFetch(gbfsInfo);
+    const info = await getBikeStationInfo();
+    vi.restoreAllMocks();
+    mockFetch(gbfsStatus);
+    const status = await getBikeStationStatus();
+
+    const merged = mergeBikeStations(info, status);
+    expect(merged.stations).toHaveLength(1);
+    expect(merged.stations[0]).toMatchObject({
+      id: "1406",
+      name: "2 - Metro Callao",
+      bikes: 2,
+      broken: 5,
+      totalBases: 27,
+    });
   });
 });

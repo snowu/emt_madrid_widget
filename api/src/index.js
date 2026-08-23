@@ -15,7 +15,13 @@ import {
   renameBikeStation,
   removeBikeStation,
 } from "./stops.js";
-import { getBikeStations, stationsNear } from "./bikes.js";
+import {
+  getBikeStations,
+  getBikeStationInfo,
+  getBikeStationStatus,
+  mergeBikeStations,
+  stationsNear,
+} from "./bikes.js";
 import { EmtError, errorResponse } from "./errors.js";
 
 // KV rejects expirationTtl below 60, so the 20s freshness contract is a soft
@@ -24,7 +30,7 @@ const ARRIVALS_KV_TTL = 60;
 const ARRIVALS_FRESH_MS = 20_000;
 // Bump when a cached payload's *shape* changes: old entries would otherwise
 // keep serving the old shape until their TTL runs out (a week, for detail).
-const CACHE_VERSION = "v3";
+const CACHE_VERSION = "v4";
 // Stop names/locations never move. A week of cache is quota-free.
 const DETAIL_KV_TTL = 7 * 24 * 3600;
 // Nearby searches are keyed on a ~110m grid so panning the map reuses cells.
@@ -37,6 +43,8 @@ const ROUTE_KV_TTL = 7 * 24 * 3600;
 // one EMT call a minute serves every station and every area.
 const BIKES_KV_TTL = 60;
 const BIKES_FRESH_MS = 45_000;
+// Names and positions only change when a station is built or moved.
+const BIKE_INFO_KV_TTL = 24 * 3600;
 // Cards want the next bus and the one after it; the stop sheet wants the board.
 const DEFAULT_ARRIVALS = 2;
 const MAX_ARRIVALS = 20;
@@ -97,11 +105,34 @@ async function cachedRoute(env, line) {
   return fresh;
 }
 
+async function cachedBikeInfo(env) {
+  const key = `bikeinfo:${CACHE_VERSION}`;
+  const hit = await env.KV.get(key, "json");
+  if (hit) return hit;
+  const fresh = await getBikeStationInfo();
+  await env.KV.put(key, JSON.stringify(fresh), { expirationTtl: BIKE_INFO_KV_TTL });
+  return fresh;
+}
+
+/** Live stations, preferring the operator's own feed.
+ *
+ * GBFS counts bikes you can actually rent; MobilityLabs counts bikes that are
+ * docked, broken ones included. When GBFS is unreachable the older source is
+ * still better than an empty map, so it stands in — flagged, so the page can
+ * say the counts are the rougher kind.
+ */
 async function cachedBikeStations(env) {
   const key = `bikes:${CACHE_VERSION}`;
   const hit = await env.KV.get(key, "json");
   if (hit && Date.now() - hit.fetchedAt < BIKES_FRESH_MS) return hit;
-  const fresh = await getBikeStations(env);
+
+  let fresh;
+  try {
+    const [info, status] = await Promise.all([cachedBikeInfo(env), getBikeStationStatus()]);
+    fresh = { ...mergeBikeStations(info, status), source: "gbfs" };
+  } catch {
+    fresh = { ...(await getBikeStations(env)), source: "mobilitylabs" };
+  }
   await env.KV.put(key, JSON.stringify(fresh), { expirationTtl: BIKES_KV_TTL });
   return fresh;
 }
@@ -213,7 +244,11 @@ export default {
         const radius = Math.min(3000, Math.max(50, Number(url.searchParams.get("radius")) || 700));
         const all = await cachedBikeStations(env);
         return json(
-          { fetchedAt: all.fetchedAt, stations: stationsNear(all.stations, { lat, lon, radius }) },
+          {
+            fetchedAt: all.fetchedAt,
+            source: all.source,
+            stations: stationsNear(all.stations, { lat, lon, radius }),
+          },
           env
         );
       }

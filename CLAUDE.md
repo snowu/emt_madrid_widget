@@ -312,7 +312,30 @@ Attribution: EMT asks that MobilityLabs be credited as the data source.
 
 ## BiciMAD
 
-Same auth, same host, read-only:
+**Counts come from PBSC's own GBFS feed, not MobilityLabs.** PBSC operates
+BiciMAD and publishes the system feed at
+`https://madrid.publicbikesystem.net/customer/ube/gbfs/v1/en/` — no auth, no
+CORS headers (so the worker proxies it), 30s TTL:
+
+```
+station_information  names, addresses, lat/lon, capacity, short_name
+station_status       num_bikes_available, num_bikes_disabled, num_docks_*,
+                     is_renting, is_returning, is_installed, status
+system_information   679 stations, 8942 ebikes, 0 mechanical
+system_pricing_plans EMPTY — plans: []. No fares here.
+```
+
+**MobilityLabs' `dock_bikes` counts bikes that are docked, not bikes you can
+rent.** Measured 2026-08-23: the two disagree on **227 of 680 stations**, and
+859 bikes city-wide are flagged `num_bikes_disabled`. Metro Callao read 5 bikes
+on MobilityLabs and 0 rentable on GBFS. Station ids are the same namespace in
+both, so the feeds merge on `station_id`. GBFS is the source; MobilityLabs
+stands in when it is unreachable, and the page says so, because its counts are
+the rougher kind.
+
+GBFS is a *publication* spec: it has no write operations at all, by design.
+
+The MobilityLabs BiciMAD endpoints, kept as the fallback:
 
 ```
 Stations GET v2/transport/bicimad/stations/          → 680 stations, one call
@@ -336,13 +359,24 @@ about a fifth of its size (318KB → ~60KB for the city) and inverts
 it. Counts move constantly: KV's 60s floor is the freshness contract, and every
 rendering carries its age.
 
-**The API cannot unlock a bike and knows nothing about your account.** Every
-user, trip, reservation and unlock path is a 404 (`bicimad/user/*`,
-`bicimad/trips/*`, `bicimad/reserve/`, `bicimad/unlock/`, `mobilitylabs/user/info/`).
-MobilityLabs publishes station telemetry only; unlocking runs through BiciMAD's
-own app against PBSC's backend, which is not this API. So no fares, no trip
-history, no spend tracking from here — anything of that sort would have to be
-entered by hand.
+**Nothing public can unlock, reserve, or tell you about your account.** Swept
+69 candidate paths across v1/v2/v3 (`bicimad/user/*`, `trips`, `rents`,
+`reserve`, `reservations`, `unlock`, `bikes`, `tariffs`, `mobilitylabs/user/*`):
+all 404 except `stations/{id}` matching "info" as an id, and every write verb
+on the live family is 405. The MobilityLabs login is an API *developer*
+account — `nameApp: OPENAPI MobilityLabs`, a 20k/day quota counter — with no
+link to a BiciMAD subscription.
+
+PBSC's customer backend does have an account API: `customer/user`,
+`customer/account` and `customer/rentals` on the same host answer **401**, not
+404. It is undocumented and authenticated, so reading a subscriber's rentals,
+charges or suspension would mean logging in as them against a private API.
+Not done, and not to be done without the account holder deciding to.
+
+Aggregate usage *is* available: datos.madrid.es publishes anonymised BiciMAD
+trips 2017-2023 (origin, destination, start, duration, bike id) and station
+status by day and hour since July 2018. Rides over 6h are filtered and bike ids
+are not stable across records.
 
 ## Architecture decisions
 

@@ -1302,7 +1302,7 @@ document.getElementById("refresh-all").addEventListener("click", () => {
 // Re-render every second so countdowns and ages tick without refetching.
 setInterval(() => {
   if (section === "bikes") {
-    bikeAgeEl.textContent = bikeFetchedAt ? `updated ${fmtAge(bikeFetchedAt)}` : "never updated";
+    bikeAgeEl.textContent = bikeAgeText();
     return;
   }
   if (mapEl.hidden) render();
@@ -1347,6 +1347,10 @@ let bikeMarkers = null;
 let bikeCell = null;
 let bikeSeq = 0;
 let myLocation = null;
+// Live counts by station id, from whichever call last saw them: the nearby
+// sweep, or the by-ids lookup that keeps saved stations current even when
+// they are nowhere near the map.
+const bikeById = new Map();
 // Half of using BiciMAD is the other half: arriving somewhere and needing a
 // free dock. Same stations, opposite number.
 let bikeMode = localStorage.getItem("emt:bikes:mode") === "docks" ? "docks" : "bikes";
@@ -1362,6 +1366,8 @@ function wanted(station) {
 /** Bikes or docks — whichever you are short of is the one you care about. */
 function bikeTone(station) {
   if (!station.inService) return "#8b93a7";
+  if (bikeMode === "bikes" && station.renting === false) return "#8b93a7";
+  if (bikeMode === "docks" && station.returning === false) return "#8b93a7";
   const n = wanted(station);
   if (n === 0) return "#ff6b6b";
   if (n <= 2) return "#ffb454";
@@ -1390,11 +1396,30 @@ function bikeCounts(station) {
 
   wrap.append(lead, other);
 
-  if (!station.inService) {
+  // What the operator's feed knows and the old one did not: a station can be
+  // in service but refusing one direction, and docked bikes are not the same
+  // thing as rentable ones.
+  const trouble =
+    !station.inService
+      ? "out of service"
+      : station.renting === false && station.returning === false
+        ? "closed both ways"
+        : station.renting === false
+          ? "not renting"
+          : station.returning === false
+            ? "no returns"
+            : null;
+  if (trouble) {
     const out = document.createElement("span");
     out.className = "count warn";
-    out.textContent = "out of service";
+    out.textContent = trouble;
     wrap.append(out);
+  }
+  if (station.broken > 0) {
+    const broken = document.createElement("span");
+    broken.className = "count muted";
+    broken.textContent = `${station.broken} broken`;
+    wrap.append(broken);
   }
   if (station.metres != null) {
     const far = document.createElement("span");
@@ -1410,6 +1435,7 @@ function bikeCounts(station) {
 function bikeCard(station, saved) {
   const card = document.createElement("article");
   card.className = "stop bike";
+  const known = station.bikes != null;
 
   const titleWrap = document.createElement("div");
   titleWrap.className = "title";
@@ -1436,20 +1462,33 @@ function bikeCard(station, saved) {
   head.className = "head";
   head.append(titleWrap, controls);
 
-  card.append(head, bikeCounts(station));
+  if (known) {
+    card.append(head, bikeCounts(station));
+  } else {
+    // Saved but not yet looked up: "0 bikes" would be a lie, "unknown" is not.
+    const pending = document.createElement("p");
+    pending.className = "muted";
+    pending.textContent = "Counts not loaded yet";
+    card.append(head, pending);
+  }
   return card;
 }
 
 function renderBikes() {
   if (section !== "bikes") return;
-  const byId = new Map(bikeNear.stations?.map((s) => [s.id, s]) ?? []);
+  for (const s of bikeNear.stations ?? []) bikeById.set(s.id, s);
   const savedIdSet = new Set(bikeSaved.map((s) => s.station_id));
 
   const blocks = [];
   if (bikeSaved.length) {
     blocks.push(sectionHeading("Saved"));
     for (const row of bikeSaved) {
-      const station = byId.get(row.station_id) ?? { id: row.station_id, number: row.station_id, bikes: 0, freeBases: 0, inService: true };
+      const station = bikeById.get(row.station_id) ?? {
+        id: row.station_id,
+        number: row.station_id,
+        bikes: null,
+        inService: true,
+      };
       blocks.push(bikeCard(station, row));
     }
   }
@@ -1465,8 +1504,17 @@ function renderBikes() {
   for (const station of nearby.slice(0, 15)) blocks.push(bikeCard(station, null));
 
   bikesEl.replaceChildren(...blocks);
-  bikeAgeEl.textContent = bikeFetchedAt ? `updated ${fmtAge(bikeFetchedAt)}` : "never updated";
+  bikeAgeEl.textContent = bikeAgeText();
   bikeAgeEl.hidden = section !== "bikes";
+}
+
+/** Counts carry their age, and say when they are the rougher kind. */
+function bikeAgeText() {
+  if (!bikeFetchedAt) return "never updated";
+  const age = `updated ${fmtAge(bikeFetchedAt)}`;
+  return bikeNear.source === "mobilitylabs"
+    ? `${age} · counts include broken bikes (operator feed unreachable)`
+    : age;
 }
 
 function sectionHeading(text) {
@@ -1484,13 +1532,31 @@ async function loadBikesNear(lat, lon, { force = false } = {}) {
     const payload = await api(`/bikes/nearby?lat=${lat}&lon=${lon}&radius=${BIKE_RADIUS}`);
     if (seq !== bikeSeq) return;
     bikeNear = payload;
+    for (const st of payload.stations ?? []) bikeById.set(st.id, st);
     bikeFetchedAt = payload.fetchedAt;
     bikeCell = cell;
     writeBikeNear(payload);
     renderBikes();
     rebuildBikeMarkers();
+    refreshSavedBikeCounts();
   } catch (err) {
     statusEl.textContent = `Could not load bike stations: ${err.message}`;
+  }
+}
+
+/** Saved stations are the ones you check without looking at a map, so their
+ *  counts cannot depend on being near the view. */
+async function refreshSavedBikeCounts() {
+  if (bikeSaved.length === 0) return;
+  const ids = bikeSaved.map((s) => s.station_id).join(",");
+  try {
+    const payload = await api(`/bikes/stations?ids=${encodeURIComponent(ids)}`);
+    for (const s of payload.stations ?? []) bikeById.set(s.id, s);
+    bikeFetchedAt = payload.fetchedAt ?? bikeFetchedAt;
+    renderBikes();
+    rebuildBikeMarkers();
+  } catch {
+    // The cards say "not loaded yet" rather than inventing a zero.
   }
 }
 
@@ -1505,6 +1571,7 @@ async function loadBikeSaved() {
       "Saved bike stations need supabase/bike_stations.sql run once — everything else works.";
   }
   renderBikes();
+  refreshSavedBikeCounts();
 }
 
 async function toggleBikeSaved(station, saved) {
