@@ -116,12 +116,16 @@ button:active { transform: scale(0.97); }
 #bike-trips-open { min-height: 36px; padding: 0.3rem 0.7rem; font-size: 0.85rem; }
 
 .trip-results { display: flex; flex-direction: column; gap: 0.5rem; }
+.trip-view-toggle { display: flex; gap: 0.35rem; margin: 0.65rem 0 0; }
+.trip-view-toggle button { flex: 1; min-height: 38px; }
+.trip-view-toggle button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); background: #17212b; }
 .trip-group {
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--bg);
   overflow: hidden;
 }
+.trip-group.noteworthy, .trip-card.noteworthy { border-color: #8c6631; }
 .trip-group summary {
   display: flex;
   align-items: center;
@@ -135,6 +139,13 @@ button:active { transform: scale(0.97); }
 .trip-group summary small { color: var(--muted); font-size: 0.72rem; }
 .copy-bike { min-height: 34px; width: 38px; padding: 0; flex: none; }
 .trip-rows { border-top: 1px solid var(--line); }
+.trip-card { border: 1px solid var(--line); border-radius: 10px; background: var(--bg); overflow: hidden; }
+.trip-card-head { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 0.6rem; padding: 0.45rem 0.65rem 0; }
+.trip-badges { display: flex; flex-wrap: wrap; gap: 0.25rem; color: #ffb454; font-size: 0.7rem; }
+.trip-badges:not(:empty) > * { display: inline; }
+.bike-rating { display: flex; align-items: center; gap: 0.05rem; padding: 0.3rem 0.55rem; }
+.bike-rating button { min-height: 30px; min-width: 30px; padding: 0; border: 0; background: transparent; color: #697286; font-size: 1.2rem; }
+.bike-rating button.rated { color: #ffbf3f; }
 .trip-row {
   display: grid;
   grid-template-columns: 1fr auto;

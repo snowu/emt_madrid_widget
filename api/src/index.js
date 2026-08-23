@@ -14,6 +14,8 @@ import {
   addBikeStation,
   renameBikeStation,
   removeBikeStation,
+  listBikeRatings,
+  rateBike,
 } from "./stops.js";
 import {
   getBikeStations,
@@ -52,7 +54,7 @@ const MAX_ARRIVALS = 20;
 function cors(env) {
   return {
     "access-control-allow-origin": env.ALLOWED_ORIGIN,
-    "access-control-allow-methods": "GET,POST,PATCH,DELETE,OPTIONS",
+    "access-control-allow-methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
     "access-control-allow-headers": "content-type,authorization",
   };
 }
@@ -253,6 +255,23 @@ export default {
           return json({ error: "not a valid bike number" }, env, 400);
         }
         return json(await getBikeTrips(env, { page, bikeNumber }), env);
+      }
+
+      if (pathname === "/bikes/ratings" && method === "GET") {
+        const token = bearerToken(request);
+        await authenticatedUser(env, request);
+        return json(await listBikeRatings(env, token), env);
+      }
+
+      const bikeRating = pathname.match(/^\/bikes\/ratings\/(\d+)$/);
+      if (bikeRating && method === "PUT") {
+        const token = bearerToken(request);
+        await authenticatedUser(env, request);
+        const body = await request.json();
+        return json(await rateBike(env, token, {
+          bikeNumber: bikeRating[1],
+          rating: body.rating,
+        }), env);
       }
 
       if (pathname === "/bikes/stations" && method === "GET") {

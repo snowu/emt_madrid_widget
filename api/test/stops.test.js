@@ -1,6 +1,12 @@
 import { env } from "cloudflare:test";
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { listStops, addStop, removeStop } from "../src/stops.js";
+import {
+  listStops,
+  addStop,
+  removeStop,
+  listBikeRatings,
+  rateBike,
+} from "../src/stops.js";
 
 const token = "test-user-token";
 
@@ -74,5 +80,29 @@ describe("removeStop", () => {
     const [url, init] = spy.mock.calls[0];
     expect(init.method).toBe("DELETE");
     expect(url).toContain("id=eq.u1");
+  });
+});
+
+describe("bike ratings", () => {
+  it("lists only the columns needed by the UI", async () => {
+    const spy = mockFetch([{ bike_number: "18302", rating: 4 }]);
+    await expect(listBikeRatings(env, token)).resolves.toHaveLength(1);
+    expect(spy.mock.calls[0][0]).toContain("bike_ratings?select=bike_number,rating,updated_at");
+  });
+
+  it("normalizes the displayed number and upserts the rating", async () => {
+    const spy = mockFetch([{ bike_number: "18302", rating: 5 }]);
+    await rateBike(env, token, { bikeNumber: "00018302", rating: 5 });
+    const [url, init] = spy.mock.calls[0];
+    expect(url).toContain("on_conflict=user_id,bike_number");
+    expect(init.headers.Prefer).toContain("resolution=merge-duplicates");
+    expect(JSON.parse(init.body)).toMatchObject({ bike_number: "18302", rating: 5 });
+  });
+
+  it("rejects ratings outside 1–5 before calling Supabase", async () => {
+    const spy = mockFetch([]);
+    await expect(rateBike(env, token, { bikeNumber: "18302", rating: 6 }))
+      .rejects.toMatchObject({ kind: "not_found" });
+    expect(spy).not.toHaveBeenCalled();
   });
 });

@@ -175,6 +175,10 @@
         <h2>Trip history</h2>
         <p class="muted">Leave the bike number empty to inspect all rides on a page.</p>
         <input id="bike-trips-number" inputmode="numeric" autocomplete="off" placeholder="Bike number (optional)" />
+        <div class="trip-view-toggle" role="group" aria-label="Trip display">
+          <button type="button" id="bike-trips-chronological" aria-pressed="true">Chronological</button>
+          <button type="button" id="bike-trips-grouped" aria-pressed="false">Group by bike</button>
+        </div>
         <p id="bike-trips-status" class="muted" role="status"></p>
         <div id="bike-trips-results" class="trip-results"></div>
         <details id="bike-trips-fields" hidden>

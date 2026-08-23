@@ -1535,6 +1535,11 @@ const bikeTripsNumber = document.getElementById("bike-trips-number");
 const bikeTripsStatus = document.getElementById("bike-trips-status");
 const bikeTripsResults = document.getElementById("bike-trips-results");
 const bikeTripsFields = document.getElementById("bike-trips-fields");
+const bikeTripsChronological = document.getElementById("bike-trips-chronological");
+const bikeTripsGrouped = document.getElementById("bike-trips-grouped");
+let loadedBikeTrips = [];
+let groupBikeTrips = false;
+const bikeRatings = new Map();
 
 function euro(value) {
   const numeric = Number(value);
@@ -1561,23 +1566,58 @@ function renderTripRow(trip) {
     penalty.textContent = `Penalty: ${trip.penaltyCount || 0} · ${euro(trip.penaltyAmount) ?? trip.penaltyAmount ?? 0}`;
     row.append(penalty);
   }
+  if (trip.lockFailed || trip.dockIncident || trip.incorrectDockBlock || trip.forcedClosed) {
+    const incident = document.createElement("span");
+    incident.className = "warn";
+    incident.textContent = trip.lockFailed ? "Lock failed" : "Docking issue recorded";
+    row.append(incident);
+  }
   return row;
 }
 
-function renderBikeTripGroup(bikeNumber, trips) {
-  const group = document.createElement("details");
-  group.className = "trip-group";
-  const summary = document.createElement("summary");
-  const heading = document.createElement("span");
-  const name = document.createElement("strong");
-  name.textContent = `Bike ${bikeNumber}`;
-  const total = trips.reduce((sum, trip) => {
-    const cost = Number(trip.cost);
-    return sum + (Number.isFinite(cost) ? cost : 0);
-  }, 0);
-  const meta = document.createElement("small");
-  meta.textContent = `${trips.length} trip${trips.length === 1 ? "" : "s"} · ${euro(total)}`;
-  heading.append(name, meta);
+function hasTripIssue(trip) {
+  return Boolean(Number(trip.penaltyCount) || Number(trip.penaltyAmount) ||
+    trip.lockFailed || trip.dockIncident || trip.incorrectDockBlock || trip.forcedClosed);
+}
+
+function ratingControl(bikeNumber) {
+  const control = document.createElement("div");
+  control.className = "bike-rating";
+  control.setAttribute("role", "group");
+  control.setAttribute("aria-label", `Rate bike ${bikeNumber}`);
+  const current = bikeRatings.get(bikeNumber) || 0;
+  for (let rating = 1; rating <= 5; rating += 1) {
+    const star = document.createElement("button");
+    star.type = "button";
+    star.className = rating <= current ? "rated" : "";
+    star.textContent = rating <= current ? "★" : "☆";
+    star.title = `${rating} star${rating === 1 ? "" : "s"}`;
+    star.setAttribute("aria-label", `Rate bike ${bikeNumber} ${star.title}`);
+    star.addEventListener("click", async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      [...control.children].forEach((button, index) => {
+        button.textContent = index < rating ? "★" : "☆";
+        button.classList.toggle("rated", index < rating);
+      });
+      try {
+        await api(`/bikes/ratings/${encodeURIComponent(bikeNumber)}`, {
+          method: "PUT",
+          body: JSON.stringify({ rating }),
+        });
+        bikeRatings.set(bikeNumber, rating);
+        bikeTripsStatus.textContent = `Bike ${bikeNumber} rated ${rating}/5`;
+      } catch (err) {
+        bikeTripsStatus.textContent = `Could not save rating: ${err.message}`;
+        renderBikeTrips();
+      }
+    });
+    control.append(star);
+  }
+  return control;
+}
+
+function copyBikeButton(bikeNumber) {
   const copy = document.createElement("button");
   copy.type = "button";
   copy.className = "copy-bike";
@@ -1594,12 +1634,79 @@ function renderBikeTripGroup(bikeNumber, trips) {
       bikeTripsStatus.textContent = `Bike number: ${bikeNumber}`;
     }
   });
-  summary.append(heading, copy);
+  return copy;
+}
+
+function renderBikeTripGroup(bikeNumber, trips) {
+  const group = document.createElement("details");
+  group.className = `trip-group${trips.length > 1 || trips.some(hasTripIssue) ? " noteworthy" : ""}`;
+  const summary = document.createElement("summary");
+  const heading = document.createElement("span");
+  const name = document.createElement("strong");
+  name.textContent = `Bike ${bikeNumber}`;
+  const total = trips.reduce((sum, trip) => {
+    const cost = Number(trip.cost);
+    return sum + (Number.isFinite(cost) ? cost : 0);
+  }, 0);
+  const meta = document.createElement("small");
+  meta.textContent = `${trips.length} trip${trips.length === 1 ? "" : "s"} · ${euro(total)}`;
+  heading.append(name, meta);
+  summary.append(heading, copyBikeButton(bikeNumber));
   const rows = document.createElement("div");
   rows.className = "trip-rows";
-  rows.replaceChildren(...trips.map(renderTripRow));
+  rows.replaceChildren(ratingControl(bikeNumber), ...trips.map(renderTripRow));
   group.append(summary, rows);
   return group;
+}
+
+function renderChronologicalTrip(trip, counts) {
+  const bikeNumber = String(trip.bikeNumber ?? "unknown").replace(/^0+(?=\d)/, "");
+  const card = document.createElement("article");
+  card.className = `trip-card${counts.get(bikeNumber) > 1 || hasTripIssue(trip) ? " noteworthy" : ""}`;
+  const head = document.createElement("div");
+  head.className = "trip-card-head";
+  const title = document.createElement("strong");
+  title.textContent = `Bike ${bikeNumber}`;
+  const badges = document.createElement("span");
+  badges.className = "trip-badges";
+  const badge = (text) => {
+    const item = document.createElement("span");
+    item.textContent = text;
+    badges.append(item);
+  };
+  if (counts.get(bikeNumber) > 1) badge(`${counts.get(bikeNumber)} rides`);
+  if (Number(trip.penaltyCount) || Number(trip.penaltyAmount)) badge("Penalty");
+  if (trip.lockFailed) badge("Lock failed");
+  else if (trip.dockIncident || trip.incorrectDockBlock || trip.forcedClosed) badge("Dock issue");
+  head.append(title, badges, copyBikeButton(bikeNumber));
+  card.append(head, renderTripRow(trip), ratingControl(bikeNumber));
+  return card;
+}
+
+function renderBikeTrips() {
+  const counts = new Map();
+  for (const trip of loadedBikeTrips) {
+    const number = String(trip.bikeNumber ?? "unknown").replace(/^0+(?=\d)/, "");
+    counts.set(number, (counts.get(number) || 0) + 1);
+  }
+  if (!groupBikeTrips) {
+    bikeTripsResults.replaceChildren(...loadedBikeTrips.map((trip) => renderChronologicalTrip(trip, counts)));
+    return;
+  }
+  const grouped = new Map();
+  for (const trip of loadedBikeTrips) {
+    const number = String(trip.bikeNumber ?? "unknown").replace(/^0+(?=\d)/, "");
+    if (!grouped.has(number)) grouped.set(number, []);
+    grouped.get(number).push(trip);
+  }
+  bikeTripsResults.replaceChildren(...[...grouped].map(([number, trips]) => renderBikeTripGroup(number, trips)));
+}
+
+async function loadBikeRatings() {
+  const rows = await api("/bikes/ratings");
+  bikeRatings.clear();
+  for (const row of rows) bikeRatings.set(String(row.bike_number).replace(/^0+(?=\d)/, ""), row.rating);
+  if (loadedBikeTrips.length) renderBikeTrips();
 }
 
 async function loadBikeTrips() {
@@ -1634,17 +1741,11 @@ async function loadBikeTrips() {
       }
     }
 
-    const grouped = new Map();
-    for (const trip of allTrips) {
-      const number = String(trip.bikeNumber ?? "unknown").replace(/^0+(?=\d)/, "");
-      if (!grouped.has(number)) grouped.set(number, []);
-      grouped.get(number).push(trip);
-    }
-    bikeTripsResults.replaceChildren(
-      ...[...grouped].map(([number, trips]) => renderBikeTripGroup(number, trips))
-    );
+    loadedBikeTrips = allTrips;
+    renderBikeTrips();
+    const uniqueBikes = new Set(allTrips.map((trip) => trip.bikeNumber)).size;
     bikeTripsStatus.textContent = allTrips.length
-      ? `${allTrips.length} trips · ${grouped.size} bikes · ${pages} pages`
+      ? `${allTrips.length} trips · ${uniqueBikes} bikes · ${pages} pages`
       : `No matching rides across ${pages} pages`;
     bikeTripsFields.hidden = fields.size === 0;
     bikeTripsFields.querySelector("code").textContent = [...fields].sort().join(", ");
@@ -1657,6 +1758,9 @@ bikeTripsOpen.addEventListener("click", () => {
   bikeTripsStatus.textContent = "";
   bikeTripsResults.replaceChildren();
   bikeTripsDialog.showModal();
+  void loadBikeRatings().catch((err) => {
+    bikeTripsStatus.textContent = `Ratings unavailable: ${err.message}`;
+  });
   void loadBikeTrips();
 });
 bikeTripsForm.addEventListener("submit", (event) => {
@@ -1664,6 +1768,18 @@ bikeTripsForm.addEventListener("submit", (event) => {
   void loadBikeTrips();
 });
 document.getElementById("bike-trips-close").addEventListener("click", () => bikeTripsDialog.close());
+bikeTripsChronological.addEventListener("click", () => {
+  groupBikeTrips = false;
+  bikeTripsChronological.setAttribute("aria-pressed", "true");
+  bikeTripsGrouped.setAttribute("aria-pressed", "false");
+  renderBikeTrips();
+});
+bikeTripsGrouped.addEventListener("click", () => {
+  groupBikeTrips = true;
+  bikeTripsChronological.setAttribute("aria-pressed", "false");
+  bikeTripsGrouped.setAttribute("aria-pressed", "true");
+  renderBikeTrips();
+});
 
 const bikeModeEl = document.getElementById("bike-mode");
 const modeBikes = document.getElementById("mode-bikes");

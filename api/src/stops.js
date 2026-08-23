@@ -2,6 +2,7 @@ import { EmtError } from "./errors.js";
 
 const TABLE = "bus_stops";
 const BIKE_TABLE = "bike_stations";
+const BIKE_RATING_TABLE = "bike_ratings";
 
 function headers(env, accessToken, extra = {}) {
   // The publishable/anon key identifies the project. The caller's JWT carries
@@ -103,4 +104,32 @@ export async function renameBikeStation(env, accessToken, id, label) {
 
 export async function removeBikeStation(env, accessToken, id) {
   await call(env, accessToken, `${BIKE_TABLE}?id=eq.${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+/* ---- Personal bike ratings -------------------------------------------- */
+
+export async function listBikeRatings(env, accessToken) {
+  return call(env, accessToken,
+    `${BIKE_RATING_TABLE}?select=bike_number,rating,updated_at&order=updated_at.desc`);
+}
+
+export async function rateBike(env, accessToken, { bikeNumber, rating }) {
+  const normalized = String(bikeNumber ?? "").replace(/^0+(?=\d)/, "");
+  if (!/^\d+$/.test(normalized)) {
+    throw new EmtError("not_found", `not a valid bike number: ${bikeNumber}`);
+  }
+  if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
+    throw new EmtError("not_found", "rating must be an integer from 1 to 5");
+  }
+  const rows = await call(env, accessToken,
+    `${BIKE_RATING_TABLE}?on_conflict=user_id,bike_number`, {
+      method: "POST",
+      headers: { Prefer: "resolution=merge-duplicates,return=representation" },
+      body: JSON.stringify({
+        bike_number: normalized,
+        rating,
+        updated_at: new Date().toISOString(),
+      }),
+    });
+  return rows[0];
 }

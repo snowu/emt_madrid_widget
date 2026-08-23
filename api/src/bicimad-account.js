@@ -124,6 +124,10 @@ function internalBikeId(value) {
   return shown && /^\d+$/.test(shown) ? shown.padStart(8, "0") : shown;
 }
 
+function setFlag(value) {
+  return value === true || value === 1 || value === "1" || value === "true";
+}
+
 function tripSummary(trip) {
   const penalty = trip?.penalty && typeof trip.penalty === "object" ? trip.penalty : {};
   const extra = trip?.extrainfo && typeof trip.extrainfo === "object" ? trip.extrainfo : {};
@@ -143,6 +147,10 @@ function tripSummary(trip) {
     penaltyTimestamps: penalty.penalty_ts ?? {},
     extraAmount: extra.amount ?? null,
     extraDate: extra.date ?? null,
+    lockFailed: setFlag(trip?.LockFailed),
+    dockIncident: setFlag(trip?.incident_in_dock),
+    incorrectDockBlock: setFlag(trip?.incorrect_dock_block),
+    forcedClosed: setFlag(trip?.forced_closed_PBSC_Limit),
   };
 }
 
