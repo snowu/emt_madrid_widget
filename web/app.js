@@ -13,6 +13,11 @@ import {
 } from "./cache.js";
 
 const API = "https://emt-arrivals.zancato-t.workers.dev";
+const THEME_KEY = "emt:theme";
+const savedTheme = localStorage.getItem(THEME_KEY);
+let themeChoice = ["light", "dark"].includes(savedTheme) ? savedTheme : "system";
+if (themeChoice === "system") document.documentElement.removeAttribute("data-theme");
+else document.documentElement.dataset.theme = themeChoice;
 let authClient = null;
 let authSession = null;
 let authUser = null;
@@ -32,6 +37,31 @@ const authMessage = document.getElementById("auth-message");
 const accountMenu = document.getElementById("account-menu");
 const accountMenuEmail = document.getElementById("account-menu-email");
 const accountSignout = document.getElementById("account-signout");
+const themeButtons = [...document.querySelectorAll("[data-theme-choice]")];
+
+function setTheme(choice) {
+  themeChoice = ["light", "dark"].includes(choice) ? choice : "system";
+  if (themeChoice === "system") {
+    document.documentElement.removeAttribute("data-theme");
+    localStorage.removeItem(THEME_KEY);
+  } else {
+    document.documentElement.dataset.theme = themeChoice;
+    localStorage.setItem(THEME_KEY, themeChoice);
+  }
+  for (const button of themeButtons) {
+    button.setAttribute("aria-pressed", String(button.dataset.themeChoice === themeChoice));
+  }
+  for (const meta of document.querySelectorAll('meta[name="theme-color"]')) {
+    meta.content = themeChoice === "system"
+      ? (meta.media.includes("light") ? "#f4f6fa" : "#12141a")
+      : (themeChoice === "light" ? "#f4f6fa" : "#12141a");
+  }
+}
+
+for (const button of themeButtons) {
+  button.addEventListener("click", () => setTheme(button.dataset.themeChoice));
+}
+setTheme(themeChoice);
 
 // One fetch feeds both: the card glances at the first two, the sheet shows
 // the board. The worker serves both from a single 20s-cached payload.
@@ -1481,7 +1511,6 @@ const bikesEl = document.getElementById("bikes");
 const bikeMapEl = document.getElementById("bike-map");
 const bikeAgeEl = document.getElementById("bike-age");
 const locateBtn = document.getElementById("locate");
-const titleEl = document.getElementById("title");
 const menuBuses = document.getElementById("menu-buses");
 const menuBikes = document.getElementById("menu-bikes");
 const bikeAccountEl = document.getElementById("bike-account");
@@ -2307,7 +2336,7 @@ function showSection(next) {
   if (next !== section) closeFullscreenMap();
   section = next;
   const bikes = next === "bikes";
-  titleEl.textContent = bikes ? "BiciMAD" : "Buses";
+  document.title = bikes ? "BiciMAD" : "Buses";
   menuBuses.setAttribute("aria-selected", String(!bikes));
   menuBikes.setAttribute("aria-selected", String(bikes));
   fab.hidden = bikes || !authSession;

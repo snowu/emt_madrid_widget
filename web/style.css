@@ -24,7 +24,7 @@
 }
 
 @media (prefers-color-scheme: light) {
-  :root {
+  :root:not([data-theme="dark"]) {
     color-scheme: light;
     --bg: #f4f6fa;
     --card: #fff;
@@ -45,6 +45,28 @@
     --noteworthy: #bd7923;
     --marker-ring: #111827;
   }
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f4f6fa;
+  --card: #fff;
+  --fg: #18202d;
+  --muted: #657084;
+  --accent: #0878d1;
+  --accent-ink: #fff;
+  --line: #d5dbe5;
+  --separator: #e5e9f0;
+  --active: #edf3fa;
+  --selected-wash: rgb(8 120 209 / 0.1);
+  --success: #087d3d;
+  --warning: #a65a00;
+  --danger: #c73535;
+  --danger-soft: #b52f3a;
+  --star: #a86600;
+  --rating-off: #929baa;
+  --noteworthy: #bd7923;
+  --marker-ring: #111827;
 }
 
 * { box-sizing: border-box; }
@@ -70,7 +92,7 @@ header {
 
 h1 { font-size: 1.25rem; margin: 0; }
 
-#auth-button { font-size: 0.85rem; padding-inline: 0.7rem; }
+#auth-button { margin-right: auto; font-size: 0.85rem; padding-inline: 0.7rem; }
 
 #auth-button[aria-label="Open account menu"] {
   width: var(--tap);
@@ -659,6 +681,15 @@ dialog::backdrop { background: rgb(0 0 0 / 0.55); }
 }
 
 #account-menu-email { overflow-wrap: anywhere; }
+
+.theme-settings h3 { margin: 0 0 0.45rem; font-size: 0.85rem; color: var(--muted); }
+#theme-selector { width: 100%; }
+#theme-selector button { flex: 1; min-width: 0; padding-inline: 0.35rem; font-size: 0.85rem; }
+#theme-selector button[aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
 
 #account-signout {
   width: 100%;

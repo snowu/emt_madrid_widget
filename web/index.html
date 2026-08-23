@@ -17,7 +17,6 @@
   </head>
   <body>
     <header>
-      <h1 id="title">Buses</h1>
       <button id="auth-button" type="button" aria-label="Account">Sign in</button>
       <button id="refresh-all" type="button" aria-label="Refresh all" title="Refresh all">↻</button>
       <nav id="view-toggle" class="segmented" aria-label="View">
@@ -105,6 +104,14 @@
           <button type="submit" aria-label="Close account menu" title="Close">×</button>
         </div>
         <p id="account-menu-email" class="muted"></p>
+        <section class="theme-settings" aria-labelledby="theme-title">
+          <h3 id="theme-title">Appearance</h3>
+          <div id="theme-selector" class="segmented" role="group" aria-label="Color theme">
+            <button type="button" data-theme-choice="system" aria-pressed="true">System</button>
+            <button type="button" data-theme-choice="light" aria-pressed="false">Light</button>
+            <button type="button" data-theme-choice="dark" aria-pressed="false">Dark</button>
+          </div>
+        </section>
         <button id="account-signout" class="danger" type="button">Sign out</button>
       </form>
     </dialog>
