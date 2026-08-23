@@ -16,13 +16,18 @@
   </head>
   <body>
     <header>
-      <h1>Buses</h1>
+      <h1 id="title">Buses</h1>
       <button id="refresh-all" type="button" aria-label="Refresh all" title="Refresh all">↻</button>
       <nav id="view-toggle" class="segmented" aria-label="View">
         <button id="view-list" type="button" aria-selected="true">List</button>
         <button id="view-map" type="button" aria-selected="false">Map</button>
       </nav>
     </header>
+
+    <nav id="section-menu" class="segmented" aria-label="Section">
+      <button id="menu-buses" type="button" aria-selected="true">🚌 Buses</button>
+      <button id="menu-bikes" type="button" aria-selected="false">🚲 BiciMAD</button>
+    </nav>
 
     <p id="status" role="status"></p>
 
@@ -31,9 +36,14 @@
     <div id="map" hidden></div>
     <div id="route-legend" hidden aria-label="Routes drawn"></div>
 
+    <main id="bikes" hidden aria-live="polite"></main>
+    <div id="bike-map" hidden></div>
+    <p id="bike-age" class="age" hidden></p>
+
     <footer>Data from <a href="https://mobilitylabs.emtmadrid.es">EMT MobilityLabs</a>.</footer>
 
     <button id="fab" type="button" aria-label="Add stop" title="Add stop">+</button>
+    <button id="locate" type="button" hidden aria-label="Stations near me" title="Stations near me">◎</button>
 
     <dialog id="add-dialog">
       <form id="add-stop" method="dialog">

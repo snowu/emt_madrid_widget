@@ -11,7 +11,8 @@ avoid churn. Ignore it.
 
 ## Scope
 
-- **In:** EMT Madrid city buses only.
+- **In:** EMT Madrid city buses, and BiciMAD (same MobilityLabs API, same
+  token).
 - **Out (for now):** Metro, Cercanías, interurbanos. Those are CRTM, a separate
   API with a different stop ID namespace. Don't mix the two without an explicit
   decision — stop IDs are not interchangeable.
@@ -21,11 +22,40 @@ avoid churn. Ignore it.
 ```
 web/    static page, deployed to GitHub Pages. Holds no secrets.
 api/    Cloudflare Worker. Holds EMT credentials + SUPABASE_SERVICE_KEY.
-supabase/   bus_stops.sql
+supabase/   bus_stops.sql, bike_stations.sql
 ```
 
 Page → worker → (EMT | Supabase). The page never calls EMT or Supabase directly:
 browser JS keeps no secrets, and EMT sends no CORS headers.
+
+## BiciMAD
+
+Same auth, same host, read-only:
+
+```
+Stations GET v2/transport/bicimad/stations/          → 680 stations, one call
+Near     GET v2/transport/bicimad/stations/arroundxy/{lon}/{lat}/{radius}/
+Station  GET v1/transport/bicimad/stations/{id}/
+```
+
+Per station: `id` (EMT's key) and `number` (what is painted on it — they
+differ, 1409 is signed "5"), `name`, `address`, `geometry`, `dock_bikes`,
+`free_bases`, `total_bases`, `reservations_count`, `light` (0 green / 1 amber /
+2 red), `no_available` (out of service), `overflow`, `tipo_estacionPBSC`
+(FIXED, one VIRTUAL), `bikesGo` (empty everywhere so far).
+
+All 680 arrive in one answer, so the worker fetches the whole city once a
+minute and slices it locally — `arroundxy` is never needed, and an area query
+costs no EMT call at all. Counts move constantly: KV's 60s floor is the
+freshness contract, and every rendering carries its age.
+
+**The API cannot unlock a bike and knows nothing about your account.** Every
+user, trip, reservation and unlock path is a 404 (`bicimad/user/*`,
+`bicimad/trips/*`, `bicimad/reserve/`, `bicimad/unlock/`, `mobilitylabs/user/info/`).
+MobilityLabs publishes station telemetry only; unlocking runs through BiciMAD's
+own app against PBSC's backend, which is not this API. So no fares, no trip
+history, no spend tracking from here — anything of that sort would have to be
+entered by hand.
 
 ## Data source
 

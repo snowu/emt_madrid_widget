@@ -27,7 +27,7 @@ function raiseForCode(code) {
  * openapi.emtmadrid.es with an HTTP 5xx (525-class, workerd#776); a single
  * retry gets through. A 4xx is an answer, not a blip — pass it through.
  */
-async function emtFetch(url, init = {}) {
+export async function emtFetch(url, init = {}) {
   let res;
   try {
     res = await fetch(url, init);

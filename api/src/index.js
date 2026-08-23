@@ -5,7 +5,17 @@ import {
   getLineTimetable,
   getLineRoute,
 } from "./emt.js";
-import { listStops, addStop, renameStop, removeStop } from "./stops.js";
+import {
+  listStops,
+  addStop,
+  renameStop,
+  removeStop,
+  listBikeStations,
+  addBikeStation,
+  renameBikeStation,
+  removeBikeStation,
+} from "./stops.js";
+import { getBikeStations, stationsNear } from "./bikes.js";
 import { EmtError, errorResponse } from "./errors.js";
 
 // KV rejects expirationTtl below 60, so the 20s freshness contract is a soft
@@ -23,6 +33,10 @@ const NEARBY_KV_TTL = 24 * 3600;
 const TIMETABLE_KV_TTL = 24 * 3600;
 // Route geometry changes when EMT redraws a line — a week is generous.
 const ROUTE_KV_TTL = 7 * 24 * 3600;
+// Bike counts move constantly. KV's floor is 60s, so that is the contract:
+// one EMT call a minute serves every station and every area.
+const BIKES_KV_TTL = 60;
+const BIKES_FRESH_MS = 45_000;
 // Cards want the next bus and the one after it; the stop sheet wants the board.
 const DEFAULT_ARRIVALS = 2;
 const MAX_ARRIVALS = 20;
@@ -80,6 +94,15 @@ async function cachedRoute(env, line) {
   if (hit) return hit;
   const fresh = await getLineRoute(env, line);
   await env.KV.put(key, JSON.stringify(fresh), { expirationTtl: ROUTE_KV_TTL });
+  return fresh;
+}
+
+async function cachedBikeStations(env) {
+  const key = `bikes:${CACHE_VERSION}`;
+  const hit = await env.KV.get(key, "json");
+  if (hit && Date.now() - hit.fetchedAt < BIKES_FRESH_MS) return hit;
+  const fresh = await getBikeStations(env);
+  await env.KV.put(key, JSON.stringify(fresh), { expirationTtl: BIKES_KV_TTL });
   return fresh;
 }
 
@@ -164,6 +187,54 @@ export default {
           return json({ error: "not a valid line" }, env, 400);
         }
         return json(await cachedTimetable(env, line), env);
+      }
+
+      /* ---- BiciMAD ----------------------------------------------------- */
+
+      if (pathname === "/bikes/stations" && method === "GET") {
+        const all = await cachedBikeStations(env);
+        const ids = url.searchParams.get("ids");
+        if (!ids) return json(all, env);
+        // A page only ever wants its favourites plus what is on screen.
+        const wanted = new Set(ids.split(",").filter(Boolean));
+        return json(
+          { ...all, stations: all.stations.filter((s) => wanted.has(s.id)) },
+          env
+        );
+      }
+
+      if (pathname === "/bikes/nearby" && method === "GET") {
+        const lat = Number(url.searchParams.get("lat"));
+        const lon = Number(url.searchParams.get("lon"));
+        if (!url.searchParams.has("lat") || !url.searchParams.has("lon") ||
+            !Number.isFinite(lat) || !Number.isFinite(lon)) {
+          return json({ error: "missing lat or lon parameter" }, env, 400);
+        }
+        const radius = Math.min(3000, Math.max(50, Number(url.searchParams.get("radius")) || 700));
+        const all = await cachedBikeStations(env);
+        return json(
+          { fetchedAt: all.fetchedAt, stations: stationsNear(all.stations, { lat, lon, radius }) },
+          env
+        );
+      }
+
+      if (pathname === "/bikes/saved" && method === "GET") {
+        return json(await listBikeStations(env), env);
+      }
+
+      if (pathname === "/bikes/saved" && method === "POST") {
+        const { stationId, label = null } = await request.json();
+        return json(await addBikeStation(env, { stationId, label }), env, 201);
+      }
+
+      const bikeRow = pathname.match(/^\/bikes\/saved\/([^/]+)$/);
+      if (bikeRow && method === "PATCH") {
+        const { label = null } = await request.json();
+        return json(await renameBikeStation(env, decodeURIComponent(bikeRow[1]), label), env);
+      }
+      if (bikeRow && method === "DELETE") {
+        await removeBikeStation(env, decodeURIComponent(bikeRow[1]));
+        return new Response(null, { status: 204, headers: cors(env) });
       }
 
       if (pathname === "/stops" && method === "POST") {

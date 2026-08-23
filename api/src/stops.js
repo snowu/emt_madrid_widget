@@ -1,6 +1,7 @@
 import { EmtError } from "./errors.js";
 
 const TABLE = "bus_stops";
+const BIKE_TABLE = "bike_stations";
 
 function headers(env, extra = {}) {
   // Supabase wants the key twice: apikey identifies the project, Authorization
@@ -62,4 +63,42 @@ export async function renameStop(env, id, label) {
 
 export async function removeStop(env, id) {
   await call(env, `${TABLE}?id=eq.${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+/* ---- Saved BiciMAD stations -------------------------------------------- */
+
+/** Favourite bike stations, same contract as saved bus stops.
+ *
+ * A missing table is not an error worth breaking the page over: the bikes view
+ * is useful without favourites, so this reports the gap and the page carries
+ * on. Run supabase/bike_stations.sql once to make it work.
+ */
+export async function listBikeStations(env) {
+  return call(env, `${BIKE_TABLE}?select=*&order=created_at.asc`);
+}
+
+export async function addBikeStation(env, { stationId, label = null }) {
+  if (!/^[0-9]+$/.test(String(stationId ?? ""))) {
+    throw new EmtError("not_found", `not a valid station id: ${stationId}`);
+  }
+  const rows = await call(env, BIKE_TABLE, {
+    method: "POST",
+    headers: { Prefer: "return=representation" },
+    body: JSON.stringify({ station_id: String(stationId), label }),
+  });
+  return rows[0];
+}
+
+export async function renameBikeStation(env, id, label) {
+  const rows = await call(env, `${BIKE_TABLE}?id=eq.${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: { Prefer: "return=representation" },
+    body: JSON.stringify({ label: label || null }),
+  });
+  if (!rows?.[0]) throw new EmtError("not_found", `no saved station ${id}`);
+  return rows[0];
+}
+
+export async function removeBikeStation(env, id) {
+  await call(env, `${BIKE_TABLE}?id=eq.${encodeURIComponent(id)}`, { method: "DELETE" });
 }

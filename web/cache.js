@@ -39,3 +39,26 @@ export function writeDetail(stopId, detail) {
   all[stopId] = detail;
   localStorage.setItem(DETAILS_KEY, JSON.stringify(all));
 }
+
+const BIKE_SAVED_KEY = "emt:bikes:saved";
+const BIKE_NEAR_KEY = "emt:bikes:near";
+
+/** Saved bike stations mirror the same rule as saved bus stops: the server
+ *  owns them, this is only so a cold start renders something. */
+export function readBikeSaved() {
+  return read(BIKE_SAVED_KEY, []);
+}
+
+export function writeBikeSaved(rows) {
+  localStorage.setItem(BIKE_SAVED_KEY, JSON.stringify(rows));
+}
+
+/** Last-known bike counts, so the list never opens empty. Counts move by the
+ *  minute, so these are always rendered with their age. */
+export function readBikeNear() {
+  return read(BIKE_NEAR_KEY, { stations: [], fetchedAt: null });
+}
+
+export function writeBikeNear(payload) {
+  localStorage.setItem(BIKE_NEAR_KEY, JSON.stringify(payload));
+}

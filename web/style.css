@@ -67,6 +67,85 @@ button:active { transform: scale(0.97); }
   font-weight: 600;
 }
 
+#section-menu {
+  margin-top: 0.6rem;
+  width: 100%;
+}
+
+#section-menu button { flex: 1; font-weight: 600; }
+
+.section-heading {
+  margin: 1rem 0 0;
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+#bikes[hidden], #bike-map[hidden], #bike-age[hidden] { display: none; }
+
+#bike-map {
+  height: 60vh;
+  min-height: 320px;
+  border-radius: 12px;
+  margin-top: 0.75rem;
+}
+
+.bike-counts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.75rem;
+  margin: 0.5rem 0 0;
+}
+
+.bike-counts .count {
+  font-variant-numeric: tabular-nums;
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.bike-counts .count.muted { font-size: 0.9rem; font-weight: 400; }
+.bike-counts .count.warn { font-size: 0.9rem; font-weight: 600; color: #ffb454; }
+
+/* The count is the pin: on a bike map the number is the whole point. */
+.bike-pin { background: none; border: none; }
+
+.bike-pin-inner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 3px solid var(--muted);
+  background: var(--card);
+  color: var(--fg);
+  font-size: 0.85rem;
+  font-weight: 700;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.5);
+}
+
+.bike-pin-inner.saved { box-shadow: 0 0 0 3px rgb(78 163 255 / 0.5); }
+
+#locate {
+  position: fixed;
+  right: calc(1rem + env(safe-area-inset-right, 0px));
+  bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
+  width: 56px;
+  height: 56px;
+  min-height: 56px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #06121f;
+  border: none;
+  font-size: 1.6rem;
+  line-height: 1;
+  box-shadow: 0 4px 14px rgb(0 0 0 / 0.5);
+}
+
+#locate[hidden], #fab[hidden] { display: none; }
+
 #status {
   color: #ffb454;
   font-size: 0.85rem;
