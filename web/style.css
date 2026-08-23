@@ -171,18 +171,18 @@ button:active { transform: scale(0.97); }
   display: flex;
   flex-wrap: wrap;
   align-items: stretch;
-  gap: 0.5rem;
-  margin: 0.5rem 0 0;
+  gap: 0.35rem;
+  margin: 0.4rem 0 0;
 }
 
 .bike-metric {
   display: flex;
-  flex: 1 1 7rem;
-  align-items: baseline;
+  flex: 1 1 6rem;
+  align-items: center;
   justify-content: space-between;
-  gap: 0.5rem;
-  min-height: 48px;
-  padding: 0.45rem 0.65rem;
+  gap: 0.35rem;
+  min-height: 34px;
+  padding: 0.28rem 0.5rem;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: #151820;
@@ -195,13 +195,25 @@ button:active { transform: scale(0.97); }
 
 .bike-metric strong {
   font-variant-numeric: tabular-nums;
-  font-size: 1.15rem;
+  font-size: 1rem;
   font-weight: 700;
 }
 
-.bike-metric span { color: var(--muted); font-size: 0.8rem; }
+.bike-metric span { color: var(--muted); font-size: 0.72rem; }
 .bike-note { align-self: center; font-size: 0.8rem; }
 .bike-note.warn { color: #ffb454; font-weight: 600; }
+.bike-distance { flex-basis: 100%; margin-top: 0.05rem; color: var(--muted); }
+
+.controls .bike-favourite {
+  min-width: 32px;
+  width: 32px;
+  min-height: 32px;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  color: #ffbf3f;
+  font-size: 1.05rem;
+}
 
 /* The count is the pin: on a bike map the number is the whole point. */
 .bike-pin { background: none; border: none; }

@@ -1799,6 +1799,16 @@ function availabilityClass(value, enabled = true) {
   return "good";
 }
 
+function distanceToStation(station) {
+  if (station.metres != null) return station.metres;
+  if (!myLocation || !Array.isArray(station.coordinates)) return null;
+  const [lon, lat] = station.coordinates;
+  const [myLat, myLon] = myLocation;
+  const x = (lon - myLon) * Math.cos((myLat * Math.PI) / 180);
+  const y = lat - myLat;
+  return Math.round(Math.sqrt(x * x + y * y) * 111_320);
+}
+
 function bikeTitle(station, saved) {
   return saved?.label || station?.name || `Station ${station?.number ?? ""}`;
 }
@@ -1850,12 +1860,13 @@ function bikeCounts(station) {
     broken.setAttribute("aria-label", broken.title);
     wrap.append(broken);
   }
-  if (station.metres != null) {
+  const metres = distanceToStation(station);
+  if (metres != null) {
     const far = document.createElement("span");
-    far.className = "bike-note muted";
-    far.textContent = station.metres < 1000
-      ? `${station.metres} m`
-      : `${(station.metres / 1000).toFixed(1)} km`;
+    far.className = "bike-note bike-distance";
+    far.textContent = metres < 1000
+      ? `◎ ${metres} m away`
+      : `◎ ${(metres / 1000).toFixed(1)} km away`;
     wrap.append(far);
   }
   return wrap;
@@ -1877,6 +1888,7 @@ function bikeCard(station, saved) {
   titleWrap.append(h2, num);
 
   const fav = document.createElement("button");
+  fav.className = "bike-favourite";
   fav.textContent = saved ? "★" : "☆";
   fav.title = saved ? "Remove from saved" : "Save this station";
   fav.addEventListener("click", (event) => {
