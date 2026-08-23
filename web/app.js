@@ -38,8 +38,25 @@ function stopTitle(stop) {
  */
 function normaliseLine(l) {
   return typeof l === "string"
-    ? { line: l, label: l, from: null, to: null, headers: [] }
+    ? { line: l, label: l, from: null, to: null, dayType: null, headers: [] }
     : l;
+}
+
+/** Which timetable applies today: LA (weekday), SA, or FE (Sunday/holiday).
+ *
+ * EMT stamps it on every stop detail it sends, which beats deriving it from
+ * the date — that would call a public holiday an ordinary Tuesday. We only
+ * fall back to the weekday when no saved stop has a detail record at all.
+ */
+function todayDayType() {
+  for (const detail of Object.values(details)) {
+    for (const line of detail?.lines ?? []) {
+      const stamped = normaliseLine(line).dayType;
+      if (stamped) return stamped;
+    }
+  }
+  const day = new Date().getDay();
+  return day === 0 ? "FE" : day === 6 ? "SA" : "LA";
 }
 
 function stopLines(stopId) {
@@ -549,8 +566,12 @@ const sheetNoMap = document.getElementById("sheet-no-map");
 const sheetArrivals = document.getElementById("sheet-arrivals");
 const sheetAge = document.getElementById("sheet-age");
 const sheetLabel = document.getElementById("sheet-label");
+const sheetName = document.getElementById("sheet-name");
+const sheetEdit = document.getElementById("sheet-edit");
+const sheetSave = document.getElementById("sheet-save");
 const sheetService = document.getElementById("sheet-service");
 const sheetServiceWrap = document.getElementById("sheet-service-wrap");
+const sheetNote = document.getElementById("sheet-service-note");
 
 let sheetStop = null;
 let sheetMap = null;
@@ -562,6 +583,7 @@ function openStop(stop) {
   sheetMeta.textContent = stopMeta(stop.stop_id);
   sheetLabel.value = stop.label ?? "";
   sheetLabel.placeholder = details[stop.stop_id]?.name || "EMT's name";
+  showNameEditor(false);
   renderSheetArrivals();
   renderSheetService();
   stopDialog.showModal();
@@ -642,9 +664,38 @@ function renderSheetArrivals() {
  *  a stop whose lines stop at 23:45, not a stop that is broken. Only stop
  *  detail carries the hours; a stop EMT has no detail record for lists its
  *  lines without them. */
+/** Hours for lines whose stop has no detail record, keyed by line code.
+ *  undefined = never asked or in flight, null = asked and got nothing. */
+const lineHours = new Map();
+
+/** Ask the line itself when the stop cannot say.
+ *
+ * A stop EMT has no detail record for still lists its line codes, and those
+ * are exactly what the timetable endpoint is keyed on — so hours borrowed from
+ * the line beat "unknown". Answers are cached in the worker for a day and here
+ * for the session; a line with no row for today does not run today.
+ */
+async function fetchLineHours(code) {
+  if (lineHours.has(code)) return;
+  lineHours.set(code, undefined); // in flight — don't ask twice
+  try {
+    const { days } = await api(`/lines/${encodeURIComponent(code)}/timetable`);
+    lineHours.set(code, days ?? []);
+  } catch {
+    // Record the miss rather than leaving the row saying "checking…" forever.
+    // Closing the sheet forgets it, so reopening retries.
+    lineHours.set(code, null);
+  }
+  if (stopDialog.open) renderSheetService();
+}
+
 function renderSheetService() {
+  if (!sheetStop) return;
   const lines = stopLines(sheetStop.stop_id);
   sheetServiceWrap.hidden = lines.length === 0;
+  const today = todayDayType();
+  let borrowed = false;
+
   sheetService.replaceChildren(
     ...lines.map((l) => {
       const li = document.createElement("li");
@@ -652,10 +703,37 @@ function renderSheetService() {
       label.className = "line";
       label.textContent = l.label;
       li.append(label);
+
       const hours = document.createElement("span");
       hours.className = "hours";
-      hours.textContent = l.from && l.to ? `${l.from}–${l.to}` : "hours unknown";
+      let window = l.from && l.to ? { from: l.from, to: l.to, overnight: false } : null;
+
+      if (!window) {
+        const days = lineHours.get(l.line);
+        if (days === undefined) {
+          hours.textContent = "checking…";
+          fetchLineHours(l.line);
+        } else if (days === null || days.length === 0) {
+          hours.textContent = "hours unknown";
+        } else {
+          window = days.find((d) => d.dayType === today) ?? null;
+          // A line with no row for today's day type is not running today —
+          // that is an answer, not a gap.
+          if (!window) hours.textContent = "no service today";
+        }
+      }
+      if (window) {
+        hours.textContent = `${window.from}–${window.to}`;
+        if (window.overnight) hours.textContent += " (+1d)";
+        // Borrowed from the line, not this stop: the line's first and last bus
+        // anywhere on the route, which can be wider than this stop's own.
+        if (!l.from) {
+          hours.textContent += "*";
+          borrowed = true;
+        }
+      }
       li.append(hours);
+
       if (l.headers?.length) {
         const route = document.createElement("span");
         route.className = "route";
@@ -665,7 +743,20 @@ function renderSheetService() {
       return li;
     })
   );
+
+  sheetNote.hidden = !borrowed;
 }
+
+/** The name shows as a heading until the pencil is tapped: focusing an input
+ *  on open would raise the phone keyboard over everything worth reading. */
+function showNameEditor(editing) {
+  sheetName.hidden = !editing;
+  sheetSave.hidden = !editing;
+  sheetEdit.hidden = editing;
+  if (editing) sheetLabel.focus();
+}
+
+sheetEdit.addEventListener("click", () => showNameEditor(true));
 
 sheetForm.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -689,6 +780,11 @@ sheetForm.addEventListener("submit", async (event) => {
   } catch (err) {
     statusEl.textContent = `Could not rename stop: ${err.message}`;
   }
+});
+
+// Forget failed lookups on close so the next open asks again; keep the hits.
+stopDialog.addEventListener("close", () => {
+  for (const [code, days] of lineHours) if (!days) lineHours.delete(code);
 });
 
 document.getElementById("sheet-close").addEventListener("click", () => stopDialog.close());

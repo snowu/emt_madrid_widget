@@ -61,7 +61,10 @@
 
     <dialog id="stop-dialog">
       <form id="stop-form" method="dialog">
-        <h2 id="sheet-heading">Stop</h2>
+        <div class="sheet-title-row">
+          <h2 id="sheet-heading">Stop</h2>
+          <button type="button" id="sheet-edit" title="Rename" aria-label="Rename">✎</button>
+        </div>
         <p id="sheet-meta" class="stop-num"></p>
         <div id="sheet-map"></div>
         <p id="sheet-no-map" class="muted" hidden>EMT has no location for this stop.</p>
@@ -70,16 +73,19 @@
         <details id="sheet-service-wrap">
           <summary>Lines and hours today</summary>
           <ul id="sheet-service"></ul>
+          <p id="sheet-service-note" class="muted" hidden>
+            * whole-line hours — EMT has no record for this stop itself.
+          </p>
         </details>
-        <label class="field">
-          <span>Name</span>
+        <label class="field" id="sheet-name" hidden>
+          <span>Name — leave empty to use EMT's own</span>
           <input id="sheet-label" autocomplete="off" placeholder="EMT's name" />
         </label>
         <div class="dialog-actions">
           <button type="button" id="sheet-remove" class="danger">Remove</button>
           <button type="button" id="sheet-refresh" title="Refresh">↻</button>
           <button type="button" id="sheet-close">Close</button>
-          <button type="submit" id="sheet-save">Save</button>
+          <button type="submit" id="sheet-save" hidden>Save</button>
         </div>
       </form>
     </dialog>

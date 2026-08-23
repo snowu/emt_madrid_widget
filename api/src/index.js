@@ -1,4 +1,4 @@
-import { getArrivals, getStopDetail, getNearbyStops } from "./emt.js";
+import { getArrivals, getStopDetail, getNearbyStops, getLineTimetable } from "./emt.js";
 import { listStops, addStop, renameStop, removeStop } from "./stops.js";
 import { EmtError, errorResponse } from "./errors.js";
 
@@ -13,6 +13,8 @@ const CACHE_VERSION = "v2";
 const DETAIL_KV_TTL = 7 * 24 * 3600;
 // Nearby searches are keyed on a ~110m grid so panning the map reuses cells.
 const NEARBY_KV_TTL = 24 * 3600;
+// A line's timetable changes with the season, not with the hour.
+const TIMETABLE_KV_TTL = 24 * 3600;
 // Cards want the next bus and the one after it; the stop sheet wants the board.
 const DEFAULT_ARRIVALS = 2;
 const MAX_ARRIVALS = 20;
@@ -52,6 +54,15 @@ async function cachedStopDetail(env, stopId) {
   if (hit) return hit;
   const fresh = await getStopDetail(env, stopId);
   await env.KV.put(key, JSON.stringify(fresh), { expirationTtl: DETAIL_KV_TTL });
+  return fresh;
+}
+
+async function cachedTimetable(env, line) {
+  const key = `timetable:${CACHE_VERSION}:${line}`;
+  const hit = await env.KV.get(key, "json");
+  if (hit) return hit;
+  const fresh = await getLineTimetable(env, line);
+  await env.KV.put(key, JSON.stringify(fresh), { expirationTtl: TIMETABLE_KV_TTL });
   return fresh;
 }
 
@@ -118,6 +129,15 @@ export default {
         }
         const radius = Math.min(1000, Math.max(50, Number(url.searchParams.get("radius")) || 500));
         return json(await cachedNearby(env, lat, lon, radius), env);
+      }
+
+      const timetable = pathname.match(/^\/lines\/([^/]+)\/timetable$/);
+      if (timetable && method === "GET") {
+        const line = decodeURIComponent(timetable[1]);
+        if (!/^[0-9A-Za-z]+$/.test(line)) {
+          return json({ error: "not a valid line" }, env, 400);
+        }
+        return json(await cachedTimetable(env, line), env);
       }
 
       if (pathname === "/stops" && method === "POST") {

@@ -74,7 +74,17 @@ Stop detail GET  v2/transport/busemtmad/stops/{stop_id}/detail/
                 {stop, name, postalAddress, geometry.coordinates, dataLine[]}
 Area search GET  v2/transport/busemtmad/stops/arroundxy/{lon}/{lat}/{radius}/
                 headers: accessToken  → data[]: {stopId, stopName, lines[]}
+Line hours GET  v2/transport/busemtmad/lines/{line}/timetable/
+                headers: accessToken  → data[]: one row per day type with
+                {dayType, dateIni, dateEnd, first/endTimeService A and B}
 ```
+
+Other line endpoints, verified 2026-08-23 but not used yet:
+`lines/{line}/route/` (~114KB: both directions as GeoJSON MultiLineString with
+EMT's own stroke colours, plus the stops as GeoJSON Points),
+`lines/{line}/stops/{1|2}/` (ordered stop list + frequency bands),
+`lines/info/{yyyymmdd}/` on v1 (index of all 239 lines).
+`lines/{line}/` and `lines/{line}/grouproute/` are 404.
 
 **Detail's line list is `dataLine[]`, not the `lines[]` the docs show.** A v2
 detail answer has no `lines` key at all, so reading it yields an empty list for
@@ -94,6 +104,27 @@ turned into a label by trimming zeros; if you only have the code, show it.
 
 `startTime`/`stopTime` are the answer to "how can nothing be due?" — at 02:00 a
 Plaza Castilla bay running 07:30–23:45 is correctly empty, not broken.
+
+For a stop EMT has no detail record for, the same answer comes from the line:
+`lines/{line}/timetable/` is keyed on the codes area search hands back. Three
+traps in that response:
+
+- **The times are datetimes, and the dates matter.** "16/08/2026 23:40" →
+  "17/08/2026 5:45" is a night line crossing midnight. Compare instants, not
+  clocks, or a Friday-night line running 04:40 → 06:15 *the next morning* reads
+  as a 95-minute window.
+- **Day types are LA (weekday), SA, FE (Sunday/holiday) and V** — Friday
+  nights, which only night lines carry. A line with no row for today does not
+  run today: line 833 (signed SE833) is weekdays-only, so on a Sunday its
+  absence is the answer.
+- **`lines/{line}/info/{date}/` ignores the date** for day-type selection — it
+  returns all day types with a fixed `dateRef`. Pick the row yourself, using
+  the `dayType` EMT stamps on stop detail (its own calendar, holidays
+  included) rather than deriving one from the weekday.
+
+Line hours are the whole line's first and last bus across both directions, so
+they can be wider than the stop's own — the page marks borrowed hours with a
+`*` rather than passing them off as stop-specific.
 
 `estimateArrive = 888888` is EMT's "running on schedule, no GPS estimate yet"
 sentinel, not a real countdown.

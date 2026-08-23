@@ -159,7 +159,25 @@ button:active { transform: scale(0.97); }
 
 #sheet-map[hidden] { display: none; }
 
+.sheet-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
 #stop-dialog h2 { overflow-wrap: anywhere; }
+
+/* The name is text until asked otherwise — an input here would take focus on
+   open and throw the phone keyboard up over the arrivals. */
+#sheet-edit {
+  flex: none;
+  min-height: 36px;
+  padding: 0.25rem 0.6rem;
+  font-size: 1rem;
+}
+
+#sheet-name[hidden], #sheet-save[hidden] { display: none; }
 #stop-dialog .stop-num { margin: -0.4rem 0 0; }
 
 #sheet-arrivals { list-style: none; margin: 0; padding: 0; }
@@ -205,7 +223,8 @@ button:active { transform: scale(0.97); }
 }
 
 #sheet-service li:last-child { border-bottom: none; }
-#sheet-service .line { flex: 0 0 4ch; font-size: 0.9rem; }
+/* Wide enough for "SE833" without letting it run into the hours. */
+#sheet-service .line { flex: 0 0 auto; min-width: 5ch; font-size: 0.9rem; }
 #sheet-service .hours {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -213,10 +232,13 @@ button:active { transform: scale(0.97); }
 /* The route wraps to its own line under the hours rather than squeezing them. */
 #sheet-service .route {
   flex: 1 0 100%;
-  margin-left: calc(4ch + 0.6rem);
+  margin-left: calc(5ch + 0.6rem);
   color: var(--muted);
   font-size: 0.8rem;
 }
+
+#sheet-service-note { margin: 0.4rem 0 0; font-size: 0.72rem; }
+#sheet-service-note[hidden] { display: none; }
 
 .field { display: flex; flex-direction: column; gap: 0.25rem; }
 .field span { font-size: 0.8rem; color: var(--muted); }

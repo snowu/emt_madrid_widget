@@ -1,0 +1,16 @@
+{
+  "code": "00",
+  "description": "Data recovered OK",
+  "data": [
+    {
+      "line": "833",
+      "dateIni": "01/01/2026",
+      "dateEnd": "31/12/2026",
+      "dayType": "LA",
+      "firstTimeServiceA": "18/08/2026 7:00:00",
+      "endTimeServiceA": "18/08/2026 20:00:00",
+      "firstTimeServiceB": "18/08/2026 7:30:00",
+      "endTimeServiceB": "18/08/2026 20:30:00"
+    }
+  ]
+}

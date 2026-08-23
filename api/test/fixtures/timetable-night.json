@@ -1,0 +1,36 @@
+{
+  "code": "00",
+  "description": "Data recovered OK",
+  "data": [
+    {
+      "line": "523",
+      "dateIni": "01/08/2026",
+      "dateEnd": "01/09/2026",
+      "dayType": "V",
+      "firstTimeServiceA": "14/08/2026 4:40:00",
+      "endTimeServiceA": "15/08/2026 6:15:00",
+      "firstTimeServiceB": "14/08/2026 5:50:00",
+      "endTimeServiceB": "15/08/2026 6:15:00"
+    },
+    {
+      "line": "523",
+      "dateIni": "01/08/2026",
+      "dateEnd": "01/09/2026",
+      "dayType": "FE",
+      "firstTimeServiceA": "17/08/2026 0:00:00",
+      "endTimeServiceA": "17/08/2026 5:15:00",
+      "firstTimeServiceB": "16/08/2026 23:40:00",
+      "endTimeServiceB": "17/08/2026 5:45:00"
+    },
+    {
+      "line": "523",
+      "dateIni": "01/08/2026",
+      "dateEnd": "01/09/2026",
+      "dayType": "LA",
+      "firstTimeServiceA": "19/08/2026 0:00:00",
+      "endTimeServiceA": "19/08/2026 5:15:00",
+      "firstTimeServiceB": "18/08/2026 23:40:00",
+      "endTimeServiceB": "19/08/2026 5:45:00"
+    }
+  ]
+}

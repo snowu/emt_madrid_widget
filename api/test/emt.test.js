@@ -1,6 +1,7 @@
 import { env } from "cloudflare:test";
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
-import { getToken, getArrivals, getStopDetail, getNearbyStops } from "../src/emt.js";
+import { getToken, getArrivals, getStopDetail, getNearbyStops,
+  getLineTimetable } from "../src/emt.js";
 import { EmtError } from "../src/errors.js";
 import loginOk from "./fixtures/login-ok.json";
 import loginBadPassword from "./fixtures/login-bad-password.json";
@@ -8,6 +9,8 @@ import arrivalsOk from "./fixtures/arrivals-ok.json";
 import arrivalsEmpty from "./fixtures/arrivals-empty.json";
 import stopDetailOk from "./fixtures/stop-detail-ok.json";
 import arroundxyOk from "./fixtures/arroundxy-ok.json";
+import timetableNight from "./fixtures/timetable-night.json";
+import timetableDay from "./fixtures/timetable-day.json";
 
 function mockFetch(body, init = {}) {
   // A fresh Response per call: response bodies are single-use.
@@ -218,6 +221,7 @@ describe("getStopDetail", () => {
       label: "5",
       from: "07:30",
       to: "23:30",
+      dayType: "FE",
       headers: ["SOL/SEVILLA", "CHAMARTIN"],
     });
     expect(detail.lines.map((l) => l.label)).toEqual(["5", "66", "70"]);
@@ -348,6 +352,7 @@ describe("getNearbyStops", () => {
           label: code,
           from: null,
           to: null,
+          dayType: null,
           headers: [],
         })),
         coordinates: [-3.68967, 40.46737],
@@ -360,6 +365,7 @@ describe("getNearbyStops", () => {
           label: code,
           from: null,
           to: null,
+          dayType: null,
           headers: [],
         })),
         coordinates: [-3.6891, 40.4676],
@@ -387,5 +393,65 @@ describe("getNearbyStops", () => {
     });
     const stops = await getNearbyStops(env, { lat: 40.4674, lon: -3.6897, radius: 500 });
     expect(stops[0].lines.map((l) => l.label)).toEqual(["107"]);
+  });
+});
+
+describe("getLineTimetable", () => {
+  beforeEach(async () => {
+    await env.KV.put("emt:token", "cached-token");
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  it("GETs the v2 timetable URL", async () => {
+    const spy = mockFetch(timetableDay);
+    await getLineTimetable(env, "833");
+    expect(spy.mock.calls[0][0]).toContain("v2/transport/busemtmad/lines/833/timetable/");
+  });
+
+  it("widens the window across both directions", async () => {
+    mockFetch(timetableDay);
+    const { days } = await getLineTimetable(env, "833");
+    // A runs 07:00–20:00, B 07:30–20:30; the line is out there 07:00–20:30.
+    expect(days).toEqual([
+      {
+        dayType: "LA",
+        from: "07:00",
+        to: "20:30",
+        overnight: false,
+        validFrom: "01/01/2026",
+        validTo: "31/12/2026",
+      },
+    ]);
+  });
+
+  it("keeps a night line's window the right way round", async () => {
+    mockFetch(timetableNight);
+    const { days } = await getLineTimetable(env, "523");
+    const fe = days.find((d) => d.dayType === "FE");
+    // 23:40 on one date to 05:45 on the next — not a 22-hour daytime span.
+    expect(fe).toMatchObject({ from: "23:40", to: "05:45", overnight: true });
+  });
+
+  it("marks a Friday-night window that ends the next morning as overnight", async () => {
+    mockFetch(timetableNight);
+    const { days } = await getLineTimetable(env, "523");
+    // 04:40 Friday through 06:15 Saturday: the clocks are in order, the dates
+    // are not — this is a day-long window, not a 95-minute one.
+    expect(days.find((d) => d.dayType === "V")).toMatchObject({
+      from: "04:40",
+      to: "06:15",
+      overnight: true,
+    });
+  });
+
+  it("carries every day type EMT has, including Friday nights", async () => {
+    mockFetch(timetableNight);
+    const { days } = await getLineTimetable(env, "523");
+    expect(days.map((d) => d.dayType)).toEqual(["V", "FE", "LA"]);
+  });
+
+  it("reports a line EMT does not know as not_found", async () => {
+    mockFetch({ code: "80", description: "no records", data: [] });
+    await expect(getLineTimetable(env, "9999")).rejects.toMatchObject({ kind: "not_found" });
   });
 });

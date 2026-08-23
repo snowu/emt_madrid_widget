@@ -150,13 +150,17 @@ function lineEntry(l) {
       label: String(l.label ?? l.line ?? ""),
       from: l.startTime ?? null,
       to: l.stopTime ?? null,
+      // EMT stamps the day type it is running today (LA weekday / SA / FE
+      // holiday) — its own calendar, holidays included. Worth keeping: it is
+      // the only way to pick the right row out of a line's timetable.
+      dayType: l.dayType ?? null,
       headers: [l.headerA, l.headerB].filter(Boolean).map(String),
     };
   }
   // A bare code. The label is not derivable — night line 523 is signed N23 —
   // so show the code EMT gave rather than inventing a prettier one.
   const code = String(l ?? "");
-  return { line: code, label: code, from: null, to: null, headers: [] };
+  return { line: code, label: code, from: null, to: null, dayType: null, headers: [] };
 }
 
 function parseLines(raw) {
@@ -190,6 +194,80 @@ export async function getStopDetail(env, stopId) {
 
   if (body.code !== "00") raiseForCode(body.code);
   return parseDetail(body);
+}
+
+/** Parse EMT's "18/08/2026 7:00:00" into an instant.
+ *
+ * The date is a sample day, not a real one — but it is load-bearing: a night
+ * line's service ends on the *following* date, which is the only thing that
+ * distinguishes 23:40→05:45 from a 22-hour daytime span. */
+function emtInstant(value) {
+  const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})/.exec(String(value ?? ""));
+  if (!m) return null;
+  const [, d, mo, y, h, min] = m;
+  return {
+    at: Date.UTC(Number(y), Number(mo) - 1, Number(d), Number(h), Number(min)),
+    clock: `${h.padStart(2, "0")}:${min}`,
+  };
+}
+
+function sameDay(a, b) {
+  return Math.floor(a / 86_400_000) === Math.floor(b / 86_400_000);
+}
+
+/** Widest window the line runs on one day type, across both directions. */
+function serviceWindow(row) {
+  const starts = [emtInstant(row.firstTimeServiceA), emtInstant(row.firstTimeServiceB)]
+    .filter(Boolean);
+  const ends = [emtInstant(row.endTimeServiceA), emtInstant(row.endTimeServiceB)]
+    .filter(Boolean);
+  if (starts.length === 0 || ends.length === 0) return { from: null, to: null, overnight: false };
+  const start = starts.reduce((a, b) => (a.at <= b.at ? a : b));
+  const end = ends.reduce((a, b) => (a.at >= b.at ? a : b));
+  return {
+    from: start.clock,
+    to: end.clock,
+    // Read off the dates, not the clocks. 23:40 → 05:45 crosses midnight, and
+    // so does a Friday-night line running 04:40 → 06:15 the next morning —
+    // clock order alone would call the second one a 95-minute window.
+    overnight: !sameDay(start.at, end.at),
+  };
+}
+
+/** When each line runs, per day type.
+ *
+ * The answer to an empty arrival board. Day types are LA (weekday), SA, FE
+ * (Sunday/holiday) and V — Friday nights, which only night lines have. A line
+ * with no row for today simply does not run today.
+ */
+export async function getLineTimetable(env, line) {
+  let token = await getToken(env);
+  let body = await requestTimetable(env, line, token);
+
+  if (body.code === "80") {
+    token = await getToken(env, { force: true });
+    body = await requestTimetable(env, line, token);
+  }
+  if (body.code !== "00") raiseForCode(body.code);
+
+  return {
+    line: String(line),
+    days: (body.data ?? []).map((row) => ({
+      dayType: row.dayType ?? null,
+      ...serviceWindow(row),
+      validFrom: row.dateIni ?? null,
+      validTo: row.dateEnd ?? null,
+    })),
+  };
+}
+
+async function requestTimetable(env, line, token) {
+  const res = await emtFetch(`${BASE}v2/transport/busemtmad/lines/${line}/timetable/`, {
+    method: "GET",
+    headers: { accessToken: token },
+  });
+  if (!res.ok) throw new EmtError("upstream", `EMT line timetable HTTP ${res.status}`);
+  return res.json();
 }
 
 async function requestNearby(env, lat, lon, radius, token) {
