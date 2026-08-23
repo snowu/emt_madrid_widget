@@ -36,15 +36,25 @@ function stopTitle(stop) {
  * search gives bare codes. Devices that cached the old string-only shape are
  * still out there, so tolerate both rather than blanking their cards.
  */
+function normaliseLine(l) {
+  return typeof l === "string"
+    ? { line: l, label: l, from: null, to: null, headers: [] }
+    : l;
+}
+
 function stopLines(stopId) {
-  return (details[stopId]?.lines ?? []).map((l) =>
-    typeof l === "string" ? { line: l, label: l, from: null, to: null, headers: [] } : l
-  );
+  return (details[stopId]?.lines ?? []).map(normaliseLine);
+}
+
+/** Every line list on screen goes through here — joining the entries
+ *  themselves renders "[object Object]". */
+function lineLabels(lines) {
+  return (lines ?? []).map((l) => normaliseLine(l).label).join(" · ");
 }
 
 function stopMeta(stopId) {
-  const labels = stopLines(stopId).map((l) => l.label);
-  return labels.length ? `Nº ${stopId} · ${labels.join(" · ")}` : `Nº ${stopId}`;
+  const labels = lineLabels(stopLines(stopId));
+  return labels ? `Nº ${stopId} · ${labels}` : `Nº ${stopId}`;
 }
 
 /** A detail with no coordinates is the stub we save when EMT answers 81. */
@@ -222,7 +232,9 @@ async function resolveStop(stopId) {
 async function hydrateNames() {
   const missing = stops.filter((s) => !details[s.stop_id]);
   if (missing.length > 0) {
-    await Promise.all(missing.map((s) => resolveStop(s.stop_id)));
+    // One stop EMT blips on must not take the rest of the pass down with it:
+    // a rejected Promise.all here would skip the healing below entirely.
+    await Promise.all(missing.map((s) => resolveStop(s.stop_id).catch(() => null)));
     render();
     rebuildMarkers();
   }
@@ -433,7 +445,7 @@ function nearbyPopupHtml(s) {
   if (s.lines?.length) {
     const lines = document.createElement("p");
     lines.className = "muted";
-    lines.textContent = s.lines.join(" · ");
+    lines.textContent = lineLabels(s.lines);
     wrap.append(lines);
   }
   const add = document.createElement("button");
