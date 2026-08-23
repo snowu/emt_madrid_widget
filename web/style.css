@@ -134,19 +134,33 @@ button:active { transform: scale(0.97); }
 .bike-counts {
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.75rem;
+  align-items: stretch;
+  gap: 0.5rem;
   margin: 0.5rem 0 0;
 }
 
-.bike-counts .count {
+.bike-metric {
+  display: flex;
+  flex: 1 1 7rem;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-height: 48px;
+  padding: 0.45rem 0.65rem;
+  background: #151820;
+}
+
+.bike-metric strong {
   font-variant-numeric: tabular-nums;
   font-size: 1.15rem;
   font-weight: 700;
 }
 
-.bike-counts .count.muted { font-size: 0.9rem; font-weight: 400; }
-.bike-counts .count.warn { font-size: 0.9rem; font-weight: 600; color: #ffb454; }
+.bike-metric span { color: var(--muted); font-size: 0.8rem; }
+.bike-metric.selected { border-color: var(--accent); background: rgb(78 163 255 / 0.12); }
+.bike-metric.selected strong { color: #4ade80; }
+.bike-note { align-self: center; font-size: 0.8rem; }
+.bike-note.warn { color: #ffb454; font-weight: 600; }
 
 /* The count is the pin: on a bike map the number is the whole point. */
 .bike-pin { background: none; border: none; }
@@ -168,10 +182,18 @@ button:active { transform: scale(0.97); }
 
 .bike-pin-inner.saved { box-shadow: 0 0 0 3px rgb(78 163 255 / 0.5); }
 
-#locate {
+#map-actions {
   position: fixed;
   right: calc(1rem + env(safe-area-inset-right, 0px));
   bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
+  z-index: 2100;
+  display: flex;
+  gap: 0.6rem;
+}
+
+#map-actions[hidden] { display: none; }
+
+#map-actions button {
   width: 56px;
   height: 56px;
   min-height: 56px;
@@ -184,7 +206,34 @@ button:active { transform: scale(0.97); }
   box-shadow: 0 4px 14px rgb(0 0 0 / 0.5);
 }
 
-#locate[hidden], #fab[hidden] { display: none; }
+#fab[hidden] { display: none; }
+
+.user-pin { background: none; border: none; }
+.user-pin span {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 4px solid white;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--accent);
+  box-shadow: 0 0 0 3px rgb(78 163 255 / 0.35), 0 2px 8px rgb(0 0 0 / 0.65);
+}
+
+#map.map-fullscreen,
+#bike-map.map-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  width: 100vw;
+  height: 100dvh;
+  min-height: 0;
+  margin: 0;
+  border-radius: 0;
+}
+
+body.map-is-fullscreen { overflow: hidden; }
 
 #status {
   color: #ffb454;
@@ -307,6 +356,31 @@ button:active { transform: scale(0.97); }
   margin: 0.25rem 0;
 }
 
+#bike-sheet-map {
+  height: 170px;
+  border-radius: 10px;
+  margin: 0.25rem 0;
+}
+
+#bike-sheet-map[hidden] { display: none; }
+
+.station-details {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.45rem;
+}
+
+.station-details div {
+  display: flex;
+  flex-direction: column;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+}
+
+.station-details span { color: var(--muted); font-size: 0.72rem; }
+.station-details strong { font-size: 0.9rem; }
+
 #sheet-map[hidden] { display: none; }
 
 .sheet-title-row {
@@ -327,7 +401,9 @@ button:active { transform: scale(0.97); }
   font-size: 1rem;
 }
 
-#sheet-name[hidden], #sheet-save[hidden] { display: none; }
+#sheet-name[hidden], #sheet-save[hidden],
+#bike-sheet-name[hidden], #bike-sheet-save[hidden],
+#bike-sheet-remove[hidden], #bike-sheet-favourite[hidden] { display: none; }
 #stop-dialog .stop-num { margin: -0.4rem 0 0; }
 
 #sheet-arrivals { list-style: none; margin: 0; padding: 0; }

@@ -55,7 +55,10 @@
     <footer>Data from <a href="https://mobilitylabs.emtmadrid.es">EMT MobilityLabs</a>.</footer>
 
     <button id="fab" type="button" aria-label="Add stop" title="Add stop">+</button>
-    <button id="locate" type="button" hidden aria-label="Stations near me" title="Stations near me">◎</button>
+    <div id="map-actions" hidden>
+      <button id="map-fullscreen" type="button" aria-label="Expand map" title="Expand map">⛶</button>
+      <button id="locate" type="button" aria-label="Find me" title="Find me">◎</button>
+    </div>
 
     <dialog id="add-dialog">
       <form id="add-stop" method="dialog">
@@ -136,6 +139,30 @@
           <button type="button" id="sheet-refresh" title="Refresh">↻</button>
           <button type="button" id="sheet-close">Close</button>
           <button type="submit" id="sheet-save" hidden>Save</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="bike-dialog">
+      <form id="bike-form" method="dialog">
+        <div class="sheet-title-row">
+          <h2 id="bike-sheet-heading">BiciMAD station</h2>
+          <button type="button" id="bike-sheet-edit" title="Rename" aria-label="Rename">✎</button>
+        </div>
+        <p id="bike-sheet-meta" class="stop-num"></p>
+        <div id="bike-sheet-map"></div>
+        <div id="bike-sheet-counts"></div>
+        <div id="bike-sheet-details" class="station-details"></div>
+        <label class="field" id="bike-sheet-name" hidden>
+          <span>Name — leave empty to use BiciMAD’s own</span>
+          <input id="bike-sheet-label" autocomplete="off" placeholder="Station name" />
+        </label>
+        <div class="dialog-actions">
+          <button type="button" id="bike-sheet-remove" class="danger">Remove</button>
+          <button type="button" id="bike-sheet-favourite">☆ Save</button>
+          <button type="button" id="bike-sheet-show-map">Show on map</button>
+          <button type="button" id="bike-sheet-close">Close</button>
+          <button type="submit" id="bike-sheet-save" hidden>Save</button>
         </div>
       </form>
     </dialog>

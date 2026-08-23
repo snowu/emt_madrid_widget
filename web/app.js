@@ -575,6 +575,7 @@ async function healStubs() {
 let leafletMap = null;
 let markers = null; // L.LayerGroup — saved stops
 let nearbyLayer = null; // L.LayerGroup — unsaved stops around the view
+let busUserMarker = null;
 let nearbyCell = null;
 let nearbyStops = [];
 let nearbySeq = 0;
@@ -856,6 +857,7 @@ function ensureMap() {
   routeLayer = L.layerGroup().addTo(leafletMap);
   markers = L.layerGroup().addTo(leafletMap);
   nearbyLayer = L.layerGroup().addTo(leafletMap);
+  if (myLocation) busUserMarker = addUserMarker(leafletMap, myLocation);
   rebuildMarkers();
   leafletMap.on("moveend", loadNearby);
 
@@ -932,6 +934,7 @@ function showView(view) {
     renderRouteLegend(); // it lives over the map; the list has no use for it
     render(); // the interval skips list renders while the map is up
   }
+  syncMapControls();
 }
 
 /* ---- Nearby stops on the map ------------------------------------------ */
@@ -1455,6 +1458,8 @@ const bikeAccountEl = document.getElementById("bike-account");
 const bikeAccountDot = document.getElementById("bike-account-dot");
 const bikeAccountText = document.getElementById("bike-account-text");
 const bikeAccountCheck = document.getElementById("bike-account-check");
+const mapActions = document.getElementById("map-actions");
+const mapFullscreenBtn = document.getElementById("map-fullscreen");
 
 const BIKE_RADIUS = 700;
 
@@ -1467,6 +1472,7 @@ let bikeMarkers = null;
 let bikeCell = null;
 let bikeSeq = 0;
 let myLocation = null;
+let bikeUserMarker = null;
 // Live counts by station id, from whichever call last saw them: the nearby
 // sweep, or the by-ids lookup that keeps saved stations current even when
 // they are nowhere near the map.
@@ -1532,21 +1538,26 @@ function bikeTitle(station, saved) {
 
 /** A station's counts as a compact bar: bikes vs free docks. */
 function bikeCounts(station) {
-  const wrap = document.createElement("p");
+  const wrap = document.createElement("div");
   wrap.className = "bike-counts";
 
-  // Whichever you are looking for leads and carries the colour; the other
-  // still shows, because a station with bikes and no docks matters either way.
-  const lead = document.createElement("span");
-  lead.className = "count";
-  lead.style.color = bikeTone(station);
-  lead.textContent = bikeMode === "docks" ? `${station.freeBases} docks` : `${station.bikes} 🚲`;
-
-  const other = document.createElement("span");
-  other.className = "count muted";
-  other.textContent = bikeMode === "docks" ? `${station.bikes} 🚲` : `${station.freeBases} docks`;
-
-  wrap.append(lead, other);
+  // Both numbers are controls: a station answers both halves of a journey,
+  // and tapping either one changes what every card and map pin prioritises.
+  for (const [mode, value, label] of [
+    ["bikes", station.bikes, "bikes"],
+    ["docks", station.freeBases, "docks"],
+  ]) {
+    const metric = document.createElement("button");
+    metric.type = "button";
+    metric.className = `bike-metric${bikeMode === mode ? " selected" : ""}`;
+    metric.innerHTML = `<strong>${value ?? "—"}</strong><span>${label}</span>`;
+    metric.addEventListener("click", (event) => {
+      event.stopPropagation();
+      setBikeMode(mode);
+      if (bikeDialog.open) renderBikeSheet();
+    });
+    wrap.append(metric);
+  }
 
   // What the operator's feed knows and the old one did not: a station can be
   // in service but refusing one direction, and docked bikes are not the same
@@ -1563,19 +1574,19 @@ function bikeCounts(station) {
             : null;
   if (trouble) {
     const out = document.createElement("span");
-    out.className = "count warn";
+    out.className = "bike-note warn";
     out.textContent = trouble;
     wrap.append(out);
   }
   if (station.broken > 0) {
     const broken = document.createElement("span");
-    broken.className = "count muted";
+    broken.className = "bike-note muted";
     broken.textContent = `${station.broken} broken`;
     wrap.append(broken);
   }
   if (station.metres != null) {
     const far = document.createElement("span");
-    far.className = "count muted";
+    far.className = "bike-note muted";
     far.textContent = station.metres < 1000
       ? `${station.metres} m`
       : `${(station.metres / 1000).toFixed(1)} km`;
@@ -1588,6 +1599,7 @@ function bikeCard(station, saved) {
   const card = document.createElement("article");
   card.className = "stop bike";
   const known = station.bikes != null;
+  card.addEventListener("click", () => openBikeStation(station));
 
   const titleWrap = document.createElement("div");
   titleWrap.className = "title";
@@ -1756,6 +1768,165 @@ async function toggleBikeSaved(station, saved) {
   }
 }
 
+/* ---- Bike station sheet ------------------------------------------------ */
+
+const bikeDialog = document.getElementById("bike-dialog");
+const bikeForm = document.getElementById("bike-form");
+const bikeSheetHeading = document.getElementById("bike-sheet-heading");
+const bikeSheetMeta = document.getElementById("bike-sheet-meta");
+const bikeSheetCounts = document.getElementById("bike-sheet-counts");
+const bikeSheetDetails = document.getElementById("bike-sheet-details");
+const bikeSheetName = document.getElementById("bike-sheet-name");
+const bikeSheetLabel = document.getElementById("bike-sheet-label");
+const bikeSheetEdit = document.getElementById("bike-sheet-edit");
+const bikeSheetSave = document.getElementById("bike-sheet-save");
+const bikeSheetRemove = document.getElementById("bike-sheet-remove");
+const bikeSheetFavourite = document.getElementById("bike-sheet-favourite");
+const bikeSheetMapEl = document.getElementById("bike-sheet-map");
+
+let bikeSheetStation = null;
+let bikeSheetMap = null;
+let bikeSheetMarker = null;
+
+function currentBikeSheetStation() {
+  return bikeById.get(bikeSheetStation?.id) || bikeSheetStation;
+}
+
+function bikeSavedRow(station) {
+  return bikeSaved.find((row) => row.station_id === station?.id) ?? null;
+}
+
+function showBikeNameEditor(editing) {
+  bikeSheetName.hidden = !editing;
+  bikeSheetSave.hidden = !editing;
+  bikeSheetEdit.hidden = editing;
+  if (editing) bikeSheetLabel.focus();
+}
+
+function showBikeSheetMap(station) {
+  bikeSheetMapEl.hidden = !station.coordinates;
+  if (!station.coordinates) return;
+  const latlng = [station.coordinates[1], station.coordinates[0]];
+  requestAnimationFrame(() => {
+    if (!bikeSheetMap) {
+      bikeSheetMap = L.map(bikeSheetMapEl, {
+        zoomControl: false,
+        attributionControl: false,
+        dragging: false,
+        scrollWheelZoom: false,
+        doubleClickZoom: false,
+        touchZoom: false,
+        keyboard: false,
+      });
+      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 })
+        .addTo(bikeSheetMap);
+      bikeSheetMarker = L.marker(latlng).addTo(bikeSheetMap);
+    } else {
+      bikeSheetMarker.setLatLng(latlng);
+    }
+    bikeSheetMap.invalidateSize();
+    bikeSheetMap.setView(latlng, 17);
+  });
+}
+
+function renderBikeSheet() {
+  const station = currentBikeSheetStation();
+  if (!station) return;
+  const saved = bikeSavedRow(station);
+  bikeSheetStation = station;
+  bikeSheetHeading.textContent = bikeTitle(station, saved);
+  bikeSheetMeta.textContent = station.address
+    ? `Nº ${station.number} · ${station.address}`
+    : `Nº ${station.number}`;
+  bikeSheetCounts.replaceChildren(bikeCounts(station));
+
+  const facts = [
+    ["Taking bikes", station.renting === false ? "Unavailable" : "Available"],
+    ["Returning bikes", station.returning === false ? "Unavailable" : "Available"],
+    ["Station", station.inService ? "In service" : "Out of service"],
+    ["Capacity", station.totalBases ?? "—"],
+  ];
+  if (station.broken > 0) facts.push(["Disabled bikes", station.broken]);
+  if (station.brokenDocks > 0) facts.push(["Disabled docks", station.brokenDocks]);
+  bikeSheetDetails.replaceChildren(...facts.map(([label, value]) => {
+    const row = document.createElement("div");
+    const term = document.createElement("span");
+    term.textContent = label;
+    const result = document.createElement("strong");
+    result.textContent = value;
+    row.append(term, result);
+    return row;
+  }));
+
+  bikeSheetLabel.value = saved?.label ?? "";
+  bikeSheetLabel.placeholder = station.name || "BiciMAD station";
+  bikeSheetRemove.hidden = !saved;
+  bikeSheetFavourite.hidden = !!saved;
+  showBikeNameEditor(false);
+  showBikeSheetMap(station);
+}
+
+function openBikeStation(station) {
+  bikeSheetStation = station;
+  bikeDialog.showModal();
+  renderBikeSheet();
+}
+
+bikeSheetEdit.addEventListener("click", () => showBikeNameEditor(true));
+document.getElementById("bike-sheet-close").addEventListener("click", () => bikeDialog.close());
+
+bikeSheetFavourite.addEventListener("click", async () => {
+  await toggleBikeSaved(currentBikeSheetStation(), null);
+  renderBikeSheet();
+});
+
+bikeSheetRemove.addEventListener("click", async () => {
+  const station = currentBikeSheetStation();
+  const saved = bikeSavedRow(station);
+  if (!saved) return;
+  await toggleBikeSaved(station, saved);
+  bikeDialog.close();
+});
+
+bikeForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const station = currentBikeSheetStation();
+  const saved = bikeSavedRow(station);
+  const label = bikeSheetLabel.value.trim();
+  try {
+    if (saved) {
+      const row = await api(`/bikes/saved/${encodeURIComponent(saved.id)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ label: label || null }),
+      });
+      bikeSaved = bikeSaved.map((item) => item.id === row.id ? row : item);
+    } else {
+      const row = await api("/bikes/saved", {
+        method: "POST",
+        body: JSON.stringify({ stationId: station.id, label: label || station.name }),
+      });
+      bikeSaved.push(row);
+    }
+    writeBikeSaved(bikeSaved);
+    renderBikes();
+    rebuildBikeMarkers();
+    bikeDialog.close();
+  } catch (err) {
+    statusEl.textContent = `Could not rename station: ${err.message}`;
+  }
+});
+
+document.getElementById("bike-sheet-show-map").addEventListener("click", () => {
+  const station = currentBikeSheetStation();
+  if (!station?.coordinates) return;
+  bikeDialog.close();
+  showView("map");
+  showSection("bikes");
+  requestAnimationFrame(() => {
+    bikeMap?.setView([station.coordinates[1], station.coordinates[0]], 18);
+  });
+});
+
 /* ---- Bike map ----------------------------------------------------------- */
 
 function ensureBikeMap() {
@@ -1766,6 +1937,7 @@ function ensureBikeMap() {
     attribution: "&copy; OpenStreetMap contributors",
   }).addTo(bikeMap);
   bikeMarkers = L.layerGroup().addTo(bikeMap);
+  if (myLocation) bikeUserMarker = addUserMarker(bikeMap, myLocation);
   bikeMap.setView(myLocation ?? [40.4168, -3.7038], 15);
   bikeMap.on("moveend", () => {
     const c = bikeMap.getCenter();
@@ -1791,7 +1963,14 @@ function bikePopup(station) {
     toggleBikeSaved(station, saved);
     bikeMap.closePopup();
   });
-  wrap.append(fav);
+  const detailsButton = document.createElement("button");
+  detailsButton.type = "button";
+  detailsButton.textContent = "Details";
+  detailsButton.addEventListener("click", () => {
+    bikeMap.closePopup();
+    openBikeStation(station);
+  });
+  wrap.append(fav, detailsButton);
   return wrap;
 }
 
@@ -1819,13 +1998,13 @@ function rebuildBikeMarkers() {
 /* ---- Section menu ------------------------------------------------------- */
 
 function showSection(next) {
+  if (next !== section) closeFullscreenMap();
   section = next;
   const bikes = next === "bikes";
   titleEl.textContent = bikes ? "BiciMAD" : "Buses";
   menuBuses.setAttribute("aria-selected", String(!bikes));
   menuBikes.setAttribute("aria-selected", String(bikes));
   fab.hidden = bikes || !authSession;
-  locateBtn.hidden = !bikes;
   bikeAgeEl.hidden = !bikes;
   bikeModeEl.hidden = !bikes;
   bikeAccountEl.hidden = !bikes || !isOwner;
@@ -1851,10 +2030,59 @@ function showSection(next) {
   } else {
     render();
   }
+  syncMapControls();
 }
 
 menuBuses.addEventListener("click", () => showSection("buses"));
 menuBikes.addEventListener("click", () => showSection("bikes"));
+
+function userLocationIcon() {
+  return L.divIcon({
+    className: "user-pin",
+    iconSize: [28, 28],
+    iconAnchor: [14, 14],
+    html: '<span aria-hidden="true">●</span>',
+  });
+}
+
+function addUserMarker(map, location) {
+  return L.marker(location, { icon: userLocationIcon(), zIndexOffset: 1000 })
+    .bindTooltip("You are here", { direction: "top", offset: [0, -12] })
+    .addTo(map);
+}
+
+function updateUserMarkers() {
+  if (!myLocation) return;
+  if (leafletMap) {
+    if (busUserMarker) busUserMarker.setLatLng(myLocation);
+    else busUserMarker = addUserMarker(leafletMap, myLocation);
+  }
+  if (bikeMap) {
+    if (bikeUserMarker) bikeUserMarker.setLatLng(myLocation);
+    else bikeUserMarker = addUserMarker(bikeMap, myLocation);
+  }
+}
+
+function syncMapControls() {
+  const mapView = viewMapBtn.getAttribute("aria-selected") === "true";
+  if (!mapView) closeFullscreenMap();
+  mapActions.hidden = !mapView;
+}
+
+function closeFullscreenMap() {
+  const wasFullscreen = mapEl.classList.contains("map-fullscreen") ||
+    bikeMapEl.classList.contains("map-fullscreen");
+  mapEl.classList.remove("map-fullscreen");
+  bikeMapEl.classList.remove("map-fullscreen");
+  document.body.classList.remove("map-is-fullscreen");
+  mapFullscreenBtn.textContent = "⛶";
+  mapFullscreenBtn.title = "Expand map";
+  mapFullscreenBtn.setAttribute("aria-label", "Expand map");
+  if (wasFullscreen) requestAnimationFrame(() => {
+    leafletMap?.invalidateSize();
+    bikeMap?.invalidateSize();
+  });
+}
 
 locateBtn.addEventListener("click", () => {
   if (!navigator.geolocation) {
@@ -1866,14 +2094,37 @@ locateBtn.addEventListener("click", () => {
     (pos) => {
       myLocation = [pos.coords.latitude, pos.coords.longitude];
       statusEl.textContent = "";
-      if (bikeMap) bikeMap.setView(myLocation, 16);
-      loadBikesNear(myLocation[0], myLocation[1], { force: true });
+      updateUserMarkers();
+      const activeMap = section === "bikes" ? bikeMap : leafletMap;
+      activeMap?.setView(myLocation, 16);
+      if (section === "bikes") {
+        loadBikesNear(myLocation[0], myLocation[1], { force: true });
+      }
     },
     (err) => {
       statusEl.textContent = `Could not get your location: ${err.message}`;
     },
     { enableHighAccuracy: true, timeout: 10_000, maximumAge: 30_000 }
   );
+});
+
+mapFullscreenBtn.addEventListener("click", () => {
+  const activeEl = section === "bikes" ? bikeMapEl : mapEl;
+  const activeMap = section === "bikes" ? bikeMap : leafletMap;
+  const expanding = !activeEl.classList.contains("map-fullscreen");
+  for (const element of [mapEl, bikeMapEl]) element.classList.remove("map-fullscreen");
+  activeEl.classList.toggle("map-fullscreen", expanding);
+  document.body.classList.toggle("map-is-fullscreen", expanding);
+  mapFullscreenBtn.textContent = expanding ? "×" : "⛶";
+  mapFullscreenBtn.title = expanding ? "Close fullscreen map" : "Expand map";
+  mapFullscreenBtn.setAttribute("aria-label", mapFullscreenBtn.title);
+  requestAnimationFrame(() => activeMap?.invalidateSize());
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && document.body.classList.contains("map-is-fullscreen")) {
+    closeFullscreenMap();
+  }
 });
 
 function setBikeMode(mode) {
