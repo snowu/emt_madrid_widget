@@ -359,55 +359,49 @@ about a fifth of its size (318KB → ~60KB for the city) and inverts
 it. Counts move constantly: KV's 60s floor is the freshness contract, and every
 rendering carries its age.
 
-**Nothing public can unlock, reserve, or tell you about your account.** Swept
-69 candidate paths across v1/v2/v3 (`bicimad/user/*`, `trips`, `rents`,
-`reserve`, `reservations`, `unlock`, `bikes`, `tariffs`, `mobilitylabs/user/*`):
-all 404 except `stations/{id}` matching "info" as an id, and every write verb
-on the live family is 405. The MobilityLabs login is an API *developer*
-account — `nameApp: OPENAPI MobilityLabs`, a 20k/day quota counter — with no
-link to a BiciMAD subscription.
+**Public transport endpoints do not expose subscriber accounts.** A sweep of
+MobilityLabs' transport families found stations but no customer account data.
+Its login is an API-developer account (`nameApp: OPENAPI MobilityLabs`, quota),
+not a BiciMAD subscription. PBSC's `madrid.publicbikesystem.net/customer/*`
+paths are also not what the current BiciMAD app uses for account features.
 
-PBSC's customer backend does have an account API: `customer/user`,
-`customer/account` and `customer/rentals` on the same host answer **401**, not
-404. It is undocumented and authenticated, so reading a subscriber's rentals,
-charges or suspension would mean logging in as them against a private API.
-Not done, and not to be done without the account holder deciding to.
-
-Aggregate usage *is* available: datos.madrid.es publishes anonymised BiciMAD
-trips 2017-2023 (origin, destination, start, duration, bike id) and station
-status by day and hour since July 2018. Rides over 6h are filtered and bike ids
-are not stable across records.
-
-**Where per-user account state actually lives (mapped 2026-08-23).** MPass is
-EMT's unified account layer; its web portal is `mpass.mobi`, an Angular SPA
-whose bundle calls a MaaS backend at `https://maas.emtmadrid.es:8243/maas/v1/`.
-That API *does* expose the subscriber's own BiciMAD account:
+**Per-user state lives in EMT MPass/EMTPay (mapped from the published Android
+app 5.8.8 on 2026-08-23).** The current app uses:
 
 ```
-GET user/service/bicimad/v1        the account: state, usage, linked card
-POST user/service/bicimad/v1/desvincular   unlink
-GET user/profile , user/profile/state , user/cards/managment/list
+GET https://apiemtpay.emtmadrid.es/v2/bicimad/userdata/
+    NM_STATE, IT_STATUS, DS_BALANCE, contracts and access media
+GET https://apiemtpay.emtmadrid.es/v2/bicimad/trips/
+    trip cost, old/new balance, bonuses, penalty count/amount/timestamps
+GET https://api.mpass.mobi/v1/core/identity/whoami
+GET https://api.mpass.mobi/v3/transportcard/list/0
 ```
 
-i18n keys confirm it (`bicimad.estado`, `bicimad.uso`, `bicimad.cuenta`), and
-the service method is literally `consultarCuentaBicimad`. So account status —
-including whether the service is blocked — is reachable in principle.
+The APK also contains live v3/v4 userdata variants. All are authenticated with
+a legitimate MPass `accessToken`, user id and device/app headers; trips also
+need NIF and the BiciMAD session id. The MPass media-state enum is
+`INACTIVO=1`, `ACTIVO=2`, `BLOQUEADO=3`, `PENDIENTE=4`, `SIN_USUARIO=5`, but
+those values describe an access medium and must not be assumed to equal
+`NM_STATE`. Exact user-state labels require observing the account holder's real
+response.
 
-It is gated twice and neither gate is ours to pass:
-- an `Application` key (`Bearer …114009` in the bundle) that the server now
-  rejects as "does not exist" — it has rotated;
-- a per-user `tokenEMT` minted by an interactive OAuth login at
-  `mobilitylabs.emtmadrid.es/sip/es/oauth?type=mpass&client_id=652f0ce9-…`,
-  exchanged at `user/session/portal?token=`.
+The official customer operation at
+`apiemtpay.emtmadrid.es/v1/bicimad/booking/` reserves a **dock/base at a
+station** (POST; DELETE cancels). It does not lock a particular bike. PBSC's
+Comet frontend has temporary bike-lock operations, but those are fleet-operator
+controls and are not customer features.
 
-Reaching it means logging in as the account holder against an undocumented,
-authenticated API. Out of scope without the user driving that login themselves.
+The older `mpass.mobi` portal additionally references account, linked-card and
+debt views through `maas.emtmadrid.es:8243`, but its bundled application key
+has rotated. Do not bypass either application or user authentication. The
+account owner has approved read-only investigation; use their normally issued
+session, never copy embedded app credentials into this repo, and never invoke
+write endpoints while researching. Full findings and response fields are in
+`docs/bicimad-account-api-research.md`; `tools/bicimad-account.mjs` is the
+GET-only probe.
 
-The MobilityLabs OpenAPI (the token this app uses) has only `login`, `logout`,
-`whoami`, `passwreset` for identity — `whoami` returns the API-developer
-context (nameApp, quota, idUser), nothing about a BiciMAD subscription. The
-full documented surface is 52 endpoints (`apidocs.emtmadrid.es/api_data.json`);
-the `discover/*` data-model block is documented but 404s live.
+Aggregate usage *is* available separately: datos.madrid.es publishes
+anonymised BiciMAD trips 2017-2023 and station status by day/hour.
 
 ## Architecture decisions
 
