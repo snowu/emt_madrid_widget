@@ -1,9 +1,11 @@
 # EMT Madrid Arrivals
 
-A personal webpage showing live EMT bus arrival times for a handful of saved
-stops. Opened from a phone home screen. Single user, not going to any store.
+A personal webpage showing live EMT bus arrival times and BiciMAD dock counts
+for a handful of saved stops. Opened from a phone home screen. Single user, not
+going to any store.
 
 Design doc: `docs/superpowers/specs/2026-08-18-emt-madrid-web-design.md`.
+Implementation plan: `docs/superpowers/plans/2026-08-18-emt-arrivals-web-app.md`.
 
 **The repo is named `emt_madrid_widget` and there is no widget.** This started
 as an Android home screen widget and became a webpage; the name was kept to
@@ -20,42 +22,137 @@ avoid churn. Ignore it.
 ## Layout
 
 ```
-web/    static page, deployed to GitHub Pages. Holds no secrets.
-api/    Cloudflare Worker. Holds EMT credentials + SUPABASE_SERVICE_KEY.
-supabase/   bus_stops.sql, bike_stations.sql
+web/                 static page, deployed to GitHub Pages. Holds no secrets.
+  index.html         every dialog and view lives here; nothing is templated in JS
+  app.js             the whole page (~1.6k lines), one ES module, no framework
+  cache.js           localStorage read/write, the only module app.js imports
+  style.css          dark, phone-first; no preprocessor
+  manifest.webmanifest, icon.svg    home-screen install
+api/                 Cloudflare Worker. Holds EMT credentials + SUPABASE_SERVICE_KEY.
+  src/index.js       routing, CORS, write filtering, every KV cache decision
+  src/emt.js         EMT auth + buses: token, arrivals, detail, nearby, timetable, route
+  src/bikes.js       BiciMAD stations + local distance filtering
+  src/stops.js       Supabase REST for saved bus stops and saved bike stations
+  src/errors.js      EmtError kinds → HTTP status
+  test/              vitest under workerd, recorded fixtures in test/fixtures/
+  wrangler.toml      name, KV binding, ALLOWED_ORIGIN. No secrets.
+  vitest.config.js   fake credential bindings for tests
+supabase/            bus_stops.sql, bike_stations.sql — run by hand, once
+.github/workflows/pages.yml    deploys web/ and stamps the cache-buster
 ```
 
 Page → worker → (EMT | Supabase). The page never calls EMT or Supabase directly:
 browser JS keeps no secrets, and EMT sends no CORS headers.
 
-## BiciMAD
+Deployed: page at `https://snowu.github.io` (the worker's `ALLOWED_ORIGIN`),
+worker at `https://emt-arrivals.zancato-t.workers.dev` (the page's `API`).
+Both are hardcoded; changing one means changing the other.
 
-Same auth, same host, read-only:
+## Worker API
+
+Reads are open. Writes require `X-App-Key`; anything else is 401 before routing.
 
 ```
-Stations GET v2/transport/bicimad/stations/          → 680 stations, one call
-Near     GET v2/transport/bicimad/stations/arroundxy/{lon}/{lat}/{radius}/
-Station  GET v1/transport/bicimad/stations/{id}/
+GET    /arrivals?stop=&limit=      limit 1–20, default 2
+GET    /stops                      saved stops (Supabase rows)
+POST   /stops                      {stopId, label?}          → 201
+PATCH  /stops/:rowId               {label}                    empty label → EMT's name
+DELETE /stops/:rowId                                         → 204
+GET    /stops/:stopId/detail       name, address, coords, lines
+GET    /stops/nearby?lat=&lon=&radius=   radius 50–1000, default 500
+GET    /lines/:line/route          both directions: paths + stops
+GET    /lines/:line/timetable      service window per day type
+GET    /bikes/stations?ids=a,b     all 680, or just the ids asked for
+GET    /bikes/nearby?lat=&lon=&radius=   radius 50–3000, default 700
+GET    /bikes/saved                favourite stations
+POST   /bikes/saved                {stationId, label?}       → 201
+PATCH  /bikes/saved/:rowId         {label}
+DELETE /bikes/saved/:rowId                                   → 204
 ```
 
-Per station: `id` (EMT's key) and `number` (what is painted on it — they
-differ, 1409 is signed "5"), `name`, `address`, `geometry`, `dock_bikes`,
-`free_bases`, `total_bases`, `reservations_count`, `light` (0 green / 1 amber /
-2 red), `no_available` (out of service), `overflow`, `tipo_estacionPBSC`
-(FIXED, one VIRTUAL), `bikesGo` (empty everywhere so far).
+`:rowId` is the Supabase uuid, not the EMT id — `/stops/:stopId/detail` is the
+one route keyed on EMT's number. Errors come back as
+`{error: kind, message}` with kind in `auth | quota | not_found | upstream`,
+mapped to status by `src/errors.js` (auth and upstream are 502 — our
+credentials being wrong is not the caller's fault; quota is 503, it resolves at
+the daily reset).
 
-All 680 arrive in one answer, so the worker fetches the whole city once a
-minute and slices it locally — `arroundxy` is never needed, and an area query
-costs no EMT call at all. Counts move constantly: KV's 60s floor is the
-freshness contract, and every rendering carries its age.
+### Cache keys and TTLs
 
-**The API cannot unlock a bike and knows nothing about your account.** Every
-user, trip, reservation and unlock path is a 404 (`bicimad/user/*`,
-`bicimad/trips/*`, `bicimad/reserve/`, `bicimad/unlock/`, `mobilitylabs/user/info/`).
-MobilityLabs publishes station telemetry only; unlocking runs through BiciMAD's
-own app against PBSC's backend, which is not this API. So no fares, no trip
-history, no spend tracking from here — anything of that sort would have to be
-entered by hand.
+Everything the worker caches is in KV under `<kind>:<CACHE_VERSION>:<key>`, all
+declared at the top of `src/index.js`:
+
+| key | KV TTL | freshness | why |
+| --- | --- | --- | --- |
+| `emt:token` | login's `tokenSecExpiration` − 60s | — | not versioned; it is a token, not a shape |
+| `arrivals:` | 60s | 20s soft | KV rejects a TTL under 60, so freshness is checked in code against `fetchedAt` |
+| `bikes:` | 60s | 45s soft | one call serves the whole city and every area query |
+| `detail:` | 7 days | — | stops do not move |
+| `route:` | 7 days | — | geometry changes when EMT redraws a line |
+| `nearby:` | 24h | — | keyed on a ~110m grid (`grid3`), so map pans reuse cells |
+| `timetable:` | 24h | — | changes with the season, not the hour |
+
+`CACHE_VERSION` is currently **v3**. Bump it when a *parsed payload shape*
+changes, or week-old detail entries keep serving the old one to devices that
+never notice. Tests reference the version in KV keys (`arrivals:v3:1234`), so a
+bump means touching `api/test/index.test.js` too.
+
+## Development
+
+```bash
+cd api
+npm install
+npm test          # vitest under workerd; 75 tests, no network, no quota burnt
+npm run dev       # wrangler dev, needs .dev.vars
+npm run deploy    # wrangler deploy
+```
+
+The page has no build step: open `web/index.html`, or serve the directory. It
+talks to the deployed worker, not a local one, unless you edit `API` in
+`app.js`.
+
+**Secrets never go in `wrangler.toml`.** A `[vars]` entry blocks creating a
+secret of the same name later. Locally they live in `.dev.vars` (gitignored,
+`cp .dev.vars.example .dev.vars`); in production, `wrangler secret put <NAME>`
+for each of `EMT_EMAIL`, `EMT_PASSWORD`, `SUPABASE_URL`,
+`SUPABASE_SERVICE_KEY`, `APP_KEY`. Tests get fakes from `vitest.config.js`'s
+miniflare bindings, for the same reason.
+
+Supabase tables are created by hand: paste `supabase/bus_stops.sql` and
+`supabase/bike_stations.sql` into the SQL editor, once. The bikes one is
+optional — without it the favourites call 502s and the page says so rather than
+breaking the section.
+
+Deploys: pushing to `main` with changes under `web/**` runs the Pages workflow.
+The worker is **not** deployed by CI — `npm run deploy` by hand.
+
+`wrangler.toml`'s `compatibility_date` is ahead of the installed runtime, so
+tests print a "falling back to 2024-12-30" warning per worker. Expected noise.
+
+## Testing
+
+Recorded EMT fixtures, not live calls — tests shouldn't burn quota. New
+fixtures are recorded from a real answer and left in EMT's own shape
+(`code`, `data[0].Arrive[]`, capital `D` in `DistanceBus`), with a comment
+saying when they were recorded.
+
+Conventions, worth matching:
+
+- `import { env } from "cloudflare:test"` gives the real KV. Tests that touch a
+  cache **must** clear the key in `beforeEach`, or a neighbour's write serves
+  their assertion.
+- Upstream is stubbed with `vi.spyOn(globalThis, "fetch")` returning a **fresh
+  `Response` per call** — bodies are single-use, and the retry paths call twice.
+- `src/index.js` is exercised through `worker.fetch` with
+  `createExecutionContext` / `waitOnExecutionContext`, not by importing routes.
+- Seed `emt:token` in `beforeEach` unless the login path is what is under test;
+  otherwise every test needs a login response in its mock.
+- A cache test asserts the *second* call makes no upstream request. That is the
+  actual contract — not that the value came back.
+
+Currently untested: the `/lines/:line/route`, `/lines/:line/timetable` and
+`/bikes/*` HTTP routes (their underlying `emt.js` / `bikes.js` functions are
+covered), and everything in `web/`.
 
 ## Data source
 
@@ -75,6 +172,11 @@ user, `98` quota spent; `00` ok (arrivals with data, stop detail), `80` stop
 not found / invalid token, `81` no detail record. Handle
 both an HTTP error and a 200 carrying an error code.
 
+**Code 80 is ambiguous** — "stop not found" and "your token expired" are the
+same code — so every fetcher in `emt.js` re-logs in once with
+`getToken(env, {force: true})` and retries before believing the stop is bad.
+Any new endpoint needs that same three-line dance.
+
 **Code 81 does not mean the stop is nonexistent.** EMT's detail table has
 holes for real stops: stop 30 (Plaza Castilla, lines 107/129/005/070) answers
 81 on detail on v1 *and* v2 while arroundxy lists it and arrivals accepts it.
@@ -89,7 +191,9 @@ on v1). When a call comes back empty on principle, try the other version.
 
 Cloudflare↔EMT quirk: outbound TLS from Workers to `openapi.emtmadrid.es`
 fails intermittently with HTTP 525 (same class as workerd#776 vs DeepL).
-Retries get through; the token cache means most calls skip login entirely.
+`emtFetch` retries once on any 5xx and passes 4xx straight through — a 4xx is
+an answer, not a blip. Use it rather than bare `fetch` for anything EMT-bound;
+the token cache means most calls skip login entirely.
 
 Endpoints, verified 2026-08-18 against `fermartv/EMTMadrid`, re-verified live
 2026-08-23:
@@ -124,11 +228,16 @@ segments and let Leaflet draw the array as one multi-polyline. Coordinates come
 with 15 decimal places; rounding to 6 (~10cm) roughly halves the payload, which
 takes a line from 114KB to about 21KB.
 
+**Every coordinate in this API is GeoJSON `[lon, lat]`** — EMT stop detail,
+area search, route geometry, BiciMAD stations. The worker passes them through
+in that order and never flips them; `web/app.js` flips at the Leaflet call,
+which wants `[lat, lon]`. A pin in the sea is this, every time.
+
 **EMT's own `stroke` is per direction, not per line** (line 27 is `#a95516` out
 and `#a9559c` back) and looks procedurally generated rather than branded, so it
-is not a line identity. The page derives its own colour per line instead, by
-golden-angle hue rotation over the line code, and uses it for both the drawn
-route and every label of that line — same line, same colour, everywhere.
+is not a line identity. The page derives its own colour per line instead — see
+Page behaviour — and uses it for both the drawn route and every label of that
+line.
 
 Other line endpoints, verified 2026-08-23 but not used yet:
 `lines/{line}/stops/{1|2}/` (ordered stop list + frequency bands),
@@ -150,6 +259,9 @@ and carries what the page actually needs:
 differ (005→5, 070→70, 523→N23, 833→SE833) and arrivals report the *label*.
 Area search sends the same pair per line but no hours. A bare code cannot be
 turned into a label by trimming zeros; if you only have the code, show it.
+`lineEntry()` in `emt.js` normalises both shapes — detail objects and area
+search's bare codes — into one record, and `normaliseLine()` in `app.js`
+additionally tolerates the string-only shape older devices cached.
 
 `startTime`/`stopTime` are the answer to "how can nothing be due?" — at 02:00 a
 Plaza Castilla bay running 07:30–23:45 is correctly empty, not broken.
@@ -161,7 +273,8 @@ traps in that response:
 - **The times are datetimes, and the dates matter.** "16/08/2026 23:40" →
   "17/08/2026 5:45" is a night line crossing midnight. Compare instants, not
   clocks, or a Friday-night line running 04:40 → 06:15 *the next morning* reads
-  as a 95-minute window.
+  as a 95-minute window. `serviceWindow()` reads `overnight` off the dates for
+  exactly this reason.
 - **Day types are LA (weekday), SA, FE (Sunday/holiday) and V** — Friday
   nights, which only night lines carry. A line with no row for today does not
   run today: line 833 (signed SE833) is weekdays-only, so on a Sunday its
@@ -188,10 +301,48 @@ Also present: `bus`, `destination`, `geometry.coordinates`, `isHead`.
 `StopInfo[]` in the arrivals answer is always empty — with estimations and
 without. It is not a way to learn about a stop.
 
+The worker parses and caches **every** arrival EMT sent, sorted soonest-first,
+and `limit` only trims what one caller gets. The card (2) and the stop sheet
+(8) therefore share a single fetch.
+
 Quota: ~20,000 calls/day on the generic login. If it ever binds, register an app
 in MobilityLabs for a dedicated `X-ClientId` / `passKey` pair.
 
 Attribution: EMT asks that MobilityLabs be credited as the data source.
+
+## BiciMAD
+
+Same auth, same host, read-only:
+
+```
+Stations GET v2/transport/bicimad/stations/          → 680 stations, one call
+Near     GET v2/transport/bicimad/stations/arroundxy/{lon}/{lat}/{radius}/
+Station  GET v1/transport/bicimad/stations/{id}/
+```
+
+Per station: `id` (EMT's key) and `number` (what is painted on it — they
+differ, 1409 is signed "5"), `name`, `address`, `geometry`, `dock_bikes`,
+`free_bases`, `total_bases`, `reservations_count`, `light` (0 green / 1 amber /
+2 red / 3 black), `no_available` (out of service), `overflow`,
+`tipo_estacionPBSC` (FIXED, one VIRTUAL), `bikesGo` (empty everywhere so far).
+
+All 680 arrive in one answer, so the worker fetches the whole city once a
+minute and slices it locally — `arroundxy` is never needed, and an area query
+costs no EMT call at all. `stationsNear()` filters by an equirectangular
+distance, which over a few km in Madrid is accurate to centimetres and far
+cheaper than haversine per station. `parseStation()` trims EMT's record to
+about a fifth of its size (318KB → ~60KB for the city) and inverts
+`no_available` into `inService`, so the page reads the field the way it renders
+it. Counts move constantly: KV's 60s floor is the freshness contract, and every
+rendering carries its age.
+
+**The API cannot unlock a bike and knows nothing about your account.** Every
+user, trip, reservation and unlock path is a 404 (`bicimad/user/*`,
+`bicimad/trips/*`, `bicimad/reserve/`, `bicimad/unlock/`, `mobilitylabs/user/info/`).
+MobilityLabs publishes station telemetry only; unlocking runs through BiciMAD's
+own app against PBSC's backend, which is not this API. So no fares, no trip
+history, no spend tracking from here — anything of that sort would have to be
+entered by hand.
 
 ## Architecture decisions
 
@@ -205,30 +356,45 @@ free plan rejects requests rather than billing. Cost cannot balloon.
 **Supabase for saved stops.** They must be identical on every device — that
 requirement killed both localStorage-only and a committed JSON file. Follows the
 `innocent_project` pattern: RLS enabled with **zero policies**, so only the
-service-role key can read or write. Env vars `SUPABASE_URL`,
-`SUPABASE_SERVICE_KEY`, gitignored.
+service-role key can read or write. Plain REST against `/rest/v1/<table>`, no
+SDK; the key goes in *both* `apikey` and `Authorization`. Env vars
+`SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, gitignored.
 
-**localStorage is a cache, not shared state.** It holds last-known arrivals per
-device so the page never renders empty. Saved stops never live there.
+**localStorage is a cache, not shared state.** It holds last-known arrivals,
+stop details, the stop list and last-known bike counts per device so the page
+never renders empty. The server owns all of them; `cache.js` is a mirror.
 
 **Stop IDs are typed in by hand.** No GTFS index; build that pipeline only if
-hand-entry becomes annoying.
+hand-entry becomes annoying. (The map's nearby search has since made this
+mostly moot for discovery.)
 
 **Writes are filtered, not authenticated.** The page sends `X-App-Key` and the
 worker rejects writes without it. Reads send neither it nor a content type, so
 they stay CORS "simple requests" and skip the preflight — otherwise every read
-costs two round trips, which on a phone is the difference you feel. The key ships in public JS — it stops
-scanners, not people. Deliberate: blast radius is junk rows in a personal table.
-Arrivals are cached 20s in KV, which also blunts quota abuse. See the design doc
-for what was rejected and when to revisit.
+costs two round trips, which on a phone is the difference you feel. Don't add a
+header to a GET path without knowing you just doubled its latency. The key
+ships in public JS — it stops scanners, not people. Deliberate: blast radius is
+junk rows in a personal table. Arrivals are cached 20s in KV, which also blunts
+quota abuse. See the design doc for what was rejected and when to revisit.
+
+**No framework, no build step, no bundler.** `app.js` is one ES module
+importing one other. Leaflet comes from a CDN `<script>`. Every dialog and
+control is already in `index.html`; JS fills them rather than templating.
+Keeping it that way is why a deploy is "copy `web/` to Pages".
 
 ## Page behaviour
 
+Two sections — Buses and BiciMAD — behind a top menu, each with a List and a
+Map view. The section menu swaps the title, the FAB (add stop) for the locate
+button, and which pair of panes is visible.
+
 Two arrivals per stop: the next bus and the fallback if you miss it.
 
-1. **Local countdown.** Tick `estimateArrive` down in the browser between fetches
-   so numbers move every second instead of freezing.
-2. **Staleness marker.** Every rendering of arrival data carries "updated N ago".
+1. **Local countdown.** A 1s interval re-renders so `estimateArrive` and every
+   "updated N ago" tick between fetches instead of freezing. It refetches
+   nothing.
+2. **Staleness marker.** Every rendering of arrival or bike data carries
+   "updated N ago".
 3. **An empty board says when the first bus is.** "Nothing due" is the true
    answer at 04:00 but it is not a useful one, and it makes one stop look
    broken next to another that has night buses. Where nothing is due, the card
@@ -238,15 +404,15 @@ Two arrivals per stop: the next bus and the fallback if you miss it.
    "No buses due right now": EMT having no estimate is a different thing from
    the stop being asleep, and promising a 07:00 first bus at 09:00 would be a
    lie.
-4. **Never render empty.** Show last-known arrivals from localStorage rather
-   than a spinner or blank. A stale number beats a spinner — but only ever with
-   its age attached.
+4. **Never render empty.** Show last-known data from localStorage rather than a
+   spinner or blank — `render()` runs before `loadStops()` on boot. A stale
+   number beats a spinner, but only ever with its age attached.
 5. **Add/remove stops in the page**, since the phone is the device that has this
    problem. A TUI was considered and dropped: it would run on the laptop, which
    is exactly where you are not when you want to add a stop.
 
-Refresh: automatically on load and on tab focus; manually per-card or all at
-once.
+Refresh: on load, on `visibilitychange` back to visible (exactly when the data
+is most stale), and manually per-card or all at once.
 
 6. **Tap a card to open the stop.** The sheet holds a small map of where it is,
    the full arrival board rather than the card's two, the lines with today's
@@ -257,7 +423,6 @@ once.
    place and fills in the blind ones — stops cluster, so a Plaza Castilla bay
    is healed by the bay next to it. Results are cached in the worker for a day,
    so this costs close to nothing.
-
 8. **Line routes on the map, one direction at a time.** Every line in a map
    popup is a chip; tapping cycles out → back → off, and the legend chip names
    where that direction ends up ("70 → ALSACIA"). Both directions drawn at once
@@ -274,24 +439,33 @@ once.
    arrivals, so you can tell whether it is the right side of the road before
    adding it. Those arrivals stay in memory — localStorage is the cache for
    stops you actually keep.
+11. **Bikes are counts, not countdowns.** A station card shows bikes and free
+   docks with EMT's own `light` as the tone, marks out-of-service and overflow,
+   and carries the age of the whole city fetch. The locate button asks for
+   geolocation and recentres; without it the map falls back to Puerta del Sol.
+   Saved stations are optional — if `bike_stations` was never created, the page
+   says so once and the rest of the section still works.
 
 Cached payload shapes are versioned in the worker's KV keys (`CACHE_VERSION`).
 Bump it when a parsed shape changes, or week-old detail entries keep serving
 the old one.
 
-Line colour is derived from the line code by FNV-1a hashed into 24 hues and
-two tones. A free-running hue put 5 and 107 five degrees apart — colliding
-outright is fine, looking almost-the-same on a card listing six lines is not.
+Line colour is derived from the line code by FNV-1a, quantised into 24 hues
+with lightness and saturation each picked by a hash bit. A free-running hue put
+5 and 107 five degrees apart — colliding outright is fine, looking
+almost-the-same on a card listing six lines is not. (The docstring above
+`lineColor` still says "golden-angle rotation"; the code has been FNV-1a since,
+and the comment inside the function is the accurate one.)
+The same colour is used for the line's label on a card, its chip in a popup,
+its route polyline and its en-route dots: same line, same colour, everywhere.
 
 **GitHub Pages sends `max-age=600` on every asset and gives no way to change
 it**, so a phone keeps running the old `app.js` after a deploy — a home-screen
 one for longer. The Pages workflow stamps the commit sha onto each local asset
 URL (`app.js?v=…`, including the `./cache.js` import inside it) so every deploy
 is a new URL. If a change seems not to have shipped, check that stamp first.
-
-## Testing
-
-Recorded EMT fixtures, not live calls — tests shouldn't burn quota.
+The `sed` in that workflow matches asset names literally — **adding a new file
+to `web/` means adding it to the workflow's pattern**, or it deploys uncached.
 
 ## Reference
 

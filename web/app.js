@@ -49,9 +49,10 @@ function normaliseLine(l) {
 /** A stable colour per line, used for its label everywhere and for its route
  *  on the map — same line, same colour, on every surface.
  *
- * Hue comes from the line code by golden-angle rotation, so neighbouring codes
- * land far apart on the wheel instead of in the same muddy corner. Saturation
- * and lightness are fixed where they stay readable on the dark card.
+ * Hue comes from the line code by an FNV-1a hash quantised into 24 steps, so
+ * neighbouring codes land far apart on the wheel instead of in the same muddy
+ * corner. Saturation and lightness each get a hash bit, kept to values that
+ * stay readable on the dark card.
  */
 const lineColorCache = new Map();
 
