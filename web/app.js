@@ -1644,8 +1644,8 @@ function bikeCounts(station) {
   // Both numbers are controls: a station answers both halves of a journey,
   // and tapping either one changes what every card and map pin prioritises.
   for (const [mode, value, label] of [
-    ["bikes", station.bikes, "bikes"],
-    ["docks", station.freeBases, "docks"],
+    ["bikes", station.bikes, "🚲 bikes"],
+    ["docks", station.freeBases, "🅿️ docks"],
   ]) {
     const metric = document.createElement("button");
     metric.type = "button";
