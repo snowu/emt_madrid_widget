@@ -1542,13 +1542,17 @@ let bikeTripsPage = 0;
 function renderTripResult(trip) {
   const card = document.createElement("article");
   card.className = "trip-result";
+  card.title = trip.bikeNumber ? `Copy bike ${trip.bikeNumber}` : "";
   const heading = document.createElement("strong");
   heading.textContent = `Bike ${trip.bikeNumber ?? "unknown"}`;
   const timing = document.createElement("span");
   timing.textContent = [trip.interval, trip.minutes == null ? null : `${trip.minutes} min`]
     .filter(Boolean).join(" · ") || "Time unavailable";
   const money = document.createElement("span");
-  money.textContent = trip.cost == null ? "Cost unavailable" : `Cost ${trip.cost}`;
+  const numericCost = Number(trip.cost);
+  money.textContent = trip.cost == null || !Number.isFinite(numericCost)
+    ? "Cost unavailable"
+    : `Cost ${new Intl.NumberFormat(undefined, { style: "currency", currency: "EUR" }).format(numericCost)}`;
   card.append(heading, timing, money);
   if (Number(trip.penaltyCount) || Number(trip.penaltyAmount)) {
     const penalty = document.createElement("span");
@@ -1556,14 +1560,24 @@ function renderTripResult(trip) {
     penalty.textContent = `Penalty: ${trip.penaltyCount || 0} · amount ${trip.penaltyAmount || 0}`;
     card.append(penalty);
   }
+  const copyBikeNumber = async () => {
+    if (!trip.bikeNumber) return;
+    try {
+      await navigator.clipboard.writeText(trip.bikeNumber);
+      bikeTripsStatus.textContent = `Copied bike ${trip.bikeNumber}`;
+    } catch {
+      bikeTripsStatus.textContent = `Bike number: ${trip.bikeNumber}`;
+    }
+  };
+  card.addEventListener("click", () => { void copyBikeNumber(); });
   return card;
 }
 
 async function loadBikeTrips(page = 0) {
   bikeTripsPage = Math.max(0, page);
   const bike = bikeTripsNumber.value.trim();
-  if (bike && !/^[0-9A-Za-z-]+$/.test(bike)) {
-    bikeTripsStatus.textContent = "Bike numbers may contain letters, numbers and hyphens only.";
+  if (bike && !/^\d+$/.test(bike)) {
+    bikeTripsStatus.textContent = "Enter the number painted on the bike.";
     return;
   }
   bikeTripsStatus.textContent = "Loading…";
@@ -1667,7 +1681,9 @@ function bikeCounts(station) {
   if (station.broken > 0) {
     const broken = document.createElement("span");
     broken.className = "bike-note muted";
-    broken.textContent = `${station.broken} broken`;
+    broken.textContent = `🔧 ${station.broken}`;
+    broken.title = `${station.broken} disabled bike${station.broken === 1 ? "" : "s"}`;
+    broken.setAttribute("aria-label", broken.title);
     wrap.append(broken);
   }
   if (station.metres != null) {
