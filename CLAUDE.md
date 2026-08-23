@@ -336,6 +336,13 @@ system_information   679 stations, 8942 ebikes, 0 mechanical
 system_pricing_plans EMPTY — plans: []. No fares here.
 ```
 
+PBSC currently publishes neither `vehicle_status` nor the legacy
+`free_bike_status` for Madrid (both paths return 404), so the public surface
+cannot map individual bike ids to their present station. MobilityLabs'
+`bikesGo` is empty as well. Trip history can score a known bike id, but cannot
+locate it; ranking bikes within a station requires a legitimate customer-app
+station-detail response that actually contains those ids.
+
 **MobilityLabs' `dock_bikes` counts bikes that are docked, not bikes you can
 rent.** Measured 2026-08-23: the two disagree on **227 of 680 stations**, and
 859 bikes city-wide are flagged `num_bikes_disabled`. Metro Callao read 5 bikes
@@ -504,8 +511,9 @@ is most stale), and manually per-card or all at once.
    arrivals, so you can tell whether it is the right side of the road before
    adding it. Those arrivals stay in memory — localStorage is the cache for
    stops you actually keep.
-11. **Bikes are counts, not countdowns.** A station card shows bikes and free
-   docks with EMT's own `light` as the tone, marks out-of-service and overflow,
+11. **Bikes are counts, not countdowns.** A station card shows rentable bikes
+   over total station capacity, lists disabled bikes separately, marks
+   out-of-service stations,
    and carries the age of the whole city fetch. The locate button asks for
    geolocation and recentres; without it the map falls back to Puerta del Sol.
    Saved stations are optional — if `bike_stations` was never created, the page
