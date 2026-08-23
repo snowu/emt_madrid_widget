@@ -22,6 +22,7 @@ let authClient = null;
 let authSession = null;
 let authUser = null;
 let isOwner = false;
+let myLocation = null;
 
 const listEl = document.getElementById("stops");
 const statusEl = document.getElementById("status");
@@ -230,6 +231,24 @@ function stopLines(stopId) {
   return known;
 }
 
+function metresFromCurrent(coordinates) {
+  if (!myLocation || !Array.isArray(coordinates)) return null;
+  const [lon, lat] = coordinates;
+  const [myLat, myLon] = myLocation;
+  const x = (lon - myLon) * Math.cos((myLat * Math.PI) / 180);
+  const y = lat - myLat;
+  return Math.round(Math.sqrt(x * x + y * y) * 111_320);
+}
+
+function proximity(value) {
+  return value == null ? Number.POSITIVE_INFINITY : value;
+}
+
+function formatDistance(metres) {
+  if (metres == null) return null;
+  return metres < 1000 ? `${metres} m` : `${(metres / 1000).toFixed(1)} km`;
+}
+
 /** "Nº 30 · 107 · 129 · 5", each line in its own colour.
  *
  * Built as nodes rather than a string so the labels carry the same colour here
@@ -247,6 +266,8 @@ function stopMetaNode(stopId) {
     label.style.color = lineColor(line.label);
     wrap.append(label);
   }
+  const distance = formatDistance(metresFromCurrent(details[stopId]?.coordinates));
+  if (distance) wrap.append(` · ◎ ${distance}`);
   return wrap;
 }
 
@@ -285,7 +306,10 @@ function openWalkingDirections(coordinates) {
 
 function render() {
   listEl.replaceChildren(
-    ...stops.map((stop) => {
+    ...[...stops]
+      .sort((a, b) => proximity(metresFromCurrent(details[a.stop_id]?.coordinates)) -
+        proximity(metresFromCurrent(details[b.stop_id]?.coordinates)))
+      .map((stop) => {
       const cached = arrivals[stop.stop_id];
       const card = document.createElement("article");
       card.className = "stop";
@@ -1093,19 +1117,19 @@ function renderNearbyPins() {
   }
 }
 
-/** Load stops within 500m of the map centre; one fetch per ~110m cell. */
-async function loadNearby() {
-  if (!leafletMap || mapEl.hidden) return;
-  const centre = leafletMap.getCenter();
-  const cell = `${centre.lat.toFixed(3)},${centre.lng.toFixed(3)}`;
-  if (cell === nearbyCell) return;
+/** Load stops around an explicit point so location can update the bus data
+ * even while the bike section (or list view) is on screen. */
+async function loadNearbyAt(lat, lon, { force = false } = {}) {
+  const cell = `${lat.toFixed(3)},${lon.toFixed(3)}`;
+  if (!force && cell === nearbyCell) return;
   const seq = ++nearbySeq;
   try {
     const found = await api(
-      `/stops/nearby?lat=${centre.lat}&lon=${centre.lng}&radius=${NEARBY_RADIUS}`
+      `/stops/nearby?lat=${lat}&lon=${lon}&radius=${NEARBY_RADIUS}`
     );
     if (seq !== nearbySeq) return; // a newer pan superseded this request
-    nearbyStops = found;
+    nearbyStops = found.sort((a, b) =>
+      proximity(metresFromCurrent(a.coordinates)) - proximity(metresFromCurrent(b.coordinates)));
     nearbyCell = cell;
     // A pan over a saved-but-detail-less stop is a free chance to learn it.
     if (mergeNearbyDetails(found)) {
@@ -1116,6 +1140,13 @@ async function loadNearby() {
   } catch {
     // Map stays usable without the halo of nearby pins.
   }
+}
+
+/** Load stops within 500m of the map centre; one fetch per ~110m cell. */
+async function loadNearby() {
+  if (!leafletMap || mapEl.hidden) return;
+  const centre = leafletMap.getCenter();
+  return loadNearbyAt(centre.lat, centre.lng);
 }
 
 viewListBtn.addEventListener("click", () => showView("list"));
@@ -1532,7 +1563,6 @@ let bikeMarkers = null;
 let pendingBikePopupId = null;
 let bikeCell = null;
 let bikeSeq = 0;
-let myLocation = null;
 let bikeUserMarker = null;
 // Live counts by station id, from whichever call last saw them: the nearby
 // sweep, or the by-ids lookup that keeps saved stations current even when
@@ -1831,18 +1861,11 @@ function availabilityClass(value, enabled = true) {
 
 function distanceToStation(station) {
   if (station.metres != null) return station.metres;
-  if (!myLocation || !Array.isArray(station.coordinates)) return null;
-  const [lon, lat] = station.coordinates;
-  const [myLat, myLon] = myLocation;
-  const x = (lon - myLon) * Math.cos((myLat * Math.PI) / 180);
-  const y = lat - myLat;
-  return Math.round(Math.sqrt(x * x + y * y) * 111_320);
+  return metresFromCurrent(station.coordinates);
 }
 
 function distanceText(station) {
-  const metres = distanceToStation(station);
-  if (metres == null) return null;
-  return metres < 1000 ? `${metres} m` : `${(metres / 1000).toFixed(1)} km`;
+  return formatDistance(distanceToStation(station));
 }
 
 function bikeTitle(station, saved) {
@@ -1946,7 +1969,10 @@ function renderBikes() {
   const blocks = [];
   if (bikeSaved.length) {
     blocks.push(sectionHeading("Saved"));
-    for (const row of bikeSaved) {
+    const orderedSaved = [...bikeSaved].sort((a, b) =>
+      proximity(distanceToStation(bikeById.get(a.station_id) ?? {})) -
+      proximity(distanceToStation(bikeById.get(b.station_id) ?? {})));
+    for (const row of orderedSaved) {
       const station = bikeById.get(row.station_id) ?? {
         id: row.station_id,
         number: row.station_id,
@@ -1957,7 +1983,9 @@ function renderBikes() {
     }
   }
 
-  const nearby = (bikeNear.stations ?? []).filter((s) => !savedIdSet.has(s.id));
+  const nearby = (bikeNear.stations ?? [])
+    .filter((s) => !savedIdSet.has(s.id))
+    .sort((a, b) => proximity(distanceToStation(a)) - proximity(distanceToStation(b)));
   blocks.push(sectionHeading(myLocation ? "Nearest to you" : "Around the map"));
   if (nearby.length === 0) {
     const empty = document.createElement("p");
@@ -2429,11 +2457,14 @@ locateBtn.addEventListener("click", () => {
       myLocation = [pos.coords.latitude, pos.coords.longitude];
       statusEl.textContent = "";
       updateUserMarkers();
-      const activeMap = section === "bikes" ? bikeMap : leafletMap;
-      activeMap?.setView(myLocation, 16);
-      if (section === "bikes") {
-        loadBikesNear(myLocation[0], myLocation[1], { force: true });
-      }
+      // Keep both sections tied to the same current position. Hidden maps can
+      // be recentered safely; their size is corrected when they become visible.
+      leafletMap?.setView(myLocation, 16);
+      bikeMap?.setView(myLocation, 16);
+      render();
+      renderBikes();
+      void loadNearbyAt(myLocation[0], myLocation[1], { force: true });
+      void loadBikesNear(myLocation[0], myLocation[1], { force: true });
     },
     (err) => {
       statusEl.textContent = `Could not get your location: ${err.message}`;
