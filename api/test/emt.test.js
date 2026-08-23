@@ -1,12 +1,13 @@
 import { env } from "cloudflare:test";
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
-import { getToken, getArrivals, getStopDetail } from "../src/emt.js";
+import { getToken, getArrivals, getStopDetail, getNearbyStops } from "../src/emt.js";
 import { EmtError } from "../src/errors.js";
 import loginOk from "./fixtures/login-ok.json";
 import loginBadPassword from "./fixtures/login-bad-password.json";
 import arrivalsOk from "./fixtures/arrivals-ok.json";
 import arrivalsEmpty from "./fixtures/arrivals-empty.json";
 import stopDetailOk from "./fixtures/stop-detail-ok.json";
+import arroundxyOk from "./fixtures/arroundxy-ok.json";
 
 function mockFetch(body, init = {}) {
   // A fresh Response per call: response bodies are single-use.
@@ -203,11 +204,11 @@ describe("getStopDetail", () => {
     });
   });
 
-  it("GETs the v1 detail URL with the cached token", async () => {
+  it("GETs the v2 detail URL with the cached token", async () => {
     const spy = mockFetch(stopDetailOk);
     await getStopDetail(env, "1547");
     const [url, init] = spy.mock.calls[0];
-    expect(url).toContain("v1/transport/busemtmad/stops/1547/detail/");
+    expect(url).toContain("v2/transport/busemtmad/stops/1547/detail/");
     expect(init.method).toBe("GET");
     expect(init.headers.accessToken).toBe("cached-token");
   });
@@ -293,5 +294,55 @@ describe("EMT 5xx blip retry", () => {
       message: expect.stringContaining("403"),
     });
     expect(spy).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("getNearbyStops", () => {
+  beforeEach(async () => {
+    await env.KV.put("emt:token", "cached-token");
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("parses id, name, lines, and coordinates from data[]", async () => {
+    mockFetch(arroundxyOk);
+    const stops = await getNearbyStops(env, { lat: 40.46737, lon: -3.68967, radius: 500 });
+    expect(stops).toEqual([
+      {
+        stopId: "30",
+        name: "Plaza Castilla",
+        lines: ["107", "129", "005", "070"],
+        coordinates: [-3.68967, 40.46737],
+      },
+      {
+        stopId: "31",
+        name: "Plaza Castilla",
+        lines: ["107", "129", "174"],
+        coordinates: [-3.6891, 40.4676],
+      },
+    ]);
+  });
+
+  it("GETs the v2 arroundxy URL — v1 silently returns no records", async () => {
+    const spy = mockFetch({ code: "00", data: [] });
+    await getNearbyStops(env, { lat: 40.4674, lon: -3.6897, radius: 500 });
+    const [url] = spy.mock.calls[0];
+    expect(url).toContain("v2/transport/busemtmad/stops/arroundxy/-3.6897/40.4674/500/");
+  });
+
+  it("returns an empty list when nothing is around", async () => {
+    mockFetch({ code: "00", description: "OK", data: [] });
+    const stops = await getNearbyStops(env, { lat: 40.0, lon: -3.0, radius: 100 });
+    expect(stops).toEqual([]);
+  });
+
+  it("tolerates EMT sending lines as objects", async () => {
+    mockFetch({
+      code: "00",
+      data: [{ stopId: "30", stopName: "Plaza Castilla", lines: [{ line: "107" }] }],
+    });
+    const stops = await getNearbyStops(env, { lat: 40.4674, lon: -3.6897, radius: 500 });
+    expect(stops[0].lines).toEqual(["107"]);
   });
 });

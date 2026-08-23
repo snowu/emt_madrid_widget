@@ -9,7 +9,9 @@ const CODE_KIND = {
   "92": ["auth", "EMT user does not exist"],
   "98": ["quota", "EMT daily API quota exceeded"],
   "80": ["not_found", "stop not found or token invalid"],
-  // Unambiguous: no point retrying with a fresh token the way we do for 80.
+  // Careful: EMT's detail table has holes for REAL stops (e.g. stop 30,
+  // Plaza Castilla). Code 81 means "no detail record", not "stop does not
+  // exist" — arrivals and arroundxy still know them.
   "81": ["not_found", "no such EMT record"],
 };
 
@@ -122,7 +124,10 @@ export async function getArrivals(env, stopId) {
 }
 
 async function requestDetail(env, stopId, token) {
-  const res = await emtFetch(`${BASE}v1/transport/busemtmad/stops/${stopId}/detail/`, {
+  // v2 answers identically to the documented v1 (verified live 2026-08-23,
+  // stops 1547/28/29) — keeping every transport call on v2 means versioning
+  // is one less thing to think about. Auth alone stays on v1.
+  const res = await emtFetch(`${BASE}v2/transport/busemtmad/stops/${stopId}/detail/`, {
     method: "GET",
     headers: { accessToken: token },
   });
@@ -156,4 +161,34 @@ export async function getStopDetail(env, stopId) {
 
   if (body.code !== "00") raiseForCode(body.code);
   return parseDetail(body);
+}
+
+async function requestNearby(env, lat, lon, radius, token) {
+  const res = await emtFetch(
+    `${BASE}v2/transport/busemtmad/stops/arroundxy/${lon}/${lat}/${radius}/`,
+    // v2 only: v1 answers "no records" for this family regardless of input.
+    { method: "GET", headers: { accessToken: token } }
+  );
+  if (!res.ok) throw new EmtError("upstream", `EMT area search HTTP ${res.status}`);
+  return res.json();
+}
+
+/** Stops within `radius` metres of a point. */
+export async function getNearbyStops(env, { lat, lon, radius = 500 }) {
+  const r = Math.min(1000, Math.max(50, Number(radius) || 500));
+  let token = await getToken(env);
+  const body = await requestNearby(env, lat, lon, r, token);
+
+  if (body.code !== "00") raiseForCode(body.code);
+
+  return (body.data ?? [])
+    .filter((s) => s.stopId != null)
+    .map((s) => ({
+      stopId: String(s.stopId),
+      name: s.stopName ?? null,
+      lines: Array.isArray(s.lines)
+        ? s.lines.map((l) => (l && typeof l === "object" ? String(l.line ?? "") : String(l)))
+        : [],
+      coordinates: s.geometry?.coordinates ?? null,
+    }));
 }

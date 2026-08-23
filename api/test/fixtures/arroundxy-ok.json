@@ -1,0 +1,18 @@
+{
+  "code": "00",
+  "description": "Data recovered OK",
+  "data": [
+    {
+      "stopId": "30",
+      "stopName": "Plaza Castilla",
+      "lines": ["107", "129", "005", "070"],
+      "geometry": { "type": "Point", "coordinates": [-3.689670, 40.467370] }
+    },
+    {
+      "stopId": "31",
+      "stopName": "Plaza Castilla",
+      "lines": ["107", "129", "174"],
+      "geometry": { "type": "Point", "coordinates": [-3.689100, 40.467600] }
+    }
+  ]
+}

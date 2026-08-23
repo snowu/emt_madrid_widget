@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import worker from "../src/index.js";
 import arrivalsOk from "./fixtures/arrivals-ok.json";
 import stopDetailOk from "./fixtures/stop-detail-ok.json";
+import arroundxyOk from "./fixtures/arroundxy-ok.json";
 
 async function call(path, init) {
   const ctx = createExecutionContext();
@@ -119,6 +120,37 @@ describe("GET /stops/:id/detail", () => {
     );
     const res = await call("/stops/99999999/detail");
     expect(res.status).toBe(404);
+  });
+});
+
+describe("GET /stops/nearby", () => {
+  beforeEach(async () => {
+    await env.KV.delete("nearby:-3.6897:40.4674:500");
+  });
+
+  it("requires lat and lon", async () => {
+    expect((await call("/stops/nearby")).status).toBe(400);
+    expect((await call("/stops/nearby?lat=40.4")).status).toBe(400);
+  });
+
+  it("returns stops within the radius", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
+      new Response(JSON.stringify(arroundxyOk), { status: 200 })
+    );
+    const res = await call("/stops/nearby?lat=40.4674&lon=-3.6897");
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.map((s) => s.stopId)).toEqual(["30", "31"]);
+  });
+
+  it("serves a repeat of the same cell from cache, making no upstream request", async () => {
+    const spy = vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
+      new Response(JSON.stringify(arroundxyOk), { status: 200 })
+    );
+    await call("/stops/nearby?lat=40.4674&lon=-3.6897");
+    const res = await call("/stops/nearby?lat=40.4674&lon=-3.6897");
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(await res.json()).toHaveLength(2);
   });
 });
 

@@ -1,4 +1,4 @@
-import { getArrivals, getStopDetail } from "./emt.js";
+import { getArrivals, getStopDetail, getNearbyStops } from "./emt.js";
 import { listStops, addStop, removeStop } from "./stops.js";
 import { EmtError, errorResponse } from "./errors.js";
 
@@ -8,6 +8,8 @@ const ARRIVALS_KV_TTL = 60;
 const ARRIVALS_FRESH_MS = 20_000;
 // Stop names/locations never move. A week of cache is quota-free.
 const DETAIL_KV_TTL = 7 * 24 * 3600;
+// Nearby searches are keyed on a ~110m grid so panning the map reuses cells.
+const NEARBY_KV_TTL = 24 * 3600;
 
 function cors(env) {
   return {
@@ -47,6 +49,20 @@ async function cachedStopDetail(env, stopId) {
   return fresh;
 }
 
+function grid3(n) {
+  // ~110m cells: close enough to dedupe map pans, coarse enough to hit often.
+  return Number(n).toFixed(3);
+}
+
+async function cachedNearby(env, lat, lon, radius) {
+  const key = `nearby:${grid3(lon)}:${grid3(lat)}:${radius}`;
+  const hit = await env.KV.get(key, "json");
+  if (hit) return hit;
+  const fresh = await getNearbyStops(env, { lat, lon, radius });
+  await env.KV.put(key, JSON.stringify(fresh), { expirationTtl: NEARBY_KV_TTL });
+  return fresh;
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -76,6 +92,19 @@ export default {
       const detail = pathname.match(/^\/stops\/([^/]+)\/detail$/);
       if (detail && method === "GET") {
         return json(await cachedStopDetail(env, decodeURIComponent(detail[1])), env);
+      }
+
+      if (pathname === "/stops/nearby" && method === "GET") {
+        const lat = Number(url.searchParams.get("lat"));
+        const lon = Number(url.searchParams.get("lon"));
+        // searchParams.get returns null, and Number(null) is 0 — hence the
+        // explicit has() checks; Madrid is not at 0,0.
+        if (!url.searchParams.has("lat") || !url.searchParams.has("lon") ||
+            !Number.isFinite(lat) || !Number.isFinite(lon)) {
+          return json({ error: "missing lat or lon parameter" }, env, 400);
+        }
+        const radius = Math.min(1000, Math.max(50, Number(url.searchParams.get("radius")) || 500));
+        return json(await cachedNearby(env, lat, lon, radius), env);
       }
 
       if (pathname === "/stops" && method === "POST") {

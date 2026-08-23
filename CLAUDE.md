@@ -42,13 +42,20 @@ EMT reports failure as a `code` field inside a 200 response, not as an HTTP
 status: `01` login ok **and** arrivals-with-no-estimations (empty `Arrive[]`,
 e.g. night hours — it is a success there), `89` bad password, `92` no such
 user, `98` quota spent; `00` ok (arrivals with data, stop detail), `80` stop
-not found / invalid token, `81` no such record (nonexistent stop id). Handle
+not found / invalid token, `81` no detail record. Handle
 both an HTTP error and a 200 carrying an error code.
 
-Versioning is per endpoint family and the docs overstate v1 coverage: auth is
-v1, bus data is v2. Some transport endpoints exist under both but only answer
-on v2 (`stops/arroundxy/` silently returns "no records" on v1) — verified live
-2026-08-23. When a call comes back empty on principle, try the other version.
+**Code 81 does not mean the stop is nonexistent.** EMT's detail table has
+holes for real stops: stop 30 (Plaza Castilla, lines 107/129/005/070) answers
+81 on detail on v1 *and* v2 while arroundxy lists it and arrivals accepts it.
+Bogus ids get code 80 with "Bus Stop disabled or not exists" on arrivals.
+Validate stop ids against arrivals or arroundxy, never against detail alone.
+
+Versioning: auth is v1; every transport call we make is v2. The docs list
+detail under v1 too, but v2 answers identically (verified live 2026-08-23,
+stops 1547/28/29), so we don't use it. Some transport endpoints exist under
+both but only answer on v2 (`stops/arroundxy/` silently returns "no records"
+on v1). When a call comes back empty on principle, try the other version.
 
 Cloudflare↔EMT quirk: outbound TLS from Workers to `openapi.emtmadrid.es`
 fails intermittently with HTTP 525 (same class as workerd#776 vs DeepL).
@@ -62,7 +69,7 @@ Login      GET  v1/mobilitylabs/user/login/     headers: email, password
 Arrivals   POST v2/transport/busemtmad/stops/{stop_id}/arrives/
                 headers: accessToken
                 body:    {stopId, Text_EstimationsRequired_YN: "Y"}
-Stop detail GET  v1/transport/busemtmad/stops/{stop_id}/detail/
+Stop detail GET  v2/transport/busemtmad/stops/{stop_id}/detail/
                 headers: accessToken  → data[0].stops[0]:
                 {stop, name, postalAddress, geometry.coordinates, lines}
 Area search GET  v2/transport/busemtmad/stops/arroundxy/{lon}/{lat}/{radius}/
