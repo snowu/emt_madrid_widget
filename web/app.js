@@ -1540,11 +1540,14 @@ const bikeTripsNext = document.getElementById("bike-trips-next");
 let bikeTripsPage = 0;
 
 function renderTripResult(trip) {
+  const shownBikeNumber = trip.bikeNumber == null
+    ? null
+    : String(trip.bikeNumber).replace(/^0+(?=\d)/, "");
   const card = document.createElement("article");
   card.className = "trip-result";
-  card.title = trip.bikeNumber ? `Copy bike ${trip.bikeNumber}` : "";
+  card.title = shownBikeNumber ? `Copy bike ${shownBikeNumber}` : "";
   const heading = document.createElement("strong");
-  heading.textContent = `Bike ${trip.bikeNumber ?? "unknown"}`;
+  heading.textContent = `Bike ${shownBikeNumber ?? "unknown"}`;
   const timing = document.createElement("span");
   timing.textContent = [trip.interval, trip.minutes == null ? null : `${trip.minutes} min`]
     .filter(Boolean).join(" · ") || "Time unavailable";
@@ -1561,12 +1564,12 @@ function renderTripResult(trip) {
     card.append(penalty);
   }
   const copyBikeNumber = async () => {
-    if (!trip.bikeNumber) return;
+    if (!shownBikeNumber) return;
     try {
-      await navigator.clipboard.writeText(trip.bikeNumber);
-      bikeTripsStatus.textContent = `Copied bike ${trip.bikeNumber}`;
+      await navigator.clipboard.writeText(shownBikeNumber);
+      bikeTripsStatus.textContent = `Copied bike ${shownBikeNumber}`;
     } catch {
-      bikeTripsStatus.textContent = `Bike number: ${trip.bikeNumber}`;
+      bikeTripsStatus.textContent = `Bike number: ${shownBikeNumber}`;
     }
   };
   card.addEventListener("click", () => { void copyBikeNumber(); });
@@ -1584,7 +1587,7 @@ async function loadBikeTrips(page = 0) {
   bikeTripsResults.replaceChildren();
   try {
     const query = new URLSearchParams({ page: String(bikeTripsPage) });
-    if (bike) query.set("bike", bike);
+    if (bike) query.set("bike", bike.padStart(8, "0"));
     const payload = await api(`/bikes/trips?${query}`);
     bikeTripsResults.replaceChildren(...payload.matchedOnPage.map(renderTripResult));
     bikeTripsStatus.textContent = payload.matchedOnPage.length
