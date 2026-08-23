@@ -1535,49 +1535,74 @@ const bikeTripsNumber = document.getElementById("bike-trips-number");
 const bikeTripsStatus = document.getElementById("bike-trips-status");
 const bikeTripsResults = document.getElementById("bike-trips-results");
 const bikeTripsFields = document.getElementById("bike-trips-fields");
-const bikeTripsPrev = document.getElementById("bike-trips-prev");
-const bikeTripsNext = document.getElementById("bike-trips-next");
-let bikeTripsPage = 0;
 
-function renderTripResult(trip) {
+function euro(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric)
+    ? new Intl.NumberFormat(undefined, { style: "currency", currency: "EUR" }).format(numeric)
+    : null;
+}
+
+function renderTripRow(trip) {
   const shownBikeNumber = trip.bikeNumber == null
     ? null
     : String(trip.bikeNumber).replace(/^0+(?=\d)/, "");
-  const card = document.createElement("article");
-  card.className = "trip-result";
-  card.title = shownBikeNumber ? `Copy bike ${shownBikeNumber}` : "";
-  const heading = document.createElement("strong");
-  heading.textContent = `Bike ${shownBikeNumber ?? "unknown"}`;
+  const row = document.createElement("div");
+  row.className = "trip-row";
   const timing = document.createElement("span");
   timing.textContent = [trip.interval, trip.minutes == null ? null : `${trip.minutes} min`]
     .filter(Boolean).join(" · ") || "Time unavailable";
   const money = document.createElement("span");
-  const numericCost = Number(trip.cost);
-  money.textContent = trip.cost == null || !Number.isFinite(numericCost)
-    ? "Cost unavailable"
-    : `Cost ${new Intl.NumberFormat(undefined, { style: "currency", currency: "EUR" }).format(numericCost)}`;
-  card.append(heading, timing, money);
+  money.textContent = euro(trip.cost) ?? "Cost unavailable";
+  row.append(timing, money);
   if (Number(trip.penaltyCount) || Number(trip.penaltyAmount)) {
     const penalty = document.createElement("span");
     penalty.className = "warn";
-    penalty.textContent = `Penalty: ${trip.penaltyCount || 0} · amount ${trip.penaltyAmount || 0}`;
-    card.append(penalty);
+    penalty.textContent = `Penalty: ${trip.penaltyCount || 0} · ${euro(trip.penaltyAmount) ?? trip.penaltyAmount ?? 0}`;
+    row.append(penalty);
   }
-  const copyBikeNumber = async () => {
-    if (!shownBikeNumber) return;
-    try {
-      await navigator.clipboard.writeText(shownBikeNumber);
-      bikeTripsStatus.textContent = `Copied bike ${shownBikeNumber}`;
-    } catch {
-      bikeTripsStatus.textContent = `Bike number: ${shownBikeNumber}`;
-    }
-  };
-  card.addEventListener("click", () => { void copyBikeNumber(); });
-  return card;
+  return row;
 }
 
-async function loadBikeTrips(page = 0) {
-  bikeTripsPage = Math.max(0, page);
+function renderBikeTripGroup(bikeNumber, trips) {
+  const group = document.createElement("details");
+  group.className = "trip-group";
+  const summary = document.createElement("summary");
+  const heading = document.createElement("span");
+  const name = document.createElement("strong");
+  name.textContent = `Bike ${bikeNumber}`;
+  const total = trips.reduce((sum, trip) => {
+    const cost = Number(trip.cost);
+    return sum + (Number.isFinite(cost) ? cost : 0);
+  }, 0);
+  const meta = document.createElement("small");
+  meta.textContent = `${trips.length} trip${trips.length === 1 ? "" : "s"} · ${euro(total)}`;
+  heading.append(name, meta);
+  const copy = document.createElement("button");
+  copy.type = "button";
+  copy.className = "copy-bike";
+  copy.textContent = "⧉";
+  copy.title = `Copy bike ${bikeNumber}`;
+  copy.setAttribute("aria-label", copy.title);
+  copy.addEventListener("click", async (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(bikeNumber);
+      bikeTripsStatus.textContent = `Copied bike ${bikeNumber}`;
+    } catch {
+      bikeTripsStatus.textContent = `Bike number: ${bikeNumber}`;
+    }
+  });
+  summary.append(heading, copy);
+  const rows = document.createElement("div");
+  rows.className = "trip-rows";
+  rows.replaceChildren(...trips.map(renderTripRow));
+  group.append(summary, rows);
+  return group;
+}
+
+async function loadBikeTrips() {
   const bike = bikeTripsNumber.value.trim();
   if (bike && !/^\d+$/.test(bike)) {
     bikeTripsStatus.textContent = "Enter the number painted on the bike.";
@@ -1586,34 +1611,58 @@ async function loadBikeTrips(page = 0) {
   bikeTripsStatus.textContent = "Loading…";
   bikeTripsResults.replaceChildren();
   try {
-    const query = new URLSearchParams({ page: String(bikeTripsPage) });
-    if (bike) query.set("bike", bike.padStart(8, "0"));
-    const payload = await api(`/bikes/trips?${query}`);
-    bikeTripsResults.replaceChildren(...payload.matchedOnPage.map(renderTripResult));
-    bikeTripsStatus.textContent = payload.matchedOnPage.length
-      ? `Page ${payload.page} · ${payload.matchedOnPage.length} shown of ${payload.countOnPage}`
-      : `No matching rides on page ${payload.page}`;
-    bikeTripsFields.hidden = payload.fields.length === 0;
-    bikeTripsFields.querySelector("code").textContent = payload.fields.join(", ");
-    bikeTripsPrev.disabled = bikeTripsPage === 0;
-    bikeTripsNext.disabled = payload.countOnPage === 0;
+    const allTrips = [];
+    const fields = new Set();
+    const pageSignatures = new Set();
+    let pages = 0;
+    const maxPages = 50;
+    for (; pages < maxPages; pages += 1) {
+      bikeTripsStatus.textContent = `Loading page ${pages + 1}…`;
+      const query = new URLSearchParams({ page: String(pages) });
+      if (bike) query.set("bike", bike.padStart(8, "0"));
+      const payload = await api(`/bikes/trips?${query}`);
+      const signature = payload.matchedOnPage
+        .map((trip) => `${trip.tripId}:${trip.bikeNumber}:${trip.interval}`)
+        .join("|");
+      if (signature && pageSignatures.has(signature)) break;
+      pageSignatures.add(signature);
+      allTrips.push(...payload.matchedOnPage);
+      for (const field of payload.fields) fields.add(field);
+      if (payload.countOnPage < 30) {
+        pages += 1;
+        break;
+      }
+    }
+
+    const grouped = new Map();
+    for (const trip of allTrips) {
+      const number = String(trip.bikeNumber ?? "unknown").replace(/^0+(?=\d)/, "");
+      if (!grouped.has(number)) grouped.set(number, []);
+      grouped.get(number).push(trip);
+    }
+    bikeTripsResults.replaceChildren(
+      ...[...grouped].map(([number, trips]) => renderBikeTripGroup(number, trips))
+    );
+    bikeTripsStatus.textContent = allTrips.length
+      ? `${allTrips.length} trips · ${grouped.size} bikes · ${pages} pages`
+      : `No matching rides across ${pages} pages`;
+    bikeTripsFields.hidden = fields.size === 0;
+    bikeTripsFields.querySelector("code").textContent = [...fields].sort().join(", ");
   } catch (err) {
     bikeTripsStatus.textContent = err.message;
   }
 }
 
 bikeTripsOpen.addEventListener("click", () => {
-  bikeTripsPage = 0;
   bikeTripsStatus.textContent = "";
   bikeTripsResults.replaceChildren();
   bikeTripsDialog.showModal();
+  void loadBikeTrips();
 });
 bikeTripsForm.addEventListener("submit", (event) => {
   event.preventDefault();
-  void loadBikeTrips(0);
+  void loadBikeTrips();
 });
-bikeTripsPrev.addEventListener("click", () => { void loadBikeTrips(bikeTripsPage - 1); });
-bikeTripsNext.addEventListener("click", () => { void loadBikeTrips(bikeTripsPage + 1); });
 document.getElementById("bike-trips-close").addEventListener("click", () => bikeTripsDialog.close());
 
 const bikeModeEl = document.getElementById("bike-mode");

@@ -116,20 +116,36 @@ button:active { transform: scale(0.97); }
 #bike-trips-open { min-height: 36px; padding: 0.3rem 0.7rem; font-size: 0.85rem; }
 
 .trip-results { display: flex; flex-direction: column; gap: 0.5rem; }
-.trip-result {
-  display: flex;
-  flex-direction: column;
-  gap: 0.05rem;
-  padding: 0.4rem 0.65rem;
+.trip-group {
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--bg);
-  font-size: 0.8rem;
+  overflow: hidden;
+}
+.trip-group summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.5rem 0.65rem;
   cursor: pointer;
 }
-.trip-result:active { background: #202531; }
-.trip-result span { color: var(--muted); }
-.trip-result .warn { color: #ffb454; }
+.trip-group summary::marker { display: none; }
+.trip-group summary > span { display: flex; flex-direction: column; }
+.trip-group summary small { color: var(--muted); font-size: 0.72rem; }
+.copy-bike { min-height: 34px; width: 38px; padding: 0; flex: none; }
+.trip-rows { border-top: 1px solid var(--line); }
+.trip-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.1rem 0.75rem;
+  padding: 0.4rem 0.65rem;
+  border-bottom: 1px solid #252a35;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+.trip-row:last-child { border-bottom: none; }
+.trip-row .warn { grid-column: 1 / -1; color: #ffb454; }
 #bike-trips-fields code { overflow-wrap: anywhere; color: var(--muted); }
 
 .section-heading {
