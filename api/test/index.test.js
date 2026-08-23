@@ -239,20 +239,21 @@ describe("GET /bikes/trips", () => {
       return new Response(JSON.stringify({
         code: "00",
         data: [
-          { trip_id: 1, id_bike: 1234, trip_minutes: 18, trip_cost: 0.5, old_amount: 8, new_amount: 7.5, internal_secret: "nope" },
+          { trip_id: 1, id_bike: "00018302", trip_minutes: 18, trip_cost: 0.5, old_amount: 8, new_amount: 7.5, internal_secret: "nope" },
           { trip_id: 2, id_bike: 9999, trip_minutes: 7, trip_cost: 0 },
         ],
       }), { status: 200 });
     });
 
-    const res = await call("/bikes/trips?page=2&bike=1234", userAuth);
+    const res = await call("/bikes/trips?page=2&bike=18302", userAuth);
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body).toMatchObject({
       page: 2,
-      bikeNumber: "1234",
+      bikeNumber: "18302",
+      internalBikeId: "00018302",
       countOnPage: 2,
-      matchedOnPage: [{ tripId: 1, bikeNumber: "1234", minutes: 18, cost: 0.5 }],
+      matchedOnPage: [{ tripId: 1, bikeNumber: "18302", minutes: 18, cost: 0.5 }],
     });
     expect(body.fields).toContain("internal_secret");
     expect(JSON.stringify(body)).not.toContain("private-nif");

@@ -113,12 +113,23 @@ function rejectedSession(response, body) {
   return response.status === 401 || response.status === 403 || body?.code === "80";
 }
 
+function displayedBikeNumber(value) {
+  if (value == null) return null;
+  const raw = String(value).trim();
+  return /^\d+$/.test(raw) ? raw.replace(/^0+(?=\d)/, "") : raw;
+}
+
+function internalBikeId(value) {
+  const shown = displayedBikeNumber(value);
+  return shown && /^\d+$/.test(shown) ? shown.padStart(8, "0") : shown;
+}
+
 function tripSummary(trip) {
   const penalty = trip?.penalty && typeof trip.penalty === "object" ? trip.penalty : {};
   const extra = trip?.extrainfo && typeof trip.extrainfo === "object" ? trip.extrainfo : {};
   return {
     tripId: trip?.trip_id ?? null,
-    bikeNumber: trip?.id_bike == null ? null : String(trip.id_bike),
+    bikeNumber: displayedBikeNumber(trip?.id_bike),
     interval: trip?.trip_interval ?? null,
     minutes: trip?.trip_minutes ?? null,
     cost: trip?.trip_cost ?? null,
@@ -175,12 +186,18 @@ export async function getBikeTrips(env, { page = 0, bikeNumber = null } = {}) {
   const rawTrips = Array.isArray(tripsBody.data) ? tripsBody.data : [];
   const fields = [...new Set(rawTrips.flatMap((trip) => Object.keys(trip || {})))].sort();
   const normalized = rawTrips.map(tripSummary);
-  const wanted = bikeNumber == null ? null : String(bikeNumber).trim();
+  const wanted = bikeNumber == null ? null : displayedBikeNumber(bikeNumber);
+  const wantedInternal = wanted == null ? null : internalBikeId(wanted);
   return {
     page,
     bikeNumber: wanted,
+    internalBikeId: wantedInternal,
     countOnPage: rawTrips.length,
-    matchedOnPage: wanted ? normalized.filter((trip) => trip.bikeNumber === wanted) : normalized,
+    matchedOnPage: wanted
+      ? rawTrips
+        .filter((trip) => internalBikeId(trip?.id_bike) === wantedInternal)
+        .map(tripSummary)
+      : normalized,
     fields,
   };
 }

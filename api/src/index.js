@@ -249,7 +249,7 @@ export default {
         }
         const page = Math.min(1000, Math.max(0, Number.parseInt(url.searchParams.get("page") || "0", 10) || 0));
         const bikeNumber = url.searchParams.get("bike");
-        if (bikeNumber && !/^[0-9A-Za-z-]+$/.test(bikeNumber)) {
+        if (bikeNumber && !/^\d+$/.test(bikeNumber)) {
           return json({ error: "not a valid bike number" }, env, 400);
         }
         return json(await getBikeTrips(env, { page, bikeNumber }), env);
