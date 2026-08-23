@@ -22,12 +22,13 @@ function deviceHeaders(env) {
     // this account-status request does not need the user's live position.
     latitude: "40.4168",
     longitude: "-3.7038",
-    deviceModel: "personal-read-only-client",
+    deviceModel: env.BICIMAD_DEVICE_MODEL ||
+      JSON.stringify({ name: "Google Pixel 8", model: "Android", version: "17" }),
     appPlatform: "Android",
-    appPlatformVersion: env.BICIMAD_PLATFORM_VERSION || "unknown",
+    appPlatformVersion: env.BICIMAD_PLATFORM_VERSION || "Android CINNAMON BUN",
     appVersion: env.BICIMAD_APP_VERSION || "5.8.8",
-    appName: "BiciMAD",
-    language: "ES",
+    appName: "bicimad",
+    language: "EN",
   };
 }
 
@@ -44,7 +45,7 @@ async function login(env, { force = false } = {}) {
       ...deviceHeaders(env),
       "content-type": "application/json",
       "X-ClientId": clientId,
-      debug: "false",
+      debug: "1",
     },
     body: JSON.stringify({
       "X-ClientId": clientId,
@@ -56,7 +57,10 @@ async function login(env, { force = false } = {}) {
   const body = await response.json().catch(() => null);
   const data = body?.data?.[0];
   if (!response.ok || !data?.accessToken || !data?.idUser) {
-    throw new EmtError("auth", "MPass login failed");
+    throw new EmtError(
+      "auth",
+      `MPass login failed: HTTP ${response.status}, code ${body?.code ?? "unknown"}`,
+    );
   }
   const session = {
     accessToken: data.accessToken,
