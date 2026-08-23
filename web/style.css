@@ -314,9 +314,10 @@ body.map-is-fullscreen { overflow: hidden; }
 .stop ul { list-style: none; margin: 0.5rem 0 0; padding: 0; }
 
 .stop li {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(3ch, auto) minmax(0, 1fr) auto;
   align-items: baseline;
-  gap: 0.75rem;
+  gap: 0.4rem 0.65rem;
   padding: 0.45rem 0;
   border-bottom: 1px solid #252a35;
 }
@@ -329,7 +330,17 @@ body.map-is-fullscreen { overflow: hidden; }
   min-width: 3ch;
 }
 
-.eta { font-variant-numeric: tabular-nums; font-size: 1.25rem; }
+.stop .destination {
+  grid-column: 2;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.76rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.eta { font-variant-numeric: tabular-nums; font-size: 1.25rem; white-space: nowrap; }
+.stop .eta { grid-column: 3; text-align: right; }
 
 .muted { color: var(--muted); }
 

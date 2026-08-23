@@ -186,7 +186,18 @@ function todayDayType() {
 }
 
 function stopLines(stopId) {
-  return (details[stopId]?.lines ?? []).map(normaliseLine);
+  const known = (details[stopId]?.lines ?? []).map(normaliseLine);
+  const seen = new Set(known.map((line) => String(line.line)));
+  // EMT's stop-detail catalogue has holes for valid stops. Arrivals is a
+  // separate source and still identifies the routes serving those stops, so
+  // use it to complete (but never overwrite) the richer detail metadata.
+  for (const arrival of arrivals[stopId]?.arrivals ?? []) {
+    const code = String(arrival.line ?? "");
+    if (!code || seen.has(code)) continue;
+    known.push(normaliseLine(code));
+    seen.add(code);
+  }
+  return known;
 }
 
 /** "Nº 30 · 107 · 129 · 5", each line in its own colour.
@@ -304,7 +315,11 @@ function render() {
           const eta = document.createElement("span");
           eta.className = "eta";
           eta.textContent = fmtCountdown(bus.seconds - elapsed);
-          li.append(line, eta);
+          const destination = document.createElement("span");
+          destination.className = "destination";
+          destination.textContent = bus.destination || "";
+          destination.hidden = !bus.destination;
+          li.append(line, destination, eta);
           list.append(li);
         }
       }
