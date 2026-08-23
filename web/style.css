@@ -70,9 +70,22 @@ button:active { transform: scale(0.97); }
 #section-menu {
   margin-top: 0.6rem;
   width: 100%;
+  /* body is a flex column, and `overflow: hidden` on .segmented zeroes a flex
+     item's automatic minimum size — without this the nav shrinks to its 2px
+     border box and clips the 44px buttons inside it to nothing. */
+  flex: none;
 }
 
 #section-menu button { flex: 1; font-weight: 600; }
+
+#bike-mode {
+  margin-top: 0.75rem;
+  width: 100%;
+  flex: none; /* same flex-shrink trap as #section-menu */
+}
+
+#bike-mode button { flex: 1; font-size: 0.9rem; }
+#bike-mode[hidden] { display: none; }
 
 .section-heading {
   margin: 1rem 0 0;
@@ -151,6 +164,7 @@ button:active { transform: scale(0.97); }
   font-size: 0.85rem;
   min-height: 1.3em;
   margin: 0.5rem 0 0;
+  flex: none; /* a squeezed flex item would clip a two-line message */
 }
 
 .stop {

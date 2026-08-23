@@ -1347,12 +1347,24 @@ let bikeMarkers = null;
 let bikeCell = null;
 let bikeSeq = 0;
 let myLocation = null;
+// Half of using BiciMAD is the other half: arriving somewhere and needing a
+// free dock. Same stations, opposite number.
+let bikeMode = localStorage.getItem("emt:bikes:mode") === "docks" ? "docks" : "bikes";
+
+const bikeModeEl = document.getElementById("bike-mode");
+const modeBikes = document.getElementById("mode-bikes");
+const modeDocks = document.getElementById("mode-docks");
+
+function wanted(station) {
+  return bikeMode === "docks" ? station.freeBases : station.bikes;
+}
 
 /** Bikes or docks — whichever you are short of is the one you care about. */
 function bikeTone(station) {
   if (!station.inService) return "#8b93a7";
-  if (station.bikes === 0) return "#ff6b6b";
-  if (station.bikes <= 2) return "#ffb454";
+  const n = wanted(station);
+  if (n === 0) return "#ff6b6b";
+  if (n <= 2) return "#ffb454";
   return "#4ade80";
 }
 
@@ -1365,16 +1377,18 @@ function bikeCounts(station) {
   const wrap = document.createElement("p");
   wrap.className = "bike-counts";
 
-  const bikes = document.createElement("span");
-  bikes.className = "count";
-  bikes.style.color = bikeTone(station);
-  bikes.textContent = `${station.bikes} 🚲`;
+  // Whichever you are looking for leads and carries the colour; the other
+  // still shows, because a station with bikes and no docks matters either way.
+  const lead = document.createElement("span");
+  lead.className = "count";
+  lead.style.color = bikeTone(station);
+  lead.textContent = bikeMode === "docks" ? `${station.freeBases} docks` : `${station.bikes} 🚲`;
 
-  const docks = document.createElement("span");
-  docks.className = "count muted";
-  docks.textContent = `${station.freeBases} docks`;
+  const other = document.createElement("span");
+  other.className = "count muted";
+  other.textContent = bikeMode === "docks" ? `${station.bikes} 🚲` : `${station.freeBases} docks`;
 
-  wrap.append(bikes, docks);
+  wrap.append(lead, other);
 
   if (!station.inService) {
     const out = document.createElement("span");
@@ -1566,7 +1580,7 @@ function rebuildBikeMarkers() {
       iconAnchor: [15, 15],
       html:
         `<div class="bike-pin-inner${savedIdSet.has(station.id) ? " saved" : ""}" ` +
-        `style="border-color:${bikeTone(station)}">${station.bikes}</div>`,
+        `style="border-color:${bikeTone(station)}">${wanted(station)}</div>`,
     });
     L.marker([station.coordinates[1], station.coordinates[0]], { icon })
       .bindPopup(() => bikePopup(station))
@@ -1585,6 +1599,7 @@ function showSection(next) {
   fab.hidden = bikes;
   locateBtn.hidden = !bikes;
   bikeAgeEl.hidden = !bikes;
+  bikeModeEl.hidden = !bikes;
 
   const mapView = viewMapBtn.getAttribute("aria-selected") === "true";
   listEl.hidden = bikes || mapView;
@@ -1633,3 +1648,16 @@ locateBtn.addEventListener("click", () => {
 });
 
 loadBikeSaved();
+
+function setBikeMode(mode) {
+  bikeMode = mode;
+  localStorage.setItem("emt:bikes:mode", mode);
+  modeBikes.setAttribute("aria-selected", String(mode === "bikes"));
+  modeDocks.setAttribute("aria-selected", String(mode === "docks"));
+  renderBikes();
+  rebuildBikeMarkers();
+}
+
+modeBikes.addEventListener("click", () => setBikeMode("bikes"));
+modeDocks.addEventListener("click", () => setBikeMode("docks"));
+setBikeMode(bikeMode);
