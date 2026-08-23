@@ -14,6 +14,7 @@ async function call(path, init) {
 
 beforeEach(async () => {
   await env.KV.put("emt:token", "cached-token");
+  await env.KV.delete("bicimad:owner-session");
   await env.KV.delete("arrivals:v4:1234");
 });
 afterEach(() => vi.restoreAllMocks());
@@ -23,12 +24,12 @@ describe("CORS", () => {
     const res = await call("/stops", { method: "OPTIONS" });
     expect(res.status).toBe(204);
     expect(res.headers.get("access-control-allow-origin")).toBe(env.ALLOWED_ORIGIN);
-    expect(res.headers.get("access-control-allow-headers")).toContain("X-App-Key");
+    expect(res.headers.get("access-control-allow-headers")).toContain("authorization");
   });
 });
 
-describe("write protection", () => {
-  it("rejects a POST without the app key", async () => {
+describe("personal data protection", () => {
+  it("rejects a POST without a user session", async () => {
     const res = await call("/stops", {
       method: "POST",
       body: JSON.stringify({ stopId: "1234" }),
@@ -36,12 +37,12 @@ describe("write protection", () => {
     expect(res.status).toBe(401);
   });
 
-  it("rejects a DELETE without the app key", async () => {
+  it("rejects a DELETE without a user session", async () => {
     const res = await call("/stops/u1", { method: "DELETE" });
     expect(res.status).toBe(401);
   });
 
-  it("rejects a PATCH without the app key", async () => {
+  it("rejects a PATCH without a user session", async () => {
     const res = await call("/stops/u1", {
       method: "PATCH",
       body: JSON.stringify({ label: "home" }),
@@ -49,12 +50,9 @@ describe("write protection", () => {
     expect(res.status).toBe(401);
   });
 
-  it("allows a GET without the app key", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(JSON.stringify([]), { status: 200 })
-    );
+  it("rejects a personalized GET without a user session", async () => {
     const res = await call("/stops");
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(401);
   });
 });
 
@@ -141,6 +139,82 @@ describe("GET /stops/:id/detail", () => {
   });
 });
 
+describe("GET /bikes/account", () => {
+  const userAuth = { headers: { Authorization: "Bearer user-jwt" } };
+
+  it("does not expose account status without a user session", async () => {
+    expect((await call("/bikes/account")).status).toBe(401);
+  });
+
+  it("does not expose account status to another signed-in user", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      id: "friend-user-id", email: "friend@example.com",
+    }), { status: 200 }));
+    expect((await call("/bikes/account", userAuth)).status).toBe(403);
+  });
+
+  it("returns only a normalized eligibility summary", async () => {
+    const spy = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      if (String(url).includes("/auth/v1/user")) return new Response(JSON.stringify({
+        id: env.OWNER_USER_ID, email: "owner@example.com",
+      }), { status: 200 });
+      if (String(url).includes("/identity/login/integrator")) return new Response(JSON.stringify({
+        code: "00", data: [{ accessToken: "fresh-mpass-token", idUser: "mpass-user", email: "owner@example.com", tokenSecExpiration: 3600 }],
+      }), { status: 200 });
+      return new Response(JSON.stringify({
+        code: "01",
+        description: "El usuario tiene contratos",
+        data: {
+          CD_USER: "private-user-id",
+          DS_EMAIL: "private@example.com",
+          DS_NIF: "private-nif",
+          IT_STATUS: true,
+          IT_BLOCKED: false,
+          NM_BLOCK_CHANGES: false,
+          NM_STATE: 4,
+          dataContract: [{ CD_CONTRACT: "private-contract-id", IT_ACTIVE: true, IT_STATUS: true }],
+        },
+      }), { status: 200 });
+    });
+
+    const res = await call("/bikes/account", userAuth);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toMatchObject({
+      accountEnabled: true,
+      blocked: false,
+      changesBlocked: false,
+      activeContract: true,
+      stateCode: 4,
+      accountReady: true,
+    });
+    const [, init] = spy.mock.calls.find(([url]) => String(url).includes("/bicimad/userdata/"));
+    expect(init.headers).toMatchObject({
+      accessToken: "fresh-mpass-token",
+      userId: "mpass-user",
+      deviceId: env.MPASS_DEVICE_ID,
+      email: "owner@example.com",
+    });
+    expect(JSON.stringify(body)).not.toContain("private-user-id");
+    expect(JSON.stringify(body)).not.toContain("private@example.com");
+  });
+
+  it("reports an expired BiciMAD session as auth, not blocked", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      if (String(url).includes("/auth/v1/user")) return new Response(JSON.stringify({
+        id: env.OWNER_USER_ID,
+      }), { status: 200 });
+      if (String(url).includes("/identity/login/integrator")) return new Response(JSON.stringify({
+        code: "00", data: [{ accessToken: "still-bad", idUser: "mpass-user", email: "owner@example.com", tokenSecExpiration: 3600 }],
+      }), { status: 200 });
+      return new Response(JSON.stringify({ code: "80", description: "invalid token" }), { status: 401 });
+    });
+    const res = await call("/bikes/account", userAuth);
+    expect(res.status).toBe(502);
+    expect(await res.json()).toMatchObject({ error: "auth" });
+  });
+});
+
 describe("GET /stops/nearby", () => {
   beforeEach(async () => {
     await env.KV.delete("nearby:v4:-3.6897:40.4674:500");
@@ -173,7 +247,7 @@ describe("GET /stops/nearby", () => {
 });
 
 describe("PATCH /stops/:id", () => {
-  const key = { headers: { "X-App-Key": env.APP_KEY } };
+  const key = { headers: { Authorization: "Bearer user-jwt" } };
 
   it("renames a saved stop", async () => {
     const spy = vi.spyOn(globalThis, "fetch").mockImplementation(async () =>

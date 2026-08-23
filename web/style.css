@@ -33,6 +33,8 @@ header {
 
 h1 { font-size: 1.25rem; margin: 0; }
 
+#auth-button { font-size: 0.85rem; padding-inline: 0.7rem; }
+
 button {
   background: var(--card);
   color: var(--fg);
@@ -86,6 +88,25 @@ button:active { transform: scale(0.97); }
 
 #bike-mode button { flex: 1; font-size: 0.9rem; }
 #bike-mode[hidden] { display: none; }
+
+.bike-account {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  margin-top: 0.75rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--card);
+  font-size: 0.9rem;
+}
+.bike-account[hidden] { display: none; }
+.bike-account-dot { width: 0.7rem; height: 0.7rem; flex: none; border-radius: 50%; background: var(--muted); }
+.bike-account-dot.ready { background: #4ade80; }
+.bike-account-dot.blocked { background: #ff6b6b; }
+.bike-account-dot.warn { background: #ffb454; }
+#bike-account-text { flex: 1; }
+#bike-account-check { min-height: 36px; padding: 0.3rem 0.7rem; font-size: 0.85rem; }
 
 .section-heading {
   margin: 1rem 0 0;

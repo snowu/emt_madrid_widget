@@ -23,11 +23,12 @@ import {
   stationsNear,
 } from "./bikes.js";
 import { EmtError, errorResponse } from "./errors.js";
+import { getBikeAccountStatus } from "./bicimad-account.js";
+import { authenticatedUser, bearerToken } from "./auth.js";
 
-// KV rejects expirationTtl below 60, so the 20s freshness contract is a soft
-// TTL decided here; the 60s write only bounds how long junk can linger.
-const ARRIVALS_KV_TTL = 60;
-const ARRIVALS_FRESH_MS = 20_000;
+// Short-lived, high-traffic data belongs in the Cache API, not KV. Cache API
+// operations do not consume the Workers KV daily operation allowance.
+const ARRIVALS_CACHE_TTL = 20;
 // Bump when a cached payload's *shape* changes: old entries would otherwise
 // keep serving the old shape until their TTL runs out (a week, for detail).
 const CACHE_VERSION = "v4";
@@ -41,8 +42,7 @@ const TIMETABLE_KV_TTL = 24 * 3600;
 const ROUTE_KV_TTL = 7 * 24 * 3600;
 // Bike counts move constantly. KV's floor is 60s, so that is the contract:
 // one EMT call a minute serves every station and every area.
-const BIKES_KV_TTL = 60;
-const BIKES_FRESH_MS = 45_000;
+const BIKES_CACHE_TTL = 45;
 // Names and positions only change when a station is built or moved.
 const BIKE_INFO_KV_TTL = 24 * 3600;
 // Cards want the next bus and the one after it; the stop sheet wants the board.
@@ -53,7 +53,7 @@ function cors(env) {
   return {
     "access-control-allow-origin": env.ALLOWED_ORIGIN,
     "access-control-allow-methods": "GET,POST,PATCH,DELETE,OPTIONS",
-    "access-control-allow-headers": "content-type,X-App-Key",
+    "access-control-allow-headers": "content-type,authorization",
   };
 }
 
@@ -64,18 +64,31 @@ function json(body, env, status = 200) {
   });
 }
 
-/** The key ships in public JS. It filters scanners, not people — see the spec. */
-function hasAppKey(request, env) {
-  return request.headers.get("X-App-Key") === env.APP_KEY;
+async function edgeCachedJson(requestUrl, key, ttl, load) {
+  const cache = caches.default;
+  const cacheUrl = new URL(requestUrl);
+  cacheUrl.pathname = `/__edge_cache/${CACHE_VERSION}/${key}`;
+  cacheUrl.search = "";
+  const cacheKey = new Request(cacheUrl.toString(), { method: "GET" });
+  const hit = await cache.match(cacheKey);
+  if (hit) return hit.json();
+
+  const fresh = await load();
+  await cache.put(
+    cacheKey,
+    new Response(JSON.stringify(fresh), {
+      headers: {
+        "content-type": "application/json",
+        "cache-control": `public, max-age=${ttl}`,
+      },
+    }),
+  );
+  return fresh;
 }
 
-async function cachedArrivals(env, stopId) {
-  const key = `arrivals:${CACHE_VERSION}:${stopId}`;
-  const hit = await env.KV.get(key, "json");
-  if (hit && Date.now() - hit.fetchedAt < ARRIVALS_FRESH_MS) return hit;
-  const fresh = await getArrivals(env, stopId);
-  await env.KV.put(key, JSON.stringify(fresh), { expirationTtl: ARRIVALS_KV_TTL });
-  return fresh;
+async function cachedArrivals(requestUrl, env, stopId) {
+  return edgeCachedJson(requestUrl, `arrivals/${encodeURIComponent(stopId)}`, ARRIVALS_CACHE_TTL,
+    () => getArrivals(env, stopId));
 }
 
 async function cachedStopDetail(env, stopId) {
@@ -121,20 +134,15 @@ async function cachedBikeInfo(env) {
  * still better than an empty map, so it stands in — flagged, so the page can
  * say the counts are the rougher kind.
  */
-async function cachedBikeStations(env) {
-  const key = `bikes:${CACHE_VERSION}`;
-  const hit = await env.KV.get(key, "json");
-  if (hit && Date.now() - hit.fetchedAt < BIKES_FRESH_MS) return hit;
-
-  let fresh;
-  try {
-    const [info, status] = await Promise.all([cachedBikeInfo(env), getBikeStationStatus()]);
-    fresh = { ...mergeBikeStations(info, status), source: "gbfs" };
-  } catch {
-    fresh = { ...(await getBikeStations(env)), source: "mobilitylabs" };
-  }
-  await env.KV.put(key, JSON.stringify(fresh), { expirationTtl: BIKES_KV_TTL });
-  return fresh;
+async function cachedBikeStations(requestUrl, env) {
+  return edgeCachedJson(requestUrl, "bikes", BIKES_CACHE_TTL, async () => {
+    try {
+      const [info, status] = await Promise.all([cachedBikeInfo(env), getBikeStationStatus()]);
+      return { ...mergeBikeStations(info, status), source: "gbfs" };
+    } catch {
+      return { ...(await getBikeStations(env)), source: "mobilitylabs" };
+    }
+  });
 }
 
 function grid3(n) {
@@ -161,12 +169,16 @@ export default {
       return new Response(null, { status: 204, headers: cors(env) });
     }
 
-    const isWrite = method === "POST" || method === "PATCH" || method === "DELETE";
-    if (isWrite && !hasAppKey(request, env)) {
-      return json({ error: "unauthorized" }, env, 401);
-    }
-
     try {
+      if (pathname === "/auth/config" && method === "GET") {
+        return json({ url: env.SUPABASE_URL, anonKey: env.SUPABASE_ANON_KEY }, env);
+      }
+
+      if (pathname === "/auth/me" && method === "GET") {
+        const user = await authenticatedUser(env, request);
+        return json({ id: user.id, email: user.email ?? null, owner: user.id === env.OWNER_USER_ID }, env);
+      }
+
       if (pathname === "/arrivals" && method === "GET") {
         const stop = url.searchParams.get("stop");
         if (!stop) return json({ error: "missing stop parameter" }, env, 400);
@@ -176,12 +188,12 @@ export default {
           MAX_ARRIVALS,
           Math.max(1, Number(url.searchParams.get("limit")) || DEFAULT_ARRIVALS)
         );
-        const payload = await cachedArrivals(env, stop);
+        const payload = await cachedArrivals(request.url, env, stop);
         return json({ ...payload, arrivals: payload.arrivals.slice(0, limit) }, env);
       }
 
       if (pathname === "/stops" && method === "GET") {
-        return json(await listStops(env), env);
+        return json(await listStops(env, bearerToken(request)), env);
       }
 
       const detail = pathname.match(/^\/stops\/([^/]+)\/detail$/);
@@ -222,8 +234,16 @@ export default {
 
       /* ---- BiciMAD ----------------------------------------------------- */
 
+      if (pathname === "/bikes/account" && method === "GET") {
+        const user = await authenticatedUser(env, request);
+        if (!env.OWNER_USER_ID || user.id !== env.OWNER_USER_ID) {
+          throw new EmtError("forbidden", "BiciMAD account status is owner-only");
+        }
+        return json(await getBikeAccountStatus(env), env);
+      }
+
       if (pathname === "/bikes/stations" && method === "GET") {
-        const all = await cachedBikeStations(env);
+        const all = await cachedBikeStations(request.url, env);
         const ids = url.searchParams.get("ids");
         if (!ids) return json(all, env);
         // A page only ever wants its favourites plus what is on screen.
@@ -242,7 +262,7 @@ export default {
           return json({ error: "missing lat or lon parameter" }, env, 400);
         }
         const radius = Math.min(3000, Math.max(50, Number(url.searchParams.get("radius")) || 700));
-        const all = await cachedBikeStations(env);
+        const all = await cachedBikeStations(request.url, env);
         return json(
           {
             fetchedAt: all.fetchedAt,
@@ -254,38 +274,38 @@ export default {
       }
 
       if (pathname === "/bikes/saved" && method === "GET") {
-        return json(await listBikeStations(env), env);
+        return json(await listBikeStations(env, bearerToken(request)), env);
       }
 
       if (pathname === "/bikes/saved" && method === "POST") {
         const { stationId, label = null } = await request.json();
-        return json(await addBikeStation(env, { stationId, label }), env, 201);
+        return json(await addBikeStation(env, bearerToken(request), { stationId, label }), env, 201);
       }
 
       const bikeRow = pathname.match(/^\/bikes\/saved\/([^/]+)$/);
       if (bikeRow && method === "PATCH") {
         const { label = null } = await request.json();
-        return json(await renameBikeStation(env, decodeURIComponent(bikeRow[1]), label), env);
+        return json(await renameBikeStation(env, bearerToken(request), decodeURIComponent(bikeRow[1]), label), env);
       }
       if (bikeRow && method === "DELETE") {
-        await removeBikeStation(env, decodeURIComponent(bikeRow[1]));
+        await removeBikeStation(env, bearerToken(request), decodeURIComponent(bikeRow[1]));
         return new Response(null, { status: 204, headers: cors(env) });
       }
 
       if (pathname === "/stops" && method === "POST") {
         const { stopId, label = null } = await request.json();
-        return json(await addStop(env, { stopId, label }), env, 201);
+        return json(await addStop(env, bearerToken(request), { stopId, label }), env, 201);
       }
 
       const rename = pathname.match(/^\/stops\/([^/]+)$/);
       if (rename && method === "PATCH") {
         const { label = null } = await request.json();
-        return json(await renameStop(env, decodeURIComponent(rename[1]), label), env);
+        return json(await renameStop(env, bearerToken(request), decodeURIComponent(rename[1]), label), env);
       }
 
       const del = pathname.match(/^\/stops\/([^/]+)$/);
       if (del && method === "DELETE") {
-        await removeStop(env, del[1]);
+        await removeStop(env, bearerToken(request), del[1]);
         return new Response(null, { status: 204, headers: cors(env) });
       }
 

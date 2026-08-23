@@ -4,11 +4,13 @@ export class EmtError extends Error {
   constructor(kind, message) {
     super(message);
     this.name = "EmtError";
-    this.kind = kind; // "auth" | "quota" | "not_found" | "upstream"
+    this.kind = kind; // "user_auth" | "forbidden" | "auth" | "quota" | "not_found" | "upstream"
   }
 }
 
 const STATUS_BY_KIND = {
+  user_auth: 401, // the caller needs to sign in (or refresh their session)
+  forbidden: 403,
   auth: 502,      // our credentials are wrong; not the caller's fault
   quota: 503,     // resolves at the daily reset
   not_found: 404,

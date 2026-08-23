@@ -1,6 +1,15 @@
 const ARRIVALS_KEY = "emt:arrivals";
 const STOPS_KEY = "emt:stops";
 const DETAILS_KEY = "emt:details";
+let userScope = "signed-out";
+
+export function setUserCacheScope(userId) {
+  userScope = userId || "signed-out";
+}
+
+function userKey(key) {
+  return `${key}:${userScope}`;
+}
 
 function read(key, fallback) {
   try {
@@ -22,11 +31,11 @@ export function writeCache(stopId, payload) {
 
 /** Mirrors the stop list so a cold start with no network still renders. */
 export function readStops() {
-  return read(STOPS_KEY, []);
+  return read(userKey(STOPS_KEY), []);
 }
 
 export function writeStops(stops) {
-  localStorage.setItem(STOPS_KEY, JSON.stringify(stops));
+  localStorage.setItem(userKey(STOPS_KEY), JSON.stringify(stops));
 }
 
 /** Stop names/locations never move; a per-device cache of them is safe. */
@@ -46,11 +55,11 @@ const BIKE_NEAR_KEY = "emt:bikes:near";
 /** Saved bike stations mirror the same rule as saved bus stops: the server
  *  owns them, this is only so a cold start renders something. */
 export function readBikeSaved() {
-  return read(BIKE_SAVED_KEY, []);
+  return read(userKey(BIKE_SAVED_KEY), []);
 }
 
 export function writeBikeSaved(rows) {
-  localStorage.setItem(BIKE_SAVED_KEY, JSON.stringify(rows));
+  localStorage.setItem(userKey(BIKE_SAVED_KEY), JSON.stringify(rows));
 }
 
 /** Last-known bike counts, so the list never opens empty. Counts move by the

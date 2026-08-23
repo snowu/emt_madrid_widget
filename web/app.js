@@ -9,10 +9,14 @@ import {
   writeBikeSaved,
   readBikeNear,
   writeBikeNear,
+  setUserCacheScope,
 } from "./cache.js";
 
 const API = "https://emt-arrivals.zancato-t.workers.dev";
-const APP_KEY = "a3ca225683a89f9f394968f1081ee2ad"; // public by design; filters scanners, not people
+let authClient = null;
+let authSession = null;
+let authUser = null;
+let isOwner = false;
 
 const listEl = document.getElementById("stops");
 const statusEl = document.getElementById("status");
@@ -20,13 +24,18 @@ const mapEl = document.getElementById("map");
 const viewListBtn = document.getElementById("view-list");
 const viewMapBtn = document.getElementById("view-map");
 const addDialog = document.getElementById("add-dialog");
+const authButton = document.getElementById("auth-button");
+const authDialog = document.getElementById("auth-dialog");
+const authForm = document.getElementById("auth-form");
+const authEmail = document.getElementById("auth-email");
+const authMessage = document.getElementById("auth-message");
 
 // One fetch feeds both: the card glances at the first two, the sheet shows
 // the board. The worker serves both from a single 20s-cached payload.
 const CARD_ARRIVALS = 2;
 const BOARD_ARRIVALS = 8;
 
-let stops = readStops();
+let stops = [];
 let arrivals = readCache();
 let details = readDetails();
 
@@ -308,24 +317,110 @@ function render() {
 }
 
 async function api(path, init = {}) {
-  // Only writes carry the app key and a content type. A GET with neither is a
-  // CORS "simple request", so the browser skips the preflight — that was one
-  // wasted round trip per read, and a phone pays for every one of them.
   const isWrite = init.method && init.method !== "GET";
+  const authorization = authSession?.access_token
+    ? { Authorization: `Bearer ${authSession.access_token}` }
+    : {};
   const res = await fetch(`${API}${path}`, {
     ...init,
     headers: isWrite
-      ? { "content-type": "application/json", "X-App-Key": APP_KEY, ...init.headers }
-      : { ...init.headers },
+      ? { "content-type": "application/json", ...authorization, ...init.headers }
+      : { ...authorization, ...init.headers },
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     const err = new Error(body.message || body.error || `HTTP ${res.status}`);
     err.kind = body.error; // "quota" | "auth" | "not_found" | "upstream"
+    if (err.kind === "user_auth") showSignedOut("Session expired — sign in again.");
     throw err;
   }
   return res.status === 204 ? null : res.json();
 }
+
+function showSignedOut(message = "") {
+  authSession = null;
+  authUser = null;
+  isOwner = false;
+  setUserCacheScope(null);
+  stops = [];
+  bikeSaved = [];
+  authButton.textContent = "Sign in";
+  authButton.title = "Sign in with an email link";
+  fab.hidden = true;
+  bikeAccountEl.hidden = true;
+  render();
+  renderBikes();
+  if (message) statusEl.textContent = message;
+}
+
+async function applySession(session) {
+  if (!session) return showSignedOut();
+  if (authSession?.access_token === session.access_token && authUser) return;
+  authSession = session;
+  authUser = session.user;
+  setUserCacheScope(authUser.id);
+  stops = readStops();
+  bikeSaved = readBikeSaved();
+  authButton.textContent = "Sign out";
+  authButton.title = authUser.email || "Signed in";
+  fab.hidden = section === "bikes";
+  render();
+  renderBikes();
+
+  try {
+    const me = await api("/auth/me");
+    isOwner = me.owner === true;
+  } catch {
+    isOwner = false;
+  }
+  bikeAccountEl.hidden = section !== "bikes" || !isOwner;
+  await Promise.all([loadStops(), loadBikeSaved()]);
+}
+
+async function initAuth() {
+  try {
+    const config = await api("/auth/config");
+    authClient = window.supabase.createClient(config.url, config.anonKey);
+    const { data, error } = await authClient.auth.getSession();
+    if (error) throw error;
+    await applySession(data.session);
+    authClient.auth.onAuthStateChange((_event, session) => {
+      // The callback must return immediately: Supabase warns against awaiting
+      // more auth methods while its internal session lock is held.
+      setTimeout(() => { void applySession(session); }, 0);
+    });
+  } catch (err) {
+    showSignedOut(`Could not initialize sign-in: ${err.message}`);
+  }
+}
+
+authButton.addEventListener("click", async () => {
+  if (authSession) {
+    await authClient.auth.signOut();
+    return;
+  }
+  authMessage.textContent = "";
+  authDialog.showModal();
+});
+
+document.getElementById("auth-cancel").addEventListener("click", () => authDialog.close());
+
+authForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const email = authEmail.value.trim();
+  if (!email || !authClient) return;
+  document.getElementById("auth-send").disabled = true;
+  authMessage.textContent = "Sending…";
+  const { error } = await authClient.auth.signInWithOtp({
+    email,
+    options: {
+      emailRedirectTo: `${location.origin}${location.pathname}`,
+      shouldCreateUser: false,
+    },
+  });
+  document.getElementById("auth-send").disabled = false;
+  authMessage.textContent = error ? error.message : "Check your email for the sign-in link.";
+});
 
 async function refreshStop(stopId) {
   try {
@@ -948,6 +1043,7 @@ viewListBtn.addEventListener("click", () => showView("list"));
 viewMapBtn.addEventListener("click", () => showView("map"));
 
 async function loadStops() {
+  if (!authSession) return;
   try {
     stops = await api("/stops");
     writeStops(stops);
@@ -1323,8 +1419,7 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 
-render(); // paint cached data immediately; never show an empty screen
-loadStops();
+render();
 
 /* ---- BiciMAD ------------------------------------------------------------ */
 
@@ -1335,11 +1430,15 @@ const locateBtn = document.getElementById("locate");
 const titleEl = document.getElementById("title");
 const menuBuses = document.getElementById("menu-buses");
 const menuBikes = document.getElementById("menu-bikes");
+const bikeAccountEl = document.getElementById("bike-account");
+const bikeAccountDot = document.getElementById("bike-account-dot");
+const bikeAccountText = document.getElementById("bike-account-text");
+const bikeAccountCheck = document.getElementById("bike-account-check");
 
 const BIKE_RADIUS = 700;
 
 let section = "buses";
-let bikeSaved = readBikeSaved();
+let bikeSaved = [];
 let bikeNear = readBikeNear(); // last-known counts, so the list never starts empty
 let bikeFetchedAt = bikeNear.fetchedAt ?? null;
 let bikeMap = null;
@@ -1354,6 +1453,38 @@ const bikeById = new Map();
 // Half of using BiciMAD is the other half: arriving somewhere and needing a
 // free dock. Same stations, opposite number.
 let bikeMode = localStorage.getItem("emt:bikes:mode") === "docks" ? "docks" : "bikes";
+
+function showBikeAccount(text, tone = "") {
+  bikeAccountText.textContent = text;
+  bikeAccountDot.className = `bike-account-dot${tone ? ` ${tone}` : ""}`;
+}
+
+async function loadBikeAccount() {
+  bikeAccountCheck.disabled = true;
+  showBikeAccount("Checking account…");
+  try {
+    const payload = await api("/bikes/account");
+    if (payload.blocked) {
+      showBikeAccount("Account blocked by BiciMAD", "blocked");
+    } else if (!payload.accountEnabled || !payload.activeContract) {
+      showBikeAccount("Account not ready to rent", "warn");
+    } else {
+      showBikeAccount("Account active · not blocked", "ready");
+    }
+  } catch (err) {
+    if (err.kind === "auth") {
+      showBikeAccount("BiciMAD session expired", "warn");
+    } else if (err.kind === "forbidden") {
+      showBikeAccount("Account status is owner-only", "warn");
+    } else {
+      showBikeAccount("Account status unavailable", "warn");
+    }
+  } finally {
+    bikeAccountCheck.disabled = false;
+  }
+}
+
+bikeAccountCheck.addEventListener("click", loadBikeAccount);
 
 const bikeModeEl = document.getElementById("bike-mode");
 const modeBikes = document.getElementById("mode-bikes");
@@ -1561,6 +1692,11 @@ async function refreshSavedBikeCounts() {
 }
 
 async function loadBikeSaved() {
+  if (!authSession) {
+    bikeSaved = [];
+    renderBikes();
+    return;
+  }
   try {
     bikeSaved = await api("/bikes/saved");
     writeBikeSaved(bikeSaved);
@@ -1575,6 +1711,10 @@ async function loadBikeSaved() {
 }
 
 async function toggleBikeSaved(station, saved) {
+  if (!authSession) {
+    authDialog.showModal();
+    return;
+  }
   try {
     if (saved) {
       await api(`/bikes/saved/${encodeURIComponent(saved.id)}`, { method: "DELETE" });
@@ -1663,10 +1803,11 @@ function showSection(next) {
   titleEl.textContent = bikes ? "BiciMAD" : "Buses";
   menuBuses.setAttribute("aria-selected", String(!bikes));
   menuBikes.setAttribute("aria-selected", String(bikes));
-  fab.hidden = bikes;
+  fab.hidden = bikes || !authSession;
   locateBtn.hidden = !bikes;
   bikeAgeEl.hidden = !bikes;
   bikeModeEl.hidden = !bikes;
+  bikeAccountEl.hidden = !bikes || !isOwner;
 
   const mapView = viewMapBtn.getAttribute("aria-selected") === "true";
   listEl.hidden = bikes || mapView;
@@ -1714,8 +1855,6 @@ locateBtn.addEventListener("click", () => {
   );
 });
 
-loadBikeSaved();
-
 function setBikeMode(mode) {
   bikeMode = mode;
   localStorage.setItem("emt:bikes:mode", mode);
@@ -1728,3 +1867,4 @@ function setBikeMode(mode) {
 modeBikes.addEventListener("click", () => setBikeMode("bikes"));
 modeDocks.addEventListener("click", () => setBikeMode("docks"));
 setBikeMode(bikeMode);
+initAuth();

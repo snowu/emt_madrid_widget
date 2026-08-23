@@ -28,8 +28,8 @@ web/                 static page, deployed to GitHub Pages. Holds no secrets.
   cache.js           localStorage read/write, the only module app.js imports
   style.css          dark, phone-first; no preprocessor
   manifest.webmanifest, icon.svg    home-screen install
-api/                 Cloudflare Worker. Holds EMT credentials + SUPABASE_SERVICE_KEY.
-  src/index.js       routing, CORS, write filtering, every KV cache decision
+api/                 Cloudflare Worker. Holds EMT and optional owner MPass credentials.
+  src/index.js       routing, CORS, auth boundaries, every KV cache decision
   src/emt.js         EMT auth + buses: token, arrivals, detail, nearby, timetable, route
   src/bikes.js       BiciMAD stations + local distance filtering
   src/stops.js       Supabase REST for saved bus stops and saved bike stations
@@ -50,9 +50,13 @@ Both are hardcoded; changing one means changing the other.
 
 ## Worker API
 
-Reads are open. Writes require `X-App-Key`; anything else is 401 before routing.
+Live transport reads are open and share global caches. Saved stops/stations
+require a Supabase bearer token for every method; Postgres RLS scopes rows to
+that authenticated user.
 
 ```
+GET    /auth/config                public Supabase URL + publishable/anon key
+GET    /auth/me                    current user summary + owner flag
 GET    /arrivals?stop=&limit=      limit 1–20, default 2
 GET    /stops                      saved stops (Supabase rows)
 POST   /stops                      {stopId, label?}          → 201
@@ -64,6 +68,7 @@ GET    /lines/:line/route          both directions: paths + stops
 GET    /lines/:line/timetable      service window per day type
 GET    /bikes/stations?ids=a,b     all 680, or just the ids asked for
 GET    /bikes/nearby?lat=&lon=&radius=   radius 50–3000, default 700
+GET    /bikes/account                 minimal private account eligibility summary
 GET    /bikes/saved                favourite stations
 POST   /bikes/saved                {stationId, label?}       → 201
 PATCH  /bikes/saved/:rowId         {label}
@@ -72,10 +77,9 @@ DELETE /bikes/saved/:rowId                                   → 204
 
 `:rowId` is the Supabase uuid, not the EMT id — `/stops/:stopId/detail` is the
 one route keyed on EMT's number. Errors come back as
-`{error: kind, message}` with kind in `auth | quota | not_found | upstream`,
-mapped to status by `src/errors.js` (auth and upstream are 502 — our
-credentials being wrong is not the caller's fault; quota is 503, it resolves at
-the daily reset).
+`{error: kind, message}` with `user_auth` (401) and `forbidden` (403) for caller
+authorization, plus `auth | quota | not_found | upstream` for dependencies.
+Upstream auth and upstream failures are 502; quota is 503 until daily reset.
 
 ### Cache keys and TTLs
 
@@ -115,8 +119,15 @@ talks to the deployed worker, not a local one, unless you edit `API` in
 secret of the same name later. Locally they live in `.dev.vars` (gitignored,
 `cp .dev.vars.example .dev.vars`); in production, `wrangler secret put <NAME>`
 for each of `EMT_EMAIL`, `EMT_PASSWORD`, `SUPABASE_URL`,
-`SUPABASE_SERVICE_KEY`, `APP_KEY`. Tests get fakes from `vitest.config.js`'s
-miniflare bindings, for the same reason.
+`SUPABASE_ANON_KEY`, and `OWNER_USER_ID`, plus the optional MPass secrets below.
+Tests get fakes from `vitest.config.js`'s miniflare bindings.
+
+The optional `/bikes/account` route first verifies the Supabase user and allows
+only `OWNER_USER_ID`. It logs in lazily with the `MPASS_EMAIL`,
+`MPASS_PASSWORD`, `MPASS_CLIENT_ID`, `MPASS_PASSKEY`, and `MPASS_DEVICE_ID`
+Worker secrets, caching only the resulting token in KV until its reported
+expiry. It returns only booleans, the opaque numeric state, and a timestamp—
+never PII or upstream identifiers.
 
 Supabase tables are created by hand: paste `supabase/bus_stops.sql` and
 `supabase/bike_stations.sql` into the SQL editor, once. The bikes one is
@@ -412,34 +423,29 @@ requests and caches the token. Nothing else belongs in it.
 **Cloudflare Workers, free plan, no card attached.** Past the daily limit the
 free plan rejects requests rather than billing. Cost cannot balloon.
 
-**Supabase for saved stops.** They must be identical on every device — that
-requirement killed both localStorage-only and a committed JSON file. Follows the
-`innocent_project` pattern: RLS enabled with **zero policies**, so only the
-service-role key can read or write. Plain REST against `/rest/v1/<table>`, no
-SDK; the key goes in *both* `apikey` and `Authorization`. Env vars
-`SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, gitignored.
+**Supabase Auth + RLS for saved data.** Users enter no app password: Supabase
+sends an email magic link. The page sends the resulting JWT to the Worker; the
+Worker forwards it to PostgREST with the publishable/anon project key. RLS
+compares `auth.uid()` with each row's `user_id`, providing the actual tenant
+boundary even if a route filter is missed.
 
-**localStorage is a cache, not shared state.** It holds last-known arrivals,
-stop details, the stop list and last-known bike counts per device so the page
-never renders empty. The server owns all of them; `cache.js` is a mirror.
+**localStorage is a cache, not shared state.** Public arrival/detail/count data
+is shared locally. Saved-stop and favourite-station mirrors are namespaced by
+Supabase user id so two people using one browser never see each other's cache.
+The server owns all persisted state; `cache.js` is only a mirror.
 
 **Stop IDs are typed in by hand.** No GTFS index; build that pipeline only if
 hand-entry becomes annoying. (The map's nearby search has since made this
 mostly moot for discovery.)
 
-**Writes are filtered, not authenticated.** The page sends `X-App-Key` and the
-worker rejects writes without it. Reads send neither it nor a content type, so
-they stay CORS "simple requests" and skip the preflight — otherwise every read
-costs two round trips, which on a phone is the difference you feel. Don't add a
-header to a GET path without knowing you just doubled its latency. The key
-ships in public JS — it stops scanners, not people. Deliberate: blast radius is
-junk rows in a personal table. Arrivals are cached 20s in KV, which also blunts
-quota abuse. See the design doc for what was rejected and when to revisit.
+**Personal reads and writes are authenticated.** The page sends its Supabase
+JWT, and Postgres RLS authorizes the row. Public transport reads stay open so
+all users share the same upstream cache.
 
 **No framework, no build step, no bundler.** `app.js` is one ES module
-importing one other. Leaflet comes from a CDN `<script>`. Every dialog and
-control is already in `index.html`; JS fills them rather than templating.
-Keeping it that way is why a deploy is "copy `web/` to Pages".
+importing one other. Leaflet and Supabase Auth come from CDN `<script>` tags.
+Every dialog and control is already in `index.html`; JS fills them rather than
+templating. Keeping it that way is why a deploy is "copy `web/` to Pages".
 
 ## Page behaviour
 
@@ -528,9 +534,9 @@ to `web/` means adding it to the workflow's pattern**, or it deploys uncached.
 
 ## Reference
 
-`innocent_project` (same machine) is the closest pattern: Supabase with RLS and
-zero policies, service key from a gitignored `.env`, plain REST against
-`/rest/v1/<table>` with no SDK.
+Supabase Auth issues the browser session; PostgREST evaluates the user JWT
+against the per-table RLS policies. `supabase/migrate_multi_user.sql` converts
+the original owner-only tables without discarding existing rows.
 
 `fermartv/emt_madrid` (Home Assistant integration) and `fermartv/EMTMadrid`
 (Python wrapper) are useful references for the auth handshake and response

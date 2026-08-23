@@ -17,6 +17,7 @@
   <body>
     <header>
       <h1 id="title">Buses</h1>
+      <button id="auth-button" type="button" aria-label="Account">Sign in</button>
       <button id="refresh-all" type="button" aria-label="Refresh all" title="Refresh all">↻</button>
       <nav id="view-toggle" class="segmented" aria-label="View">
         <button id="view-list" type="button" aria-selected="true">List</button>
@@ -40,6 +41,12 @@
       <button id="mode-bikes" type="button" aria-selected="true">Bikes to take</button>
       <button id="mode-docks" type="button" aria-selected="false">Docks to leave</button>
     </nav>
+
+    <section id="bike-account" class="bike-account" hidden aria-live="polite">
+      <span id="bike-account-dot" class="bike-account-dot" aria-hidden="true"></span>
+      <span id="bike-account-text">Account status not checked</span>
+      <button id="bike-account-check" type="button">Check</button>
+    </section>
 
     <main id="bikes" hidden aria-live="polite"></main>
     <div id="bike-map" hidden></div>
@@ -75,6 +82,19 @@
       </form>
     </dialog>
 
+    <dialog id="auth-dialog">
+      <form id="auth-form" method="dialog">
+        <h2>Sign in</h2>
+        <p class="muted">We’ll email you a one-time sign-in link. No password is stored by this app.</p>
+        <input id="auth-email" type="email" autocomplete="email" placeholder="you@example.com" required />
+        <p id="auth-message" class="muted" role="status"></p>
+        <div class="dialog-actions">
+          <button type="button" id="auth-cancel">Cancel</button>
+          <button type="submit" id="auth-send">Send link</button>
+        </div>
+      </form>
+    </dialog>
+
     <dialog id="stop-dialog">
       <form id="stop-form" method="dialog">
         <div class="sheet-title-row">
@@ -106,6 +126,7 @@
       </form>
     </dialog>
 
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.3"></script>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script type="module" src="app.js"></script>
   </body>
