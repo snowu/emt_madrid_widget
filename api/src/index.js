@@ -23,7 +23,7 @@ import {
   stationsNear,
 } from "./bikes.js";
 import { EmtError, errorResponse } from "./errors.js";
-import { getBikeAccountStatus } from "./bicimad-account.js";
+import { getBikeAccountStatus, getBikeTrips } from "./bicimad-account.js";
 import { authenticatedUser, bearerToken } from "./auth.js";
 
 // Short-lived, high-traffic data belongs in the Cache API, not KV. Cache API
@@ -240,6 +240,19 @@ export default {
           throw new EmtError("forbidden", "BiciMAD account status is owner-only");
         }
         return json(await getBikeAccountStatus(env), env);
+      }
+
+      if (pathname === "/bikes/trips" && method === "GET") {
+        const user = await authenticatedUser(env, request);
+        if (!env.OWNER_USER_ID || user.id !== env.OWNER_USER_ID) {
+          throw new EmtError("forbidden", "BiciMAD trip history is owner-only");
+        }
+        const page = Math.min(1000, Math.max(0, Number.parseInt(url.searchParams.get("page") || "0", 10) || 0));
+        const bikeNumber = url.searchParams.get("bike");
+        if (bikeNumber && !/^[0-9A-Za-z-]+$/.test(bikeNumber)) {
+          return json({ error: "not a valid bike number" }, env, 400);
+        }
+        return json(await getBikeTrips(env, { page, bikeNumber }), env);
       }
 
       if (pathname === "/bikes/stations" && method === "GET") {

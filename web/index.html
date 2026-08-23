@@ -46,6 +46,7 @@
       <span id="bike-account-dot" class="bike-account-dot" aria-hidden="true"></span>
       <span id="bike-account-text">Account status not checked</span>
       <button id="bike-account-check" type="button">Check</button>
+      <button id="bike-trips-open" type="button">Trips</button>
     </section>
 
     <main id="bikes" hidden aria-live="polite"></main>
@@ -165,6 +166,26 @@
           <button type="button" id="bike-sheet-show-map">Show on map</button>
           <button type="button" id="bike-sheet-close">Close</button>
           <button type="submit" id="bike-sheet-save" hidden>Save</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="bike-trips-dialog">
+      <form id="bike-trips-form" method="dialog">
+        <h2>Trip history</h2>
+        <p class="muted">Leave the bike number empty to inspect all rides on a page.</p>
+        <input id="bike-trips-number" inputmode="numeric" autocomplete="off" placeholder="Bike number (optional)" />
+        <p id="bike-trips-status" class="muted" role="status"></p>
+        <div id="bike-trips-results" class="trip-results"></div>
+        <details id="bike-trips-fields" hidden>
+          <summary>Fields returned by BiciMAD</summary>
+          <code></code>
+        </details>
+        <div class="dialog-actions">
+          <button type="button" id="bike-trips-prev">Previous</button>
+          <button type="button" id="bike-trips-next">Next</button>
+          <button type="button" id="bike-trips-close">Close</button>
+          <button type="submit" id="bike-trips-search">Search</button>
         </div>
       </form>
     </dialog>

@@ -1473,6 +1473,7 @@ const bikeAccountEl = document.getElementById("bike-account");
 const bikeAccountDot = document.getElementById("bike-account-dot");
 const bikeAccountText = document.getElementById("bike-account-text");
 const bikeAccountCheck = document.getElementById("bike-account-check");
+const bikeTripsOpen = document.getElementById("bike-trips-open");
 const mapActions = document.getElementById("map-actions");
 const mapFullscreenBtn = document.getElementById("map-fullscreen");
 
@@ -1527,6 +1528,76 @@ async function loadBikeAccount() {
 }
 
 bikeAccountCheck.addEventListener("click", loadBikeAccount);
+
+const bikeTripsDialog = document.getElementById("bike-trips-dialog");
+const bikeTripsForm = document.getElementById("bike-trips-form");
+const bikeTripsNumber = document.getElementById("bike-trips-number");
+const bikeTripsStatus = document.getElementById("bike-trips-status");
+const bikeTripsResults = document.getElementById("bike-trips-results");
+const bikeTripsFields = document.getElementById("bike-trips-fields");
+const bikeTripsPrev = document.getElementById("bike-trips-prev");
+const bikeTripsNext = document.getElementById("bike-trips-next");
+let bikeTripsPage = 0;
+
+function renderTripResult(trip) {
+  const card = document.createElement("article");
+  card.className = "trip-result";
+  const heading = document.createElement("strong");
+  heading.textContent = `Bike ${trip.bikeNumber ?? "unknown"}`;
+  const timing = document.createElement("span");
+  timing.textContent = [trip.interval, trip.minutes == null ? null : `${trip.minutes} min`]
+    .filter(Boolean).join(" · ") || "Time unavailable";
+  const money = document.createElement("span");
+  money.textContent = trip.cost == null ? "Cost unavailable" : `Cost ${trip.cost}`;
+  card.append(heading, timing, money);
+  if (Number(trip.penaltyCount) || Number(trip.penaltyAmount)) {
+    const penalty = document.createElement("span");
+    penalty.className = "warn";
+    penalty.textContent = `Penalty: ${trip.penaltyCount || 0} · amount ${trip.penaltyAmount || 0}`;
+    card.append(penalty);
+  }
+  return card;
+}
+
+async function loadBikeTrips(page = 0) {
+  bikeTripsPage = Math.max(0, page);
+  const bike = bikeTripsNumber.value.trim();
+  if (bike && !/^[0-9A-Za-z-]+$/.test(bike)) {
+    bikeTripsStatus.textContent = "Bike numbers may contain letters, numbers and hyphens only.";
+    return;
+  }
+  bikeTripsStatus.textContent = "Loading…";
+  bikeTripsResults.replaceChildren();
+  try {
+    const query = new URLSearchParams({ page: String(bikeTripsPage) });
+    if (bike) query.set("bike", bike);
+    const payload = await api(`/bikes/trips?${query}`);
+    bikeTripsResults.replaceChildren(...payload.matchedOnPage.map(renderTripResult));
+    bikeTripsStatus.textContent = payload.matchedOnPage.length
+      ? `Page ${payload.page} · ${payload.matchedOnPage.length} shown of ${payload.countOnPage}`
+      : `No matching rides on page ${payload.page}`;
+    bikeTripsFields.hidden = payload.fields.length === 0;
+    bikeTripsFields.querySelector("code").textContent = payload.fields.join(", ");
+    bikeTripsPrev.disabled = bikeTripsPage === 0;
+    bikeTripsNext.disabled = payload.countOnPage === 0;
+  } catch (err) {
+    bikeTripsStatus.textContent = err.message;
+  }
+}
+
+bikeTripsOpen.addEventListener("click", () => {
+  bikeTripsPage = 0;
+  bikeTripsStatus.textContent = "";
+  bikeTripsResults.replaceChildren();
+  bikeTripsDialog.showModal();
+});
+bikeTripsForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  void loadBikeTrips(0);
+});
+bikeTripsPrev.addEventListener("click", () => { void loadBikeTrips(bikeTripsPage - 1); });
+bikeTripsNext.addEventListener("click", () => { void loadBikeTrips(bikeTripsPage + 1); });
+document.getElementById("bike-trips-close").addEventListener("click", () => bikeTripsDialog.close());
 
 const bikeModeEl = document.getElementById("bike-mode");
 const modeBikes = document.getElementById("mode-bikes");

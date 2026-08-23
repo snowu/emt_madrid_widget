@@ -215,6 +215,54 @@ describe("GET /bikes/account", () => {
   });
 });
 
+describe("GET /bikes/trips", () => {
+  const userAuth = { headers: { Authorization: "Bearer user-jwt" } };
+
+  it("is owner-only", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      id: "friend-user-id", email: "friend@example.com",
+    }), { status: 200 }));
+    expect((await call("/bikes/trips", userAuth)).status).toBe(403);
+  });
+
+  it("normalizes and filters rides without returning account identifiers", async () => {
+    const spy = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      if (String(url).includes("/auth/v1/user")) return new Response(JSON.stringify({
+        id: env.OWNER_USER_ID, email: "owner@example.com",
+      }), { status: 200 });
+      if (String(url).includes("/identity/login/integrator")) return new Response(JSON.stringify({
+        code: "00", data: [{ accessToken: "trip-token", idUser: "mpass-user", email: "owner@example.com" }],
+      }), { status: 200 });
+      if (String(url).includes("/bicimad/userdata/")) return new Response(JSON.stringify({
+        code: "01", data: { DS_NIF: "private-nif", DS_EMAIL: "private@example.com" },
+      }), { status: 200 });
+      return new Response(JSON.stringify({
+        code: "00",
+        data: [
+          { trip_id: 1, id_bike: 1234, trip_minutes: 18, trip_cost: 0.5, old_amount: 8, new_amount: 7.5, internal_secret: "nope" },
+          { trip_id: 2, id_bike: 9999, trip_minutes: 7, trip_cost: 0 },
+        ],
+      }), { status: 200 });
+    });
+
+    const res = await call("/bikes/trips?page=2&bike=1234", userAuth);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toMatchObject({
+      page: 2,
+      bikeNumber: "1234",
+      countOnPage: 2,
+      matchedOnPage: [{ tripId: 1, bikeNumber: "1234", minutes: 18, cost: 0.5 }],
+    });
+    expect(body.fields).toContain("internal_secret");
+    expect(JSON.stringify(body)).not.toContain("private-nif");
+    expect(JSON.stringify(body)).not.toContain("private@example.com");
+    expect(JSON.stringify(body)).not.toContain("nope");
+    const [, init] = spy.mock.calls.find(([url]) => String(url).includes("/bicimad/trips/"));
+    expect(init.headers).toMatchObject({ nif: "private-nif", session: "mpass-user", page: "2" });
+  });
+});
+
 describe("GET /stops/nearby", () => {
   beforeEach(async () => {
     await env.KV.delete("nearby:v4:-3.6897:40.4674:500");

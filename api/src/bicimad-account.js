@@ -1,6 +1,7 @@
 import { EmtError } from "./errors.js";
 
 const USERDATA_URL = "https://apiemtpay.emtmadrid.es/v2/bicimad/userdata/";
+const TRIPS_URL = "https://apiemtpay.emtmadrid.es/v2/bicimad/trips/";
 const LOGIN_URL = "https://api.mpass.mobi/v1/core/identity/login/integrator";
 const TOKEN_KEY = "bicimad:owner-session";
 
@@ -82,6 +83,106 @@ async function requestAccount(env, session) {
       email: session.email,
     },
   });
+}
+
+async function requestTrips(env, session, nif, page) {
+  return fetch(TRIPS_URL, {
+    method: "GET",
+    headers: {
+      ...deviceHeaders(env),
+      accessToken: session.accessToken,
+      userId: session.userId,
+      email: session.email,
+      nif,
+      session: session.userId,
+      mode: "mPass",
+      page: String(page),
+    },
+  });
+}
+
+async function jsonResponse(response, label) {
+  try {
+    return await response.json();
+  } catch {
+    throw new EmtError("upstream", `${label} HTTP ${response.status}, non-JSON response`);
+  }
+}
+
+function rejectedSession(response, body) {
+  return response.status === 401 || response.status === 403 || body?.code === "80";
+}
+
+function tripSummary(trip) {
+  const penalty = trip?.penalty && typeof trip.penalty === "object" ? trip.penalty : {};
+  const extra = trip?.extrainfo && typeof trip.extrainfo === "object" ? trip.extrainfo : {};
+  return {
+    tripId: trip?.trip_id ?? null,
+    bikeNumber: trip?.id_bike == null ? null : String(trip.id_bike),
+    interval: trip?.trip_interval ?? null,
+    minutes: trip?.trip_minutes ?? null,
+    cost: trip?.trip_cost ?? null,
+    previousBalance: trip?.old_amount ?? null,
+    resultingBalance: trip?.new_amount ?? null,
+    dockBonus: trip?.dock_bono ?? null,
+    undockBonus: trip?.undock_bono ?? null,
+    reservationBonus: trip?.reserve_bono ?? null,
+    penaltyCount: penalty.penalty ?? 0,
+    penaltyAmount: penalty.penalty_amount ?? 0,
+    penaltyTimestamps: penalty.penalty_ts ?? {},
+    extraAmount: extra.amount ?? null,
+    extraDate: extra.date ?? null,
+  };
+}
+
+/** Owner-only callers can inspect their own rides without exposing account
+ * identifiers, tokens, NIF, or the raw upstream response. `fields` records the
+ * model keys EMT actually returned so unmapped useful data can be identified
+ * without leaking its values during research. */
+export async function getBikeTrips(env, { page = 0, bikeNumber = null } = {}) {
+  let session = await login(env);
+  let accountResponse = await requestAccount(env, session);
+  let accountBody = await jsonResponse(accountResponse, "BiciMAD account");
+  if (rejectedSession(accountResponse, accountBody)) {
+    session = await login(env, { force: true });
+    accountResponse = await requestAccount(env, session);
+    accountBody = await jsonResponse(accountResponse, "BiciMAD account");
+  }
+  if (rejectedSession(accountResponse, accountBody)) {
+    throw new EmtError("auth", "BiciMAD account authentication failed");
+  }
+  const account = Array.isArray(accountBody?.data) ? accountBody.data[0] : accountBody?.data;
+  const nif = account?.DS_NIF || account?.DS_DN;
+  if (!nif) throw new EmtError("upstream", "BiciMAD account returned no document id for trips");
+
+  let tripsResponse = await requestTrips(env, session, nif, page);
+  let tripsBody = await jsonResponse(tripsResponse, "BiciMAD trips");
+  if (rejectedSession(tripsResponse, tripsBody)) {
+    session = await login(env, { force: true });
+    tripsResponse = await requestTrips(env, session, nif, page);
+    tripsBody = await jsonResponse(tripsResponse, "BiciMAD trips");
+  }
+  if (rejectedSession(tripsResponse, tripsBody)) {
+    throw new EmtError("auth", "BiciMAD trips authentication failed");
+  }
+  if (!tripsResponse.ok || (tripsBody?.code !== "00" && tripsBody?.code !== "01")) {
+    throw new EmtError(
+      "upstream",
+      `BiciMAD trips HTTP ${tripsResponse.status}, code ${tripsBody?.code ?? "unknown"}`,
+    );
+  }
+
+  const rawTrips = Array.isArray(tripsBody.data) ? tripsBody.data : [];
+  const fields = [...new Set(rawTrips.flatMap((trip) => Object.keys(trip || {})))].sort();
+  const normalized = rawTrips.map(tripSummary);
+  const wanted = bikeNumber == null ? null : String(bikeNumber).trim();
+  return {
+    page,
+    bikeNumber: wanted,
+    countOnPage: rawTrips.length,
+    matchedOnPage: wanted ? normalized.filter((trip) => trip.bikeNumber === wanted) : normalized,
+    fields,
+  };
 }
 
 /** Query the account backend and expose no identity, card or contract ids. */

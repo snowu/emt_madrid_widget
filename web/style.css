@@ -113,6 +113,22 @@ button:active { transform: scale(0.97); }
 .bike-account-dot.warn { background: #ffb454; }
 #bike-account-text { flex: 1; }
 #bike-account-check { min-height: 36px; padding: 0.3rem 0.7rem; font-size: 0.85rem; }
+#bike-trips-open { min-height: 36px; padding: 0.3rem 0.7rem; font-size: 0.85rem; }
+
+.trip-results { display: flex; flex-direction: column; gap: 0.5rem; }
+.trip-result {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg);
+  font-size: 0.85rem;
+}
+.trip-result span { color: var(--muted); }
+.trip-result .warn { color: #ffb454; }
+#bike-trips-fields code { overflow-wrap: anywhere; color: var(--muted); }
 
 .section-heading {
   margin: 1rem 0 0;
