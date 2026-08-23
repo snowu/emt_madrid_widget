@@ -74,6 +74,83 @@ function lineColor(code) {
   return color;
 }
 
+/** Hours for lines whose stop has no detail record, keyed by line code.
+ *  undefined = never asked or in flight, null = asked and got nothing. */
+const lineHours = new Map();
+
+function minutesOf(clock) {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(clock ?? "");
+  return m ? Number(m[1]) * 60 + Number(m[2]) : null;
+}
+
+/** Today's service windows for every line at this stop.
+ *
+ * Two sources, same shape: a stop with a detail record carries its own hours,
+ * and one without borrows the line's. `fetchMissing` is off for stops you have
+ * not saved — browsing the map should not fire a request per line per pin.
+ */
+function serviceWindows(stopId, { fetchMissing = false } = {}) {
+  const today = todayDayType();
+  const windows = [];
+  for (const line of stopLines(stopId)) {
+    if (line.from && line.to) {
+      windows.push({
+        label: line.label,
+        from: line.from,
+        to: line.to,
+        overnight: minutesOf(line.to) < minutesOf(line.from),
+      });
+      continue;
+    }
+    const days = lineHours.get(line.line);
+    if (days === undefined) {
+      if (fetchMissing) fetchLineHours(line.line);
+      continue;
+    }
+    const row = days?.find((d) => d.dayType === today);
+    if (row?.from && row?.to) windows.push({ ...row, label: line.label });
+  }
+  return windows;
+}
+
+/** When the first bus is expected, for a stop with nothing due.
+ *
+ * Returns null when a line should be running right now — then an empty board
+ * means EMT has no estimate, not that the stop is asleep, and promising a
+ * first bus at 07:00 when it is 09:00 would be a lie.
+ */
+function nextServiceStart(stopId, { fetchMissing = false } = {}) {
+  const windows = serviceWindows(stopId, { fetchMissing });
+  const now = new Date();
+  const nowMins = now.getHours() * 60 + now.getMinutes();
+  let best = null;
+  for (const w of windows) {
+    const from = minutesOf(w.from);
+    const to = minutesOf(w.to);
+    if (from == null || to == null) continue;
+    const running = w.overnight ? nowMins >= from || nowMins <= to : nowMins >= from && nowMins <= to;
+    if (running) return null;
+    // Already past today: the next one is tomorrow's.
+    const wait = from >= nowMins ? from - nowMins : from + 1440 - nowMins;
+    if (!best || wait < best.wait) best = { wait, at: w.from, label: w.label };
+  }
+  return best;
+}
+
+function fmtWait(mins) {
+  if (mins < 60) return `in ${mins}m`;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return m === 0 ? `in ${h}h` : `in ${h}h ${m}m`;
+}
+
+/** What an empty arrival board should say. */
+function emptyBoardText(stopId, { fetchMissing = false } = {}) {
+  const next = nextServiceStart(stopId, { fetchMissing });
+  if (!next) return "No buses due right now";
+  return `First bus ${next.at} · ${next.label} · ${fmtWait(next.wait)}`;
+}
+
 /** Which timetable applies today: LA (weekday), SA, or FE (Sunday/holiday).
  *
  * EMT stamps it on every stop detail it sends, which beats deriving it from
@@ -178,9 +255,13 @@ function render() {
         list.innerHTML = `<li class="muted">No data yet</li>`;
       } else if (cached.arrivals.length === 0) {
         // EMT answering "no estimations" is not a failure — at night, or on a
-        // daytime-only bay, it is the true answer. The lines above say which
-        // buses this stop serves, so an empty board reads as "none running".
-        list.innerHTML = `<li class="muted">No buses due right now</li>`;
+        // daytime-only bay, it is the true answer. Saying when the first bus
+        // is due turns "nothing here" into something you can act on, and makes
+        // one stop's empty board legible next to another stop's full one.
+        const li = document.createElement("li");
+        li.className = "muted";
+        li.textContent = emptyBoardText(stop.stop_id, { fetchMissing: true });
+        list.replaceChildren(li);
       } else {
         // Count down from the age of the fetch, not from the raw value, so a
         // cached payload shows the time remaining now rather than when fetched.
@@ -222,9 +303,15 @@ function render() {
 }
 
 async function api(path, init = {}) {
+  // Only writes carry the app key and a content type. A GET with neither is a
+  // CORS "simple request", so the browser skips the preflight — that was one
+  // wasted round trip per read, and a phone pays for every one of them.
+  const isWrite = init.method && init.method !== "GET";
   const res = await fetch(`${API}${path}`, {
     ...init,
-    headers: { "content-type": "application/json", "X-App-Key": APP_KEY, ...init.headers },
+    headers: isWrite
+      ? { "content-type": "application/json", "X-App-Key": APP_KEY, ...init.headers }
+      : { ...init.headers },
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -610,7 +697,7 @@ function popupHtml(stop) {
   if (!cached || cached.arrivals.length === 0) {
     const li = document.createElement("li");
     li.className = "muted";
-    li.textContent = cached ? "No buses due right now" : "No data yet";
+    li.textContent = cached ? emptyBoardText(stop.stop_id) : "No data yet";
     ul.append(li);
   } else {
     const elapsed = Math.floor((Date.now() - cached.fetchedAt) / 1000);
@@ -765,7 +852,10 @@ function nearbyPopupHtml(s) {
   } else if (preview === null) {
     ul.innerHTML = `<li class="muted">Could not reach EMT</li>`;
   } else if (preview.arrivals.length === 0) {
-    ul.innerHTML = `<li class="muted">No buses due right now</li>`;
+    const li = document.createElement("li");
+    li.className = "muted";
+    li.textContent = emptyBoardText(s.stopId);
+    ul.replaceChildren(li);
   } else {
     const elapsed = Math.floor((Date.now() - preview.fetchedAt) / 1000);
     for (const bus of preview.arrivals.slice(0, CARD_ARRIVALS)) {
@@ -950,7 +1040,9 @@ function renderSheetArrivals() {
   if (!cached || cached.arrivals.length === 0) {
     const li = document.createElement("li");
     li.className = "muted";
-    li.textContent = cached ? "No buses due right now" : "No data yet";
+    li.textContent = cached
+      ? emptyBoardText(sheetStop.stop_id, { fetchMissing: true })
+      : "No data yet";
     sheetArrivals.replaceChildren(li);
   } else {
     const elapsed = Math.floor((Date.now() - cached.fetchedAt) / 1000);
@@ -983,10 +1075,6 @@ function renderSheetArrivals() {
  *  a stop whose lines stop at 23:45, not a stop that is broken. Only stop
  *  detail carries the hours; a stop EMT has no detail record for lists its
  *  lines without them. */
-/** Hours for lines whose stop has no detail record, keyed by line code.
- *  undefined = never asked or in flight, null = asked and got nothing. */
-const lineHours = new Map();
-
 /** Ask the line itself when the stop cannot say.
  *
  * A stop EMT has no detail record for still lists its line codes, and those
@@ -1005,7 +1093,11 @@ async function fetchLineHours(code) {
     // Closing the sheet forgets it, so reopening retries.
     lineHours.set(code, null);
   }
-  if (stopDialog.open) renderSheetService();
+  render();
+  if (stopDialog.open) {
+    renderSheetService();
+    renderSheetArrivals();
+  }
 }
 
 function renderSheetService() {

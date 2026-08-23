@@ -185,7 +185,9 @@ device so the page never renders empty. Saved stops never live there.
 hand-entry becomes annoying.
 
 **Writes are filtered, not authenticated.** The page sends `X-App-Key` and the
-worker rejects writes without it. The key ships in public JS — it stops
+worker rejects writes without it. Reads send neither it nor a content type, so
+they stay CORS "simple requests" and skip the preflight — otherwise every read
+costs two round trips, which on a phone is the difference you feel. The key ships in public JS — it stops
 scanners, not people. Deliberate: blast radius is junk rows in a personal table.
 Arrivals are cached 20s in KV, which also blunts quota abuse. See the design doc
 for what was rejected and when to revisit.
@@ -197,27 +199,36 @@ Two arrivals per stop: the next bus and the fallback if you miss it.
 1. **Local countdown.** Tick `estimateArrive` down in the browser between fetches
    so numbers move every second instead of freezing.
 2. **Staleness marker.** Every rendering of arrival data carries "updated N ago".
-3. **Never render empty.** Show last-known arrivals from localStorage rather
+3. **An empty board says when the first bus is.** "Nothing due" is the true
+   answer at 04:00 but it is not a useful one, and it makes one stop look
+   broken next to another that has night buses. Where nothing is due, the card
+   shows the first departure of the day and the wait — computed from the same
+   service windows the sheet lists, borrowing the line's hours for stops EMT
+   has no detail record for. If a line *should* be running now, the text stays
+   "No buses due right now": EMT having no estimate is a different thing from
+   the stop being asleep, and promising a 07:00 first bus at 09:00 would be a
+   lie.
+4. **Never render empty.** Show last-known arrivals from localStorage rather
    than a spinner or blank. A stale number beats a spinner — but only ever with
    its age attached.
-4. **Add/remove stops in the page**, since the phone is the device that has this
+5. **Add/remove stops in the page**, since the phone is the device that has this
    problem. A TUI was considered and dropped: it would run on the laptop, which
    is exactly where you are not when you want to add a stop.
 
 Refresh: automatically on load and on tab focus; manually per-card or all at
 once.
 
-5. **Tap a card to open the stop.** The sheet holds a small map of where it is,
+6. **Tap a card to open the stop.** The sheet holds a small map of where it is,
    the full arrival board rather than the card's two, the lines with today's
    hours, and an editable name. An empty name hands the title back to EMT's.
-6. **Heal detail-less stops from area search.** A stop EMT has no detail record
+7. **Heal detail-less stops from area search.** A stop EMT has no detail record
    for (code 81) has no name, lines or coordinates of its own. arroundxy knows
    all three, so on load the page searches around each saved stop it *can*
    place and fills in the blind ones — stops cluster, so a Plaza Castilla bay
    is healed by the bay next to it. Results are cached in the worker for a day,
    so this costs close to nothing.
 
-7. **Line routes on the map, one direction at a time.** Every line in a map
+8. **Line routes on the map, one direction at a time.** Every line in a map
    popup is a chip; tapping cycles out → back → off, and the legend chip names
    where that direction ends up ("70 → ALSACIA"). Both directions drawn at once
    was unreadable: they run along the same streets, so one hides the other.
@@ -225,11 +236,11 @@ once.
    legible at the zoom a phone map sits at. The polylines are
    `interactive: false`: a route running through a stop must not swallow taps
    meant for the pin.
-8. **Stops en route come free.** The route answer already carries every stop
+9. **Stops en route come free.** The route answer already carries every stop
    the line calls at, so drawing them costs no extra request. They are drawn as
    dots in the line's colour for the direction on screen, skipping saved stops,
    which have their own pin.
-9. **Times before you save a stop.** An unsaved stop's popup shows its live
+10. **Times before you save a stop.** An unsaved stop's popup shows its live
    arrivals, so you can tell whether it is the right side of the road before
    adding it. Those arrivals stay in memory — localStorage is the cache for
    stops you actually keep.
