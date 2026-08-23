@@ -35,6 +35,12 @@ h1 { font-size: 1.25rem; margin: 0; }
 
 #auth-button { font-size: 0.85rem; padding-inline: 0.7rem; }
 
+#auth-button[aria-label="Open account menu"] {
+  width: var(--tap);
+  padding: 0;
+  font-size: 1.15rem;
+}
+
 button {
   background: var(--card);
   color: var(--fg);
@@ -424,6 +430,42 @@ dialog {
 }
 
 dialog::backdrop { background: rgb(0 0 0 / 0.55); }
+
+#account-menu {
+  position: fixed;
+  inset: 0 0 0 auto;
+  margin: 0;
+  width: min(82vw, 22rem);
+  height: 100dvh;
+  max-height: none;
+  border-radius: 16px 0 0 16px;
+  padding: calc(1rem + env(safe-area-inset-top, 0px))
+    calc(1rem + env(safe-area-inset-right, 0px))
+    calc(1rem + env(safe-area-inset-bottom, 0px)) 1rem;
+}
+
+#account-menu form { height: 100%; }
+
+.account-menu-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.account-menu-heading button {
+  width: var(--tap);
+  padding: 0;
+  font-size: 1.5rem;
+}
+
+#account-menu-email { overflow-wrap: anywhere; }
+
+#account-signout {
+  width: 100%;
+  margin-top: auto;
+  border-color: #6b3036;
+}
 
 dialog form { display: flex; flex-direction: column; gap: 0.75rem; }
 

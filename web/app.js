@@ -29,6 +29,9 @@ const authDialog = document.getElementById("auth-dialog");
 const authForm = document.getElementById("auth-form");
 const authEmail = document.getElementById("auth-email");
 const authMessage = document.getElementById("auth-message");
+const accountMenu = document.getElementById("account-menu");
+const accountMenuEmail = document.getElementById("account-menu-email");
+const accountSignout = document.getElementById("account-signout");
 
 // One fetch feeds both: the card glances at the first two, the sheet shows
 // the board. The worker serves both from a single 20s-cached payload.
@@ -346,6 +349,8 @@ function showSignedOut(message = "") {
   bikeSaved = [];
   authButton.textContent = "Sign in";
   authButton.title = "Sign in with an email link";
+  authButton.setAttribute("aria-label", "Sign in");
+  if (accountMenu.open) accountMenu.close();
   fab.hidden = true;
   bikeAccountEl.hidden = true;
   render();
@@ -361,8 +366,10 @@ async function applySession(session) {
   setUserCacheScope(authUser.id);
   stops = readStops();
   bikeSaved = readBikeSaved();
-  authButton.textContent = "Sign out";
-  authButton.title = authUser.email || "Signed in";
+  authButton.textContent = "☰";
+  authButton.title = "Account menu";
+  authButton.setAttribute("aria-label", "Open account menu");
+  accountMenuEmail.textContent = authUser.email || "Signed in";
   fab.hidden = section === "bikes";
   render();
   renderBikes();
@@ -396,11 +403,21 @@ async function initAuth() {
 
 authButton.addEventListener("click", async () => {
   if (authSession) {
-    await authClient.auth.signOut();
+    accountMenu.showModal();
     return;
   }
   authMessage.textContent = "";
   authDialog.showModal();
+});
+
+accountSignout.addEventListener("click", async () => {
+  accountSignout.disabled = true;
+  try {
+    await authClient.auth.signOut();
+  } finally {
+    accountSignout.disabled = false;
+    if (accountMenu.open) accountMenu.close();
+  }
 });
 
 document.getElementById("auth-cancel").addEventListener("click", () => authDialog.close());
@@ -415,11 +432,15 @@ authForm.addEventListener("submit", async (event) => {
     email,
     options: {
       emailRedirectTo: `${location.origin}${location.pathname}`,
-      shouldCreateUser: false,
+      // The link verifies email ownership before Supabase creates the user.
+      // First-time sign-up and returning sign-in can therefore share one flow.
+      shouldCreateUser: true,
     },
   });
   document.getElementById("auth-send").disabled = false;
-  authMessage.textContent = error ? error.message : "Check your email for the sign-in link.";
+  authMessage.textContent = error
+    ? error.message
+    : "Check your email for the secure sign-in link.";
 });
 
 async function refreshStop(stopId) {

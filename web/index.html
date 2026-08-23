@@ -84,14 +84,28 @@
 
     <dialog id="auth-dialog">
       <form id="auth-form" method="dialog">
-        <h2>Sign in</h2>
-        <p class="muted">We’ll email you a one-time sign-in link. No password is stored by this app.</p>
+        <h2>Sign in or sign up</h2>
+        <p class="muted">
+          We’ll email you a one-time secure link. Opening it signs you in and
+          creates your account if this is your first visit. No password needed.
+        </p>
         <input id="auth-email" type="email" autocomplete="email" placeholder="you@example.com" required />
         <p id="auth-message" class="muted" role="status"></p>
         <div class="dialog-actions">
           <button type="button" id="auth-cancel">Cancel</button>
-          <button type="submit" id="auth-send">Send link</button>
+          <button type="submit" id="auth-send">Send secure link</button>
         </div>
+      </form>
+    </dialog>
+
+    <dialog id="account-menu" aria-labelledby="account-menu-title">
+      <form method="dialog">
+        <div class="account-menu-heading">
+          <h2 id="account-menu-title">Account</h2>
+          <button type="submit" aria-label="Close account menu" title="Close">×</button>
+        </div>
+        <p id="account-menu-email" class="muted"></p>
+        <button id="account-signout" class="danger" type="button">Sign out</button>
       </form>
     </dialog>
 

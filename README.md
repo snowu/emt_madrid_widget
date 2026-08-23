@@ -21,12 +21,13 @@ secrets and are used only to renew the owner's short-lived token on demand.
 
 ## Multi-user setup
 
-1. In Supabase Auth, enable email magic links and set the site/redirect URL to
+1. In Supabase Auth, enable email magic links and new-user sign-ups, then set
+   the site/redirect URL to
    `https://snowu.github.io/emt_madrid_widget/`. Add the same URL under
-   **Redirect URLs** (a trailing `**` is fine). The page uses
-   `shouldCreateUser: false`, so only
-   users you invite in the Supabase dashboard can sign in.
-2. Invite the owner first and copy their Auth user UUID.
+   **Redirect URLs** (a trailing `**` is fine). Configure custom SMTP under
+   **Authentication → Email → SMTP Settings**; the same verified email-link
+   flow handles first-time sign-up and returning sign-in.
+2. Sign in the owner first and copy their Auth user UUID.
 3. Replace every `OWNER_AUTH_USER_ID` in
    `supabase/migrate_multi_user.sql` with that UUID, then run the script in the
    Supabase SQL editor. It assigns existing saved rows to the owner and installs
@@ -36,8 +37,8 @@ secrets and are used only to renew the owner's short-lived token on demand.
    also set `MPASS_CLIENT_ID`, `MPASS_PASSKEY`, and `MPASS_DEVICE_ID`. MPass
    reuses `EMT_EMAIL` and `EMT_PASSWORD`; optional `MPASS_EMAIL` and
    `MPASS_PASSWORD` overrides remain available if the accounts ever differ.
-5. Deploy the Worker, then deploy `web/`. Invite friends from Supabase Auth;
-   each receives an isolated empty set of saved stops and stations.
+5. Deploy the Worker, then deploy `web/`. Friends can create their own verified
+   accounts; each receives an isolated empty set of saved stops and stations.
 
 The legacy `SUPABASE_SERVICE_KEY` and public `APP_KEY` are no longer used for
 normal application traffic and can be removed after the migration is verified.
