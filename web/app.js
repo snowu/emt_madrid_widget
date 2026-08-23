@@ -1500,6 +1500,7 @@ let bikeNear = readBikeNear(); // last-known counts, so the list never starts em
 let bikeFetchedAt = bikeNear.fetchedAt ?? null;
 let bikeMap = null;
 let bikeMarkers = null;
+let openBikePopupMarker = null;
 let bikeCell = null;
 let bikeSeq = 0;
 let myLocation = null;
@@ -2255,8 +2256,10 @@ function bikePopup(station) {
 
 function rebuildBikeMarkers() {
   if (!bikeMarkers) return;
+  const reopenId = openBikePopupMarker?.bikeStationId ?? null;
   bikeMarkers.clearLayers();
   const savedIdSet = new Set(bikeSaved.map((s) => s.station_id));
+  let reopenMarker = null;
   for (const station of bikeNear.stations ?? []) {
     if (!station.coordinates) continue;
     const takeClass = availabilityClass(station.bikes,
@@ -2271,10 +2274,21 @@ function rebuildBikeMarkers() {
         `aria-label="${station.bikes ?? "Unknown"} rentable bikes out of ${capacity} spaces">` +
         `<span class="${takeClass}">🚲 ${station.bikes ?? "—"}/${capacity}</span></div>`,
     });
-    L.marker([station.coordinates[1], station.coordinates[0]], { icon })
-      .bindPopup(() => bikePopup(station))
-      .addTo(bikeMarkers);
+    const marker = L.marker([station.coordinates[1], station.coordinates[0]], { icon })
+      .bindPopup(() => bikePopup(station));
+    marker.bikeStationId = station.id;
+    marker.on("popupopen", () => { openBikePopupMarker = marker; });
+    marker.on("popupclose", () => {
+      // A late close event from a marker removed during refresh must not clear
+      // the replacement marker that has already reopened the same station.
+      if (openBikePopupMarker === marker) openBikePopupMarker = null;
+    });
+    marker.addTo(bikeMarkers);
+    if (station.id === reopenId) reopenMarker = marker;
   }
+  // Auto-panning a popup can trigger a nearby refresh. Reattach the popup to
+  // the replacement marker so that refresh is visually seamless.
+  reopenMarker?.openPopup();
 }
 
 /* ---- Section menu ------------------------------------------------------- */
