@@ -386,11 +386,19 @@ const routeCache = new Map(); // line code → route payload
  */
 async function toggleRoute(code, label) {
   if (!leafletMap) return;
-  if (shownRoutes.has(code)) {
-    routeLayer.removeLayer(shownRoutes.get(code).layer);
+
+  // One direction at a time, cycling out → back → off. Drawn together the two
+  // run along the same streets, so whichever is on top hides the other and the
+  // arrows point both ways a few pixels apart.
+  const current = shownRoutes.get(code);
+  const next = !current ? "toA" : current.direction === "toA" ? "toB" : null;
+  if (current) {
+    routeLayer.removeLayer(current.layer);
     shownRoutes.delete(code);
-    renderRouteLegend();
-    return;
+    if (!next) {
+      renderRouteLegend();
+      return;
+    }
   }
 
   statusEl.textContent = `Loading route ${label}…`;
@@ -405,29 +413,33 @@ async function toggleRoute(code, label) {
     }
   }
   statusEl.textContent = "";
-  if (shownRoutes.has(code)) return; // toggled off again while loading
+  if (shownRoutes.has(code)) return; // toggled again while loading
 
   const color = lineColor(label);
+  const segments = route.paths?.[next] ?? [];
   // featureGroup, not layerGroup: only this one can report its own bounds.
   const group = L.featureGroup();
-  for (const [direction, segments] of Object.entries(route.paths ?? {})) {
-    if (!segments?.length) continue;
-    // GeoJSON order is [lon, lat]; Leaflet wants [lat, lon]. The way back is
-    // dashed so the two directions stay tellable apart in one colour.
+  if (segments.length) {
+    // GeoJSON order is [lon, lat]; Leaflet wants [lat, lon].
     const latlngs = segments.map((seg) => seg.map(([lon, lat]) => [lat, lon]));
     L.polyline(latlngs, {
       color,
-      weight: 4,
-      opacity: 0.85,
-      dashArray: direction === "toB" ? "6 6" : null,
+      weight: 5,
+      opacity: 0.9,
       // Decoration, not a target: an interactive line would swallow taps meant
       // for the stop pins it runs through.
       interactive: false,
     }).addTo(group);
+    addDirectionArrows(group, segments, color);
   }
-  addRouteStops(group, route, color);
+  addRouteStops(group, route.stops?.[next] ?? [], color);
   group.addTo(routeLayer);
-  shownRoutes.set(code, { layer: group, label });
+  shownRoutes.set(code, {
+    layer: group,
+    label,
+    direction: next,
+    towards: next === "toA" ? route.nameA : route.nameB,
+  });
   renderRouteLegend();
 
   // Drawing a route you can only see a tenth of is not showing it. The legend
@@ -436,16 +448,68 @@ async function toggleRoute(code, label) {
   if (bounds.isValid()) leafletMap.fitBounds(bounds.pad(0.08));
 }
 
+/** EMT's segments chain end to start, so concatenating them gives the path in
+ *  travel order — which is what tells us which way the arrows point. */
+function orderedPoints(segments) {
+  const points = [];
+  for (const seg of segments ?? []) {
+    for (const pair of seg) {
+      const last = points[points.length - 1];
+      if (!last || last[0] !== pair[0] || last[1] !== pair[1]) points.push(pair);
+    }
+  }
+  return points;
+}
+
+const ARROWS_PER_ROUTE = 12;
+
+/** Arrowheads along the path, pointing the way the bus goes.
+ *
+ * Solid-versus-dashed is not readable at the zoom a phone map sits at, and the
+ * two directions usually run along the same street anyway, one hiding the
+ * other. An arrow says which way without depending on either.
+ */
+function addDirectionArrows(group, segments, color) {
+  const points = orderedPoints(segments);
+  if (points.length < 2) return;
+  const step = Math.max(1, Math.floor(points.length / ARROWS_PER_ROUTE));
+
+  for (let i = 0; i + 1 < points.length; i += step) {
+    const [lon1, lat1] = points[i];
+    const [lon2, lat2] = points[i + 1];
+    // Bearing in screen terms: longitude degrees shrink with latitude, and the
+    // glyph points north at 0.
+    const dx = (lon2 - lon1) * Math.cos((lat1 * Math.PI) / 180);
+    const dy = lat2 - lat1;
+    if (dx === 0 && dy === 0) continue;
+    const angle = (Math.atan2(dx, dy) * 180) / Math.PI;
+
+    const icon = L.divIcon({
+      className: "route-arrow",
+      iconSize: [16, 16],
+      iconAnchor: [8, 8],
+      html:
+        `<svg viewBox="0 0 16 16" width="16" height="16" ` +
+        `style="transform: rotate(${angle.toFixed(1)}deg)">` +
+        `<path d="M8 1 L14 14 L8 11 L2 14 Z" fill="${color}" ` +
+        // A thin dark edge keeps the arrow legible over pale map tiles without
+        // eating the fill that identifies the line.
+        `stroke="#0d0f14" stroke-width="0.9" stroke-linejoin="round"/></svg>`,
+    });
+    L.marker([lat1, lon1], { icon, interactive: false, keyboard: false }).addTo(group);
+  }
+}
+
 /** Every stop the line calls at, drawn as small dots along its route.
  *
  * These come in the same payload as the geometry, so showing them costs no
- * extra request. Saved stops keep their own pin and are skipped, and a stop
- * served in both directions is drawn once.
+ * extra request. Only the direction on screen is drawn, and saved stops are
+ * skipped — they have their own pin already.
  */
-function addRouteStops(group, route, color) {
+function addRouteStops(group, stops, color) {
   const saved = savedIds();
   const seen = new Set();
-  for (const stop of [...(route.stops?.toA ?? []), ...(route.stops?.toB ?? [])]) {
+  for (const stop of stops) {
     if (seen.has(stop.stopId) || saved.has(stop.stopId) || !stop.coordinates) continue;
     seen.add(stop.stopId);
     L.circleMarker([stop.coordinates[1], stop.coordinates[0]], {
@@ -474,14 +538,15 @@ function renderRouteLegend() {
   legend.hidden = shownRoutes.size === 0 || mapEl.hidden;
   legend.replaceChildren(
     ...(shownRoutes.size > 1 ? [clearRoutesChip()] : []),
-    ...[...shownRoutes].map(([code, { label }]) => {
+    ...[...shownRoutes].map(([code, { label, towards }]) => {
       const chip = document.createElement("button");
       chip.type = "button";
       chip.className = "route-chip";
-      chip.textContent = `${label} ×`;
+      // Where this direction ends up — the point of showing one at a time.
+      chip.textContent = towards ? `${label} → ${towards} ×` : `${label} ×`;
       chip.style.borderColor = lineColor(label);
       chip.style.color = lineColor(label);
-      chip.title = `Hide route ${label}`;
+      chip.title = `Next tap: the other direction, then off`;
       chip.addEventListener("click", () => toggleRoute(code, label));
       return chip;
     })
@@ -507,11 +572,12 @@ function lineChips(lines) {
     chip.type = "button";
     // Drawn-or-not is read from the map, never held on the chip: popups are
     // rebuilt every second by the countdown tick, which would lose it.
-    chip.className = shownRoutes.has(l.line) ? "line-chip on" : "line-chip";
-    chip.textContent = l.label;
+    const drawn = shownRoutes.get(l.line);
+    chip.className = drawn ? "line-chip on" : "line-chip";
+    chip.textContent = drawn?.towards ? `${l.label} → ${drawn.towards}` : l.label;
     chip.style.color = lineColor(l.label);
     chip.style.borderColor = lineColor(l.label);
-    chip.title = `${shownRoutes.has(l.line) ? "Hide" : "Show"} route ${l.label}`;
+    chip.title = drawn ? `Route ${l.label}: other direction, then off` : `Show route ${l.label}`;
     chip.addEventListener("click", (event) => {
       event.stopPropagation();
       toggleRoute(l.line, l.label);

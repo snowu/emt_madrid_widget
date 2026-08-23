@@ -217,15 +217,18 @@ once.
    is healed by the bay next to it. Results are cached in the worker for a day,
    so this costs close to nothing.
 
-7. **Line routes on the map.** Every line in a map popup is a chip that draws
-   that line's route in the line's colour — solid out, dashed back — and fits
-   the map to it. Chips below the map name what is drawn and take it down
-   again. The polylines are `interactive: false`: a route running through a
-   stop must not swallow taps meant for the pin.
+7. **Line routes on the map, one direction at a time.** Every line in a map
+   popup is a chip; tapping cycles out → back → off, and the legend chip names
+   where that direction ends up ("70 → ALSACIA"). Both directions drawn at once
+   was unreadable: they run along the same streets, so one hides the other.
+   Arrowheads along the path give the heading — solid versus dashed is not
+   legible at the zoom a phone map sits at. The polylines are
+   `interactive: false`: a route running through a stop must not swallow taps
+   meant for the pin.
 8. **Stops en route come free.** The route answer already carries every stop
    the line calls at, so drawing them costs no extra request. They are drawn as
-   dots in the line's colour, skipping saved stops (which have their own pin)
-   and stops served in both directions (drawn once).
+   dots in the line's colour for the direction on screen, skipping saved stops,
+   which have their own pin.
 9. **Times before you save a stop.** An unsaved stop's popup shows its live
    arrivals, so you can tell whether it is the right side of the road before
    adding it. Those arrivals stay in memory — localStorage is the cache for
@@ -234,6 +237,10 @@ once.
 Cached payload shapes are versioned in the worker's KV keys (`CACHE_VERSION`).
 Bump it when a parsed shape changes, or week-old detail entries keep serving
 the old one.
+
+Line colour is derived from the line code by FNV-1a hashed into 24 hues and
+two tones. A free-running hue put 5 and 107 five degrees apart — colliding
+outright is fine, looking almost-the-same on a card listing six lines is not.
 
 **GitHub Pages sends `max-age=600` on every asset and gives no way to change
 it**, so a phone keeps running the old `app.js` after a deploy — a home-screen

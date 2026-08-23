@@ -155,6 +155,10 @@ button:active { transform: scale(0.97); }
 }
 
 .route-chip.clear { color: var(--muted); font-weight: 400; }
+.route-chip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Leaflet gives divIcons a white background by default. */
+.route-arrow { background: none; border: none; }
 
 .chips { display: flex; flex-wrap: wrap; gap: 0.3rem; margin: 0.35rem 0 0; }
 .line-chip.on { background: rgb(255 255 255 / 0.12); }
