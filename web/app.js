@@ -1643,14 +1643,16 @@ function bikeCounts(station) {
 
   // Both numbers are controls: a station answers both halves of a journey,
   // and tapping either one changes what every card and map pin prioritises.
-  for (const [mode, value, label] of [
-    ["bikes", station.bikes, "🚲 bikes"],
-    ["docks", station.freeBases, "🅿️ docks"],
+  for (const [mode, value, icon, description] of [
+    ["bikes", station.bikes, "🚲", "bikes to take"],
+    ["docks", station.freeBases, "🅿️", "docks to leave"],
   ]) {
     const metric = document.createElement("button");
     metric.type = "button";
     metric.className = `bike-metric${bikeMode === mode ? " selected" : ""}`;
-    metric.innerHTML = `<strong>${value ?? "—"}</strong><span>${label}</span>`;
+    metric.innerHTML = `<strong>${value ?? "—"}</strong><span>${icon}</span>`;
+    metric.title = `${value ?? "Unknown"} ${description}`;
+    metric.setAttribute("aria-label", metric.title);
     metric.addEventListener("click", (event) => {
       event.stopPropagation();
       setBikeMode(mode);
