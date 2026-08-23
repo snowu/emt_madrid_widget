@@ -14,7 +14,7 @@ const ARRIVALS_KV_TTL = 60;
 const ARRIVALS_FRESH_MS = 20_000;
 // Bump when a cached payload's *shape* changes: old entries would otherwise
 // keep serving the old shape until their TTL runs out (a week, for detail).
-const CACHE_VERSION = "v2";
+const CACHE_VERSION = "v3";
 // Stop names/locations never move. A week of cache is quota-free.
 const DETAIL_KV_TTL = 7 * 24 * 3600;
 // Nearby searches are keyed on a ~110m grid so panning the map reuses cells.

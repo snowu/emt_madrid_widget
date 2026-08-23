@@ -485,6 +485,17 @@ describe("getLineRoute", () => {
     expect(paths.toA[0][0]).toEqual([-3.68928, 40.46644]);
   });
 
+  it("carries the stops the line calls at, which ride along for free", async () => {
+    mockFetch(routeOk);
+    const { stops } = await getLineRoute(env, "027");
+    // The feature with no stopNum is a shape point, not a stop.
+    expect(stops.toA).toEqual([
+      { stopId: "5602", name: "Plaza Castilla", coordinates: [-3.68928, 40.466632] },
+      { stopId: "86", name: "Embajadores", coordinates: [-3.702417, 40.405435] },
+    ]);
+    expect(stops.toB.map((s) => s.stopId)).toEqual(["86"]);
+  });
+
   it("reports a line with no itinerary as not_found", async () => {
     mockFetch({ code: "00", data: { line: "027" } });
     await expect(getLineRoute(env, "027")).rejects.toMatchObject({ kind: "not_found" });

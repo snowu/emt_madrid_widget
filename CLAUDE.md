@@ -84,6 +84,8 @@ Line route GET  v2/transport/busemtmad/lines/{line}/route/
                 headers: accessToken  → data:
                 {label, line, nameSectionA, nameSectionB,
                  itinerary: {toA, toB}, stops: {toA, toB}}
+                stops[] ride along in the same answer: {stopNum, stopName,
+                distance} as GeoJSON Points — every stop on the line for free.
 ```
 
 The itinerary arrives as ~160 one-segment GeoJSON Features per direction, not
@@ -220,7 +222,11 @@ once.
    the map to it. Chips below the map name what is drawn and take it down
    again. The polylines are `interactive: false`: a route running through a
    stop must not swallow taps meant for the pin.
-8. **Times before you save a stop.** An unsaved stop's popup shows its live
+8. **Stops en route come free.** The route answer already carries every stop
+   the line calls at, so drawing them costs no extra request. They are drawn as
+   dots in the line's colour, skipping saved stops (which have their own pin)
+   and stops served in both directions (drawn once).
+9. **Times before you save a stop.** An unsaved stop's popup shows its live
    arrivals, so you can tell whether it is the right side of the road before
    adding it. Those arrivals stay in memory — localStorage is the cache for
    stops you actually keep.
@@ -228,6 +234,12 @@ once.
 Cached payload shapes are versioned in the worker's KV keys (`CACHE_VERSION`).
 Bump it when a parsed shape changes, or week-old detail entries keep serving
 the old one.
+
+**GitHub Pages sends `max-age=600` on every asset and gives no way to change
+it**, so a phone keeps running the old `app.js` after a deploy — a home-screen
+one for longer. The Pages workflow stamps the commit sha onto each local asset
+URL (`app.js?v=…`, including the `./cache.js` import inside it) so every deploy
+is a new URL. If a change seems not to have shipped, check that stamp first.
 
 ## Testing
 

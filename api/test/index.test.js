@@ -14,7 +14,7 @@ async function call(path, init) {
 
 beforeEach(async () => {
   await env.KV.put("emt:token", "cached-token");
-  await env.KV.delete("arrivals:v2:1234");
+  await env.KV.delete("arrivals:v3:1234");
 });
 afterEach(() => vi.restoreAllMocks());
 
@@ -107,7 +107,7 @@ describe("GET /arrivals", () => {
 
 describe("GET /stops/:id/detail", () => {
   beforeEach(async () => {
-    await env.KV.delete("detail:v2:31");
+    await env.KV.delete("detail:v3:31");
   });
 
   it("returns parsed stop detail", async () => {
@@ -143,7 +143,7 @@ describe("GET /stops/:id/detail", () => {
 
 describe("GET /stops/nearby", () => {
   beforeEach(async () => {
-    await env.KV.delete("nearby:v2:-3.6897:40.4674:500");
+    await env.KV.delete("nearby:v3:-3.6897:40.4674:500");
   });
 
   it("requires lat and lon", async () => {

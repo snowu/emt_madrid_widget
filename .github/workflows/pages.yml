@@ -23,6 +23,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/configure-pages@v5
+      # Pages serves assets with max-age=600 and no way to set headers, so a
+      # phone — a home-screen one especially — keeps running yesterday's
+      # script. Stamping the commit onto every local asset URL makes each
+      # deploy a new URL, which no cache can hold on to.
+      - name: Cache-bust local assets
+        run: |
+          v="${GITHUB_SHA::8}"
+          sed -i "s#\(href\|src\)=\"\(style.css\|app.js\|icon.svg\|manifest.webmanifest\)\"#\1=\"\2?v=$v\"#g" web/index.html
+          sed -i "s#from \"./cache.js\"#from \"./cache.js?v=$v\"#" web/app.js
+          grep -n "?v=" web/index.html web/app.js
       - uses: actions/upload-pages-artifact@v3
         with:
           path: web

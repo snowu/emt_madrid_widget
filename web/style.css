@@ -92,6 +92,8 @@ button:active { transform: scale(0.97); }
   font-size: 0.75rem;
   color: var(--muted);
 }
+.meta-line { font-weight: 700; }
+
 .controls { display: flex; gap: 0.35rem; }
 .controls button { min-width: var(--tap); padding: 0.25rem 0.6rem; }
 

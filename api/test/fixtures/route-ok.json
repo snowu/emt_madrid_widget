@@ -12,37 +12,71 @@
         "features": [
           {
             "type": "Feature",
-            "properties": { "id": 31143, "name": "Plaza de Castilla", "stroke": "#a95516" },
+            "properties": {
+              "id": 31143,
+              "name": "Plaza de Castilla",
+              "stroke": "#a95516"
+            },
             "geometry": {
               "type": "MultiLineString",
               "coordinates": [
                 [
-                  [-3.689279973454776, 40.466440045520834],
-                  [-3.689369974345859, 40.466450044408994]
+                  [
+                    -3.689279973454776,
+                    40.466440045520834
+                  ],
+                  [
+                    -3.689369974345859,
+                    40.466450044408994
+                  ]
                 ]
               ]
             }
           },
           {
             "type": "Feature",
-            "properties": { "id": 708, "name": "Plaza de Castilla", "stroke": "#a95516" },
+            "properties": {
+              "id": 708,
+              "name": "Plaza de Castilla",
+              "stroke": "#a95516"
+            },
             "geometry": {
               "type": "MultiLineString",
               "coordinates": [
                 [
-                  [-3.689439973833546, 40.46645004538297],
-                  [-3.689509972623324, 40.46644004480826],
-                  [-3.689609972967038, 40.4664100455341]
+                  [
+                    -3.689439973833546,
+                    40.46645004538297
+                  ],
+                  [
+                    -3.689509972623324,
+                    40.46644004480826
+                  ],
+                  [
+                    -3.689609972967038,
+                    40.4664100455341
+                  ]
                 ]
               ]
             }
           },
           {
             "type": "Feature",
-            "properties": { "id": 900, "name": "degenerate", "stroke": "#a95516" },
+            "properties": {
+              "id": 900,
+              "name": "degenerate",
+              "stroke": "#a95516"
+            },
             "geometry": {
               "type": "MultiLineString",
-              "coordinates": [[[-3.6, 40.4]]]
+              "coordinates": [
+                [
+                  [
+                    -3.6,
+                    40.4
+                  ]
+                ]
+              ]
             }
           }
         ]
@@ -52,14 +86,95 @@
         "features": [
           {
             "type": "Feature",
-            "properties": { "id": 55, "name": "back", "stroke": "#a9559c" },
+            "properties": {
+              "id": 55,
+              "name": "back",
+              "stroke": "#a9559c"
+            },
             "geometry": {
               "type": "MultiLineString",
               "coordinates": [
                 [
-                  [-3.7, 40.45],
-                  [-3.701, 40.451]
+                  [
+                    -3.7,
+                    40.45
+                  ],
+                  [
+                    -3.701,
+                    40.451
+                  ]
                 ]
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "stops": {
+      "toA": {
+        "type": "FeatureCollection",
+        "features": [
+          {
+            "type": "Feature",
+            "properties": {
+              "stopNum": 5602,
+              "stopName": "Plaza Castilla",
+              "distance": 0
+            },
+            "geometry": {
+              "type": "Point",
+              "coordinates": [
+                -3.689280155988338,
+                40.466632049347496
+              ]
+            }
+          },
+          {
+            "type": "Feature",
+            "properties": {
+              "stopName": "no id here",
+              "distance": 120
+            },
+            "geometry": {
+              "type": "Point",
+              "coordinates": [
+                -3.69,
+                40.46
+              ]
+            }
+          },
+          {
+            "type": "Feature",
+            "properties": {
+              "stopNum": 86,
+              "stopName": "Embajadores",
+              "distance": 8100
+            },
+            "geometry": {
+              "type": "Point",
+              "coordinates": [
+                -3.7024170698747,
+                40.4054345871168
+              ]
+            }
+          }
+        ]
+      },
+      "toB": {
+        "type": "FeatureCollection",
+        "features": [
+          {
+            "type": "Feature",
+            "properties": {
+              "stopNum": 86,
+              "stopName": "Embajadores",
+              "distance": 0
+            },
+            "geometry": {
+              "type": "Point",
+              "coordinates": [
+                -3.7024170698747,
+                40.4054345871168
               ]
             }
           }

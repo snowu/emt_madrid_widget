@@ -309,6 +309,26 @@ function parsePath(collection) {
   return segments;
 }
 
+/** The stops the line calls at, in order, one direction.
+ *
+ * These ride along in the same route answer — showing them costs no extra
+ * call. EMT names the id `stopNum` here and `stop` on detail; same number.
+ */
+function parseRouteStops(collection) {
+  const stops = [];
+  for (const feature of collection?.features ?? []) {
+    const props = feature.properties ?? {};
+    const point = feature.geometry?.coordinates;
+    if (props.stopNum == null || !Array.isArray(point)) continue;
+    stops.push({
+      stopId: String(props.stopNum),
+      name: props.stopName ?? null,
+      coordinates: roundPair(point),
+    });
+  }
+  return stops;
+}
+
 /** One bus line's route: both directions, drawable. */
 export async function getLineRoute(env, line) {
   let token = await getToken(env);
@@ -331,6 +351,10 @@ export async function getLineRoute(env, line) {
     paths: {
       toA: parsePath(raw.itinerary.toA),
       toB: parsePath(raw.itinerary.toB),
+    },
+    stops: {
+      toA: parseRouteStops(raw.stops?.toA),
+      toB: parseRouteStops(raw.stops?.toB),
     },
   };
 }

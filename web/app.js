@@ -55,10 +55,21 @@ function lineColor(code) {
   const key = String(code ?? "");
   const hit = lineColorCache.get(key);
   if (hit) return hit;
-  let hash = 0;
-  for (const ch of key) hash = (hash * 31 + ch.charCodeAt(0)) % 100000;
-  const hue = Math.round((hash * 137.508) % 360);
-  const color = `hsl(${hue} 72% 62%)`;
+
+  // FNV-1a: small keys like "5" and "107" have to land far apart, which a
+  // plain multiply-and-add hash does not guarantee.
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < key.length; i++) {
+    hash ^= key.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  // Quantised into 24 hues and two tones: a free-running hue puts two lines
+  // five degrees apart often enough to matter on a card listing six of them.
+  // Colliding outright is fine; looking almost-the-same is not.
+  const hue = (hash % 24) * 15;
+  const light = ((hash >>> 5) & 1) ? 66 : 52;
+  const sat = ((hash >>> 6) & 1) ? 75 : 55;
+  const color = `hsl(${hue} ${sat}% ${light}%)`;
   lineColorCache.set(key, color);
   return color;
 }
@@ -84,15 +95,24 @@ function stopLines(stopId) {
   return (details[stopId]?.lines ?? []).map(normaliseLine);
 }
 
-/** Every line list on screen goes through here — joining the entries
- *  themselves renders "[object Object]". */
-function lineLabels(lines) {
-  return (lines ?? []).map((l) => normaliseLine(l).label).join(" · ");
-}
-
-function stopMeta(stopId) {
-  const labels = lineLabels(stopLines(stopId));
-  return labels ? `Nº ${stopId} · ${labels}` : `Nº ${stopId}`;
+/** "Nº 30 · 107 · 129 · 5", each line in its own colour.
+ *
+ * Built as nodes rather than a string so the labels carry the same colour here
+ * as on the map and in the arrival rows — a plain grey run of numbers is the
+ * one place the colours were missing.
+ */
+function stopMetaNode(stopId) {
+  const wrap = document.createDocumentFragment();
+  wrap.append(`Nº ${stopId}`);
+  for (const line of stopLines(stopId)) {
+    wrap.append(" · ");
+    const label = document.createElement("span");
+    label.className = "meta-line";
+    label.textContent = line.label;
+    label.style.color = lineColor(line.label);
+    wrap.append(label);
+  }
+  return wrap;
 }
 
 /** A detail with no coordinates is the stub we save when EMT answers 81. */
@@ -131,7 +151,7 @@ function render() {
       title.textContent = stopTitle(stop);
       const num = document.createElement("span");
       num.className = "stop-num";
-      num.textContent = stopMeta(stop.stop_id);
+      num.replaceChildren(stopMetaNode(stop.stop_id));
       titleWrap.append(title, num);
 
       // Card taps open the stop; the buttons on it must not also open it.
@@ -405,6 +425,7 @@ async function toggleRoute(code, label) {
       interactive: false,
     }).addTo(group);
   }
+  addRouteStops(group, route, color);
   group.addTo(routeLayer);
   shownRoutes.set(code, { layer: group, label });
   renderRouteLegend();
@@ -413,6 +434,31 @@ async function toggleRoute(code, label) {
   // chip is how you get rid of it again.
   const bounds = group.getBounds();
   if (bounds.isValid()) leafletMap.fitBounds(bounds.pad(0.08));
+}
+
+/** Every stop the line calls at, drawn as small dots along its route.
+ *
+ * These come in the same payload as the geometry, so showing them costs no
+ * extra request. Saved stops keep their own pin and are skipped, and a stop
+ * served in both directions is drawn once.
+ */
+function addRouteStops(group, route, color) {
+  const saved = savedIds();
+  const seen = new Set();
+  for (const stop of [...(route.stops?.toA ?? []), ...(route.stops?.toB ?? [])]) {
+    if (seen.has(stop.stopId) || saved.has(stop.stopId) || !stop.coordinates) continue;
+    seen.add(stop.stopId);
+    L.circleMarker([stop.coordinates[1], stop.coordinates[0]], {
+      radius: 4,
+      color,
+      weight: 2,
+      fillColor: "#12141a",
+      fillOpacity: 1,
+    })
+      // The same popup a nearby pin gets: live times, and a way to save it.
+      .bindPopup(() => nearbyPopupHtml({ ...stop, lines: [] }))
+      .addTo(group).nearbyStop = { ...stop, lines: [] }; // for popup refresh ticks
+  }
 }
 
 function clearRoutes() {
@@ -575,11 +621,20 @@ function tickPopups() {
       marker.setPopupContent(popupHtml(stops.find((s) => s.stop_id === marker.stopId)));
     }
   });
-  nearbyLayer?.eachLayer((pin) => {
-    if (pin.isPopupOpen() && pin.nearbyStop) {
-      pin.setPopupContent(nearbyPopupHtml(pin.nearbyStop));
-    }
-  });
+  for (const layer of [nearbyLayer, routeLayer]) {
+    // Route stops live one level down, inside their line's group.
+    layer?.eachLayer((child) => tickUnsavedPopup(child));
+  }
+}
+
+function tickUnsavedPopup(layer) {
+  if (layer.eachLayer && !layer.nearbyStop) {
+    layer.eachLayer(tickUnsavedPopup);
+    return;
+  }
+  if (layer.nearbyStop && layer.isPopupOpen?.()) {
+    layer.setPopupContent(nearbyPopupHtml(layer.nearbyStop));
+  }
 }
 
 function showView(view) {
@@ -777,7 +832,7 @@ let sheetMarker = null;
 function openStop(stop) {
   sheetStop = stop;
   sheetHeading.textContent = stopTitle(stop);
-  sheetMeta.textContent = stopMeta(stop.stop_id);
+  sheetMeta.replaceChildren(stopMetaNode(stop.stop_id));
   sheetLabel.value = stop.label ?? "";
   sheetLabel.placeholder = details[stop.stop_id]?.name || "EMT's name";
   showNameEditor(false);
@@ -824,7 +879,7 @@ function showSheetMap() {
 function renderSheetArrivals() {
   if (!sheetStop || !stopDialog.open) return;
   const cached = arrivals[sheetStop.stop_id];
-  sheetMeta.textContent = stopMeta(sheetStop.stop_id);
+  sheetMeta.replaceChildren(stopMetaNode(sheetStop.stop_id));
 
   if (!cached || cached.arrivals.length === 0) {
     const li = document.createElement("li");
