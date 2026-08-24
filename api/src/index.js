@@ -199,7 +199,7 @@ async function journeys(request, body, env, ctx) {
     id: String(destination.id ?? index),
     name: String(destination.name ?? "Destination").slice(0, 80),
     ...plannerLocation(destination, `destination ${index + 1}`),
-    radius: Math.min(1000, Math.max(100, Number(destination.destinationRadiusM) || 500)),
+    radius: Math.min(1000, Math.max(700, Number(destination.destinationRadiusM) || 700)),
   }));
   const originRaw = await cachedNearby(request.url, env, origin.lat, origin.lon, 700, ctx);
   const originStops = nearbyAccess(originRaw, origin, 6);

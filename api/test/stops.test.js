@@ -122,7 +122,7 @@ describe("places", () => {
     await addPlace(env, token, { name: " Work ", lat: 40.46, lon: -3.68 });
     expect(JSON.parse(spy.mock.calls[0][1].body)).toEqual({
       name: "Work", lat: 40.46, lon: -3.68,
-      geofence_radius_m: 200, destination_radius_m: 500,
+      geofence_radius_m: 200, destination_radius_m: 700,
     });
   });
 

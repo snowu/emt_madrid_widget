@@ -157,11 +157,14 @@ function placeValues(input, { partial = false } = {}) {
       values[key] = value;
     }
   }
-  for (const [key, fallback] of [["geofenceRadiusM", 200], ["destinationRadiusM", 500]]) {
+  for (const [key, fallback, minimum] of [
+    ["geofenceRadiusM", 200, 50],
+    ["destinationRadiusM", 700, 700],
+  ]) {
     if (!partial || Object.hasOwn(input, key)) {
       const value = Number(input[key] ?? fallback);
-      if (!Number.isInteger(value) || value < 50 || value > 1500) {
-        throw new EmtError("not_found", `${key} must be an integer from 50 to 1500`);
+      if (!Number.isInteger(value) || value < minimum || value > 1500) {
+        throw new EmtError("not_found", `${key} must be an integer from ${minimum} to 1500`);
       }
       values[key === "geofenceRadiusM" ? "geofence_radius_m" : "destination_radius_m"] = value;
     }
