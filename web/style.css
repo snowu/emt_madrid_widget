@@ -166,16 +166,23 @@ button:active { transform: scale(0.97); }
 #bike-trips-open { min-height: 36px; padding: 0.3rem 0.7rem; font-size: 0.85rem; }
 
 .trip-results { display: flex; flex-direction: column; gap: 0.5rem; }
+#bike-trips-dialog {
+  padding: 0.75rem;
+  width: min(96vw, 28rem);
+}
+#bike-trips-form { gap: 0.45rem; }
+#bike-trips-number { min-height: 38px; padding-block: 0.35rem; }
+#bike-trips-status { margin: 0; font-size: 0.72rem; line-height: 1.2; }
 .trip-dialog-head {
   position: sticky;
-  top: -1.25rem;
+  top: -0.75rem;
   z-index: 2;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
-  margin: -1.25rem -0.25rem 0;
-  padding: 1rem 0.25rem 0.65rem;
+  margin: -0.75rem -0.1rem 0;
+  padding: 0.55rem 0.1rem 0.45rem;
   background: var(--card);
   border-bottom: 1px solid var(--line);
 }
@@ -196,8 +203,13 @@ button:active { transform: scale(0.97); }
   stroke-linecap: round;
   stroke-linejoin: round;
 }
-.trip-view-toggle { display: flex; gap: 0.35rem; margin: 0.65rem 0 0; }
-.trip-view-toggle button { flex: 1; min-height: 38px; }
+.trip-dialog-actions button[aria-expanded="true"] {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--selected-wash);
+}
+.trip-view-toggle { display: flex; gap: 0.35rem; margin: 0; }
+.trip-view-toggle button { flex: 1; min-height: 34px; padding-block: 0.25rem; }
 .trip-view-toggle button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); background: var(--selected-wash); }
 .trip-group {
   border: 1px solid var(--line);

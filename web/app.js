@@ -1691,6 +1691,7 @@ const bikeTripsFields = document.getElementById("bike-trips-fields");
 const bikeTripsChronological = document.getElementById("bike-trips-chronological");
 const bikeTripsGrouped = document.getElementById("bike-trips-grouped");
 const bikeTripsRefresh = document.getElementById("bike-trips-refresh");
+const bikeTripsSearch = document.getElementById("bike-trips-search");
 let loadedBikeTrips = [];
 let allBikeTrips = null;
 let bikeTripPages = 0;
@@ -2008,7 +2009,23 @@ bikeTripsForm.addEventListener("submit", (event) => {
   event.preventDefault();
   void loadBikeTrips();
 });
-document.getElementById("bike-trips-close").addEventListener("click", () => bikeTripsDialog.close());
+function setBikeSearchOpen(open) {
+  bikeTripsNumber.hidden = !open;
+  bikeTripsSearch.setAttribute("aria-expanded", String(open));
+  bikeTripsSearch.title = open ? "Search this bike" : "Open bike search";
+  bikeTripsSearch.setAttribute("aria-label", bikeTripsSearch.title);
+  if (open) requestAnimationFrame(() => bikeTripsNumber.focus());
+}
+
+bikeTripsSearch.addEventListener("click", () => {
+  if (bikeTripsNumber.hidden) setBikeSearchOpen(true);
+  else void loadBikeTrips();
+});
+document.getElementById("bike-trips-close").addEventListener("click", () => {
+  bikeTripsDialog.close();
+  bikeTripsNumber.value = "";
+  setBikeSearchOpen(false);
+});
 bikeTripsRefresh.addEventListener("click", () => void syncBikeTrips({ force: true }));
 bikeTripsChronological.addEventListener("click", () => {
   groupBikeTrips = false;
