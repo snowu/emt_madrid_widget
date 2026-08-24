@@ -1061,7 +1061,7 @@ let nearbyCell = null;
 let nearbyStops = [];
 let nearbySeq = 0;
 
-const NEARBY_RADIUS = 700;
+const NEARBY_RADIUS = 2000;
 
 /* ---- Line routes on the map -------------------------------------------- */
 
@@ -1552,7 +1552,7 @@ function renderClosestStopsDialog() {
   }
   const closest = [...nearbyStops].sort((a, b) =>
     proximity(metresFromCurrent(a.coordinates)) - proximity(metresFromCurrent(b.coordinates))).slice(0, 8);
-  nearbyStopsMessage.textContent = closest.length ? "Closest EMT stops, whether saved or not." : "No stops found within 700 m.";
+  nearbyStopsMessage.textContent = closest.length ? "Closest EMT stops, whether saved or not." : "No stops found within 2 km.";
   nearbyStopsList.replaceChildren(...closest.map((stop) => {
     const card = document.createElement("article");
     card.className = "nearby-stop-card";

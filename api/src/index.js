@@ -228,9 +228,9 @@ async function journeys(request, body, env, ctx) {
     id: String(destination.id ?? index),
     name: String(destination.name ?? "Destination").slice(0, 80),
     ...plannerLocation(destination, `destination ${index + 1}`),
-    radius: Math.min(1000, Math.max(700, Number(destination.destinationRadiusM) || 700)),
+    radius: Math.min(3000, Math.max(2000, Number(destination.destinationRadiusM) || 2000)),
   }));
-  const originRaw = await cachedNearby(request.url, env, origin.lat, origin.lon, 700, ctx);
+  const originRaw = await cachedNearby(request.url, env, origin.lat, origin.lon, 2000, ctx);
   const originStops = nearbyAccess(originRaw, origin, 6);
   const destinationStops = await Promise.all(destinations.map(async (destination) =>
     nearbyAccess(await cachedNearby(request.url, env, destination.lat, destination.lon,
@@ -349,7 +349,7 @@ export default {
             !Number.isFinite(lat) || !Number.isFinite(lon)) {
           return json({ error: "missing lat or lon parameter" }, env, 400);
         }
-        const radius = Math.min(1000, Math.max(50, Number(url.searchParams.get("radius")) || 500));
+        const radius = Math.min(3000, Math.max(50, Number(url.searchParams.get("radius")) || 500));
         return json(await cachedNearby(request.url, env, lat, lon, radius, ctx), env);
       }
 

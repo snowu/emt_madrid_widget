@@ -402,7 +402,7 @@ async function requestNearby(env, lat, lon, radius, token) {
 
 /** Stops within `radius` metres of a point. */
 export async function getNearbyStops(env, { lat, lon, radius = 500 }) {
-  const r = Math.min(1000, Math.max(50, Number(radius) || 500));
+  const r = Math.min(3000, Math.max(50, Number(radius) || 500));
   let token = await getToken(env);
   const body = await requestNearby(env, lat, lon, r, token);
 

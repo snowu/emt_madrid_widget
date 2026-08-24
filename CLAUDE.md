@@ -65,7 +65,7 @@ POST   /stops                      {stopId, label?}          → 201
 PATCH  /stops/:rowId               {label}                    empty label → EMT's name
 DELETE /stops/:rowId                                         → 204
 GET    /stops/:stopId/detail       name, address, coords, lines
-GET    /stops/nearby?lat=&lon=&radius=   radius 50–1000, default 500
+GET    /stops/nearby?lat=&lon=&radius=   radius 50–3000, default 500
 GET    /lines/:line/route          both directions: paths + stops
 GET    /lines/:line/timetable      service window per day type
 GET    /bikes/stations?ids=a,b     all 680, or just the ids asked for

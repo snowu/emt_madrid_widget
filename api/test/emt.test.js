@@ -384,6 +384,12 @@ describe("getNearbyStops", () => {
     expect(url).toContain("v2/transport/busemtmad/stops/arroundxy/-3.6897/40.4674/500/");
   });
 
+  it("passes a 2 km experimental radius through to EMT", async () => {
+    const spy = mockFetch({ code: "00", data: [] });
+    await getNearbyStops(env, { lat: 40.4674, lon: -3.6897, radius: 2000 });
+    expect(spy.mock.calls[0][0]).toContain("/-3.6897/40.4674/2000/");
+  });
+
   it("returns an empty list when nothing is around", async () => {
     mockFetch({ code: "00", description: "OK", data: [] });
     const stops = await getNearbyStops(env, { lat: 40.0, lon: -3.0, radius: 100 });
