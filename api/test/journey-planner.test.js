@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { nearbyAccess, planJourney } from "../src/journey-planner.js";
+import {
+  boardHasLine,
+  nearbyAccess,
+  planJourney,
+  stopsWithLiveLines,
+} from "../src/journey-planner.js";
 
 const stop = (stopId, lon, lat, lines = []) => ({
   stopId, coordinates: [lon, lat], lines: lines.map((line) => ({ line, label: line })),
@@ -7,6 +12,26 @@ const stop = (stopId, lon, lat, lines = []) => ({
 const route = (line, toA, toB = []) => ({ line, stops: { toA, toB } });
 
 describe("journey planner", () => {
+  it("keeps only lines with live predictions at each boarding stop", () => {
+    const stops = [
+      { stopId: "1836", lines: [{ label: "29" }, { label: "N2" }] },
+      { stopId: "213", lines: [{ label: "70" }] },
+    ];
+    const boards = new Map([
+      ["1836", { arrivals: [{ line: "N2", seconds: 300 }] }],
+      ["213", null],
+    ]);
+    expect(stopsWithLiveLines(stops, boards)).toEqual([
+      { stopId: "1836", lines: [{ label: "N2" }] },
+    ]);
+  });
+
+  it("matches onward lines against live transfer predictions", () => {
+    const board = { arrivals: [{ line: "N1" }, { line: "N2" }] };
+    expect(boardHasLine(board, { line: "N2" })).toBe(true);
+    expect(boardHasLine(board, { label: "29" })).toBe(false);
+  });
+
   it("sorts nearby access stops by walking distance", () => {
     const result = nearbyAccess([
       stop("far", -3.70, 40.42), stop("near", -3.7001, 40.4001),

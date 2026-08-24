@@ -37,14 +37,24 @@ function raiseForCode(code) {
  * retry gets through. A 4xx is an answer, not a blip — pass it through.
  */
 export async function emtFetch(url, init = {}) {
+  const fetchWithDeadline = async () => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8_000);
+    try {
+      return await fetch(url, { ...init, signal: controller.signal });
+    } finally {
+      clearTimeout(timeout);
+    }
+  };
   let res;
   try {
-    res = await fetch(url, init);
+    res = await fetchWithDeadline();
     if (res.status >= 500) {
-      res = await fetch(url, init);
+      res = await fetchWithDeadline();
     }
   } catch (cause) {
-    throw new EmtError("upstream", `EMT unreachable: ${cause.message}`);
+    const reason = cause.name === "AbortError" ? "request timed out" : cause.message;
+    throw new EmtError("upstream", `EMT unreachable: ${reason}`);
   }
   return res;
 }

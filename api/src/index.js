@@ -32,7 +32,13 @@ import { EmtError, errorResponse } from "./errors.js";
 import { getBikeAccountStatus, getBikeTrips } from "./bicimad-account.js";
 import { authenticatedUser, bearerToken } from "./auth.js";
 import { getBikeTripDiagnostics, monitorBikeTrips } from "./trip-monitor.js";
-import { nearbyAccess, planJourney, uniqueLineCodes } from "./journey-planner.js";
+import {
+  boardHasLine,
+  nearbyAccess,
+  planJourney,
+  stopsWithLiveLines,
+  uniqueLineCodes,
+} from "./journey-planner.js";
 
 // Short-lived, high-traffic data belongs in the Cache API, not KV. Cache API
 // operations do not consume the Workers KV daily operation allowance.
@@ -300,22 +306,39 @@ async function journeys(request, body, env, ctx) {
     nearbyAccess(await cachedNearby(request.url, env, destination.lat, destination.lon,
       destination.radius, ctx), destination, 6)));
 
-  // Direct matches go first, then round-robin origin/destination lines. The
-  // hard ceiling protects EMT on a cold cache; route entries then live 7 days.
-  const routeCodes = prioritizedRouteCodes(originStops, destinationStops);
+  // Read all candidate boarding boards first. Individual EMT failures are
+  // isolated: one bad stop must not hold or reject the entire journey.
+  const liveStopIds = originStops.map((stop) => String(stop.stopId));
+  const live = new Map(await Promise.all(liveStopIds.map(async (stopId) => {
+    try {
+      return [stopId, await cachedArrivals(request.url, env, stopId, ctx)];
+    } catch {
+      return [stopId, null];
+    }
+  })));
+  const activeOriginStops = stopsWithLiveLines(originStops, live);
+
+  // Active lines get the scarce route slots first; static lines remain loaded
+  // for the fallback used when EMT supplied no live boards at all.
+  const routeCodes = prioritizedRouteCodes([...activeOriginStops, ...originStops], destinationStops);
   const routeEntries = await Promise.all(routeCodes.map(async (code) =>
     [code, await cachedRoute(request.url, env, code, ctx)]));
   const routes = new Map(routeEntries);
-  const planned = destinations.map((destination, index) => ({
-    destination,
-    options: planJourney({ originStops, destinationStops: destinationStops[index], routes }),
-  }));
-
-  // Only the stops used by the best result get live reads, never more than 3.
-  const liveStopIds = [...new Set(planned.flatMap((item) =>
-    item.options.slice(0, 1).map((option) => String(option.originStop.stopId))))].slice(0, 3);
-  const live = new Map(await Promise.all(liveStopIds.map(async (stopId) =>
-    [stopId, await cachedArrivals(request.url, env, stopId, ctx)])));
+  const planned = destinations.map((destination, index) => {
+    const active = planJourney({
+      originStops: activeOriginStops,
+      destinationStops: destinationStops[index],
+      routes,
+    });
+    return {
+      destination,
+      options: activeOriginStops.length ? active : planJourney({
+        originStops,
+        destinationStops: destinationStops[index],
+        routes,
+      }),
+    };
+  });
   for (const item of planned) {
     for (const option of item.options) {
       const board = live.get(String(option.originStop.stopId));
@@ -326,6 +349,26 @@ async function journeys(request, body, env, ctx) {
       option.firstLeg.fetchedAt = board?.fetchedAt ?? null;
     }
   }
+
+  let transferStopIds = [];
+  if (activeOriginStops.length) {
+    transferStopIds = [...new Set(planned.flatMap((item) => item.options
+      .filter((option) => option.type === "one_transfer")
+      .map((option) => String(option.transfer.toStop.stopId))))].slice(0, 6);
+    const transferLive = new Map(await Promise.all(transferStopIds.map(async (stopId) => {
+      try {
+        return [stopId, await cachedArrivals(request.url, env, stopId, ctx)];
+      } catch {
+        return [stopId, null];
+      }
+    })));
+    for (const item of planned) {
+      item.options = item.options.filter((option) => option.type === "direct" || boardHasLine(
+        transferLive.get(String(option.transfer.toStop.stopId)),
+        option.secondLeg,
+      ));
+    }
+  }
   return {
     origin,
     destinations: planned,
@@ -334,7 +377,7 @@ async function journeys(request, body, env, ctx) {
       nearby: 1 + destinations.length,
       walking: walkingRouted ? 1 : 0,
       routes: routeCodes.length,
-      arrivals: liveStopIds.length,
+      arrivals: liveStopIds.length + transferStopIds.length,
     },
   };
 }

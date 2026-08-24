@@ -659,15 +659,21 @@ async function loadPlaces() {
   }
 }
 
+let journeyLoad = null;
+
 async function loadJourneys({ force = false } = {}) {
+  if (journeyLoad) return journeyLoad;
   if (!authSession || !myLocation || places.length === 0) return;
   const destinations = activeDestinations();
   if (destinations.length === 0) return;
   const cell = `${myLocation[0].toFixed(3)},${myLocation[1].toFixed(3)}`;
   if (!force && cell === journeyCell && Date.now() - journeyLoadedAt < 60_000) return;
-  try {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 25_000);
+  const operation = (async () => { try {
     journeyPayload = await api("/journeys", {
       method: "POST",
+      signal: controller.signal,
       body: JSON.stringify({
         origin: { lat: myLocation[0], lon: myLocation[1] },
         destinations: destinations.map((place) => ({
@@ -680,7 +686,17 @@ async function loadJourneys({ force = false } = {}) {
     journeyLoadedAt = Date.now();
     render();
   } catch (err) {
-    statusEl.textContent = `Could not plan journeys: ${err.message}`;
+    statusEl.textContent = err.name === "AbortError"
+      ? "Journey request timed out"
+      : `Could not plan journeys: ${err.message}`;
+  } finally {
+    clearTimeout(timeout);
+  } })();
+  journeyLoad = operation;
+  try {
+    return await operation;
+  } finally {
+    if (journeyLoad === operation) journeyLoad = null;
   }
 }
 
