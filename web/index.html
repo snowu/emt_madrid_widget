@@ -18,6 +18,7 @@
   <body>
     <header>
       <button id="auth-button" type="button" aria-label="Account">Sign in</button>
+      <button id="nearby-stops-open" type="button" aria-label="Stops near me" title="Stops near me">➤</button>
       <button id="refresh-all" type="button" aria-label="Refresh all" title="Refresh all">↻</button>
       <nav id="view-toggle" class="segmented" aria-label="View">
         <button id="view-list" type="button" aria-selected="true">List</button>
@@ -28,6 +29,10 @@
     <nav id="section-menu" class="segmented" aria-label="Section">
       <button id="menu-buses" type="button" aria-selected="true">🚌 Buses</button>
       <button id="menu-bikes" type="button" aria-selected="false">🚲 BiciMAD</button>
+    </nav>
+    <nav id="bus-mode-menu" class="segmented compact-segmented" aria-label="Bus overview">
+      <button id="bus-mode-places" type="button" aria-selected="true">Places</button>
+      <button id="bus-mode-stops" type="button" aria-selected="false">Saved stops</button>
     </nav>
 
     <p id="status" role="status"></p>
@@ -143,6 +148,15 @@
         <button id="place-editor-open" type="button">＋ Add place</button>
         <p id="places-message" class="muted" role="status"></p>
       </form>
+    </dialog>
+
+    <dialog id="nearby-stops-dialog" aria-labelledby="nearby-stops-title">
+      <div class="account-menu-heading">
+        <h2 id="nearby-stops-title">Stops near you</h2>
+        <button id="nearby-stops-close" type="button" aria-label="Close">×</button>
+      </div>
+      <p id="nearby-stops-message" class="muted">Finding your location…</p>
+      <div id="nearby-stops-list"></div>
     </dialog>
 
     <dialog id="stop-dialog">

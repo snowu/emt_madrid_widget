@@ -41,6 +41,7 @@ let journeyPayload = null;
 let journeyCell = null;
 let journeyLoadedAt = 0;
 let journeyTimer = null;
+let busListMode = localStorage.getItem("emt:bus-list-mode") === "stops" ? "stops" : "places";
 
 const listEl = document.getElementById("stops");
 const statusEl = document.getElementById("status");
@@ -61,6 +62,12 @@ const placesDialog = document.getElementById("places-dialog");
 const placesForm = document.getElementById("places-form");
 const placesList = document.getElementById("places-list");
 const placesMessage = document.getElementById("places-message");
+const busModeMenu = document.getElementById("bus-mode-menu");
+const busModePlaces = document.getElementById("bus-mode-places");
+const busModeStops = document.getElementById("bus-mode-stops");
+const nearbyStopsDialog = document.getElementById("nearby-stops-dialog");
+const nearbyStopsList = document.getElementById("nearby-stops-list");
+const nearbyStopsMessage = document.getElementById("nearby-stops-message");
 const placeEditor = document.getElementById("place-editor");
 const placeSearchResults = document.getElementById("place-search-results");
 const placePicked = document.getElementById("place-picked");
@@ -360,18 +367,19 @@ function placeCard(place) {
   const distance = document.createElement("span");
   distance.className = "muted";
   distance.textContent = formatDistance(placeDistance(place)) || "location unavailable";
+  const planned = journeyFor(place.id);
+  const option = planned?.options?.[0];
   const directions = document.createElement("button");
   directions.className = "place-directions";
   directions.type = "button";
-  directions.title = `Walking directions to ${place.name}`;
+  directions.title = option ? `Walking directions to stop ${option.originStop.stopId}` : "No boarding stop available";
   directions.setAttribute("aria-label", directions.title);
   directions.textContent = "➤";
-  directions.addEventListener("click", () => openWalkingDirections([place.lon, place.lat]));
+  directions.disabled = !option?.originStop?.coordinates;
+  directions.addEventListener("click", () => openWalkingDirections(option?.originStop?.coordinates));
   heading.append(title, distance, directions);
   card.append(heading);
 
-  const planned = journeyFor(place.id);
-  const option = planned?.options?.[0];
   const route = document.createElement("div");
   route.className = "place-route";
   if (!myLocation) route.textContent = "Waiting for your location…";
@@ -429,8 +437,7 @@ function renderPlaces() {
   listEl.replaceChildren(...blocks);
 }
 
-function render() {
-  if (authSession && places.length > 0) return renderPlaces();
+function renderSavedStops() {
   listEl.replaceChildren(
     ...[...stops]
       .sort((a, b) => proximity(metresFromCurrent(details[a.stop_id]?.coordinates)) -
@@ -527,6 +534,11 @@ function render() {
   );
 }
 
+function render() {
+  if (authSession && busListMode === "places") return renderPlaces();
+  return renderSavedStops();
+}
+
 const pendingGets = new Map();
 
 async function api(path, init = {}) {
@@ -613,7 +625,7 @@ async function loadPlaces() {
   if (!authSession) return;
   try {
     places = await api("/places");
-    renderPlaces();
+    render();
     scheduleJourneys({ force: true });
     renderPlacesDialog();
   } catch (err) {
@@ -643,7 +655,7 @@ async function loadJourneys({ force = false } = {}) {
     });
     journeyCell = cell;
     journeyLoadedAt = Date.now();
-    renderPlaces();
+    render();
   } catch (err) {
     statusEl.textContent = `Could not plan journeys: ${err.message}`;
   }
@@ -852,7 +864,7 @@ placesForm.addEventListener("submit", async (event) => {
     journeyPayload = null;
     placesMessage.textContent = `${place.name} saved.`;
     renderPlacesDialog();
-    renderPlaces();
+    render();
     scheduleJourneys({ force: true });
     closePlaceEditor();
   } catch (err) {
@@ -1049,7 +1061,7 @@ let nearbyCell = null;
 let nearbyStops = [];
 let nearbySeq = 0;
 
-const NEARBY_RADIUS = 500;
+const NEARBY_RADIUS = 700;
 
 /* ---- Line routes on the map -------------------------------------------- */
 
@@ -1532,6 +1544,69 @@ async function loadNearbyAt(lat, lon, { force = false } = {}) {
   }
 }
 
+function renderClosestStopsDialog() {
+  if (!myLocation) {
+    nearbyStopsMessage.textContent = "Finding your location…";
+    nearbyStopsList.replaceChildren();
+    return;
+  }
+  const closest = [...nearbyStops].sort((a, b) =>
+    proximity(metresFromCurrent(a.coordinates)) - proximity(metresFromCurrent(b.coordinates))).slice(0, 8);
+  nearbyStopsMessage.textContent = closest.length ? "Closest EMT stops, whether saved or not." : "No stops found within 700 m.";
+  nearbyStopsList.replaceChildren(...closest.map((stop) => {
+    const card = document.createElement("article");
+    card.className = "nearby-stop-card";
+    const head = document.createElement("div");
+    const name = document.createElement("b");
+    name.textContent = stop.name || `Stop ${stop.stopId}`;
+    const meta = document.createElement("small");
+    const lineLabels = (stop.lines ?? []).map(normaliseLine).map((line) => line.label).filter(Boolean);
+    meta.textContent = `Nº ${stop.stopId} · ${formatDistance(metresFromCurrent(stop.coordinates)) || "distance unknown"}${lineLabels.length ? ` · ${lineLabels.join(" · ")}` : ""}`;
+    head.append(name, meta);
+    const actions = document.createElement("div");
+    const directions = document.createElement("button");
+    directions.type = "button";
+    directions.textContent = "➤";
+    directions.title = `Directions to stop ${stop.stopId}`;
+    directions.setAttribute("aria-label", directions.title);
+    directions.addEventListener("click", () => openWalkingDirections(stop.coordinates));
+    const saved = stops.find((row) => row.stop_id === String(stop.stopId));
+    const save = document.createElement("button");
+    save.type = "button";
+    save.textContent = saved ? "Saved" : "＋";
+    save.disabled = Boolean(saved);
+    save.title = saved ? "Already saved" : `Save stop ${stop.stopId}`;
+    save.setAttribute("aria-label", save.title);
+    save.addEventListener("click", async () => {
+      save.disabled = true;
+      try {
+        await addStopById(String(stop.stopId), stop.name, stop);
+        save.textContent = "Saved";
+      } catch {
+        save.disabled = false;
+      }
+    });
+    actions.append(directions, save);
+    card.append(head, actions);
+    return card;
+  }));
+}
+
+async function updateClosestStopsDialog() {
+  if (!nearbyStopsDialog.open || !myLocation) return;
+  nearbyStopsMessage.textContent = "Finding nearby stops…";
+  await loadNearbyAt(myLocation[0], myLocation[1], { force: true });
+  renderClosestStopsDialog();
+}
+
+document.getElementById("nearby-stops-open").addEventListener("click", () => {
+  nearbyStopsDialog.showModal();
+  renderClosestStopsDialog();
+  if (!myLocation) refreshLocation({ userInitiated: true, forceNearby: true });
+  else void updateClosestStopsDialog();
+});
+document.getElementById("nearby-stops-close").addEventListener("click", () => nearbyStopsDialog.close());
+
 /** Load stops within 500m of the map centre; one fetch per ~110m cell. */
 async function loadNearby() {
   if (!leafletMap || mapEl.hidden) return;
@@ -1541,6 +1616,17 @@ async function loadNearby() {
 
 viewListBtn.addEventListener("click", () => showView("list"));
 viewMapBtn.addEventListener("click", () => showView("map"));
+
+function setBusListMode(mode) {
+  busListMode = mode === "stops" ? "stops" : "places";
+  localStorage.setItem("emt:bus-list-mode", busListMode);
+  busModePlaces.setAttribute("aria-selected", String(busListMode === "places"));
+  busModeStops.setAttribute("aria-selected", String(busListMode === "stops"));
+  render();
+}
+busModePlaces.addEventListener("click", () => setBusListMode("places"));
+busModeStops.addEventListener("click", () => setBusListMode("stops"));
+setBusListMode(busListMode);
 
 async function loadStops() {
   if (!authSession) return;
@@ -2670,7 +2756,7 @@ async function loadBikesNear(lat, lon, { force = false } = {}) {
     bikeCell = cell;
     writeBikeNear(payload);
     renderBikes();
-    if (section === "buses" && places.length) renderPlaces();
+    if (section === "buses" && places.length) render();
     rebuildBikeMarkers();
   } catch (err) {
     statusEl.textContent = `Could not load bike stations: ${err.message}`;
@@ -2997,6 +3083,7 @@ function showSection(next) {
   fab.hidden = bikes || !authSession;
   bikeAgeEl.hidden = !bikes;
   bikeAccountEl.hidden = !bikes || !isOwner;
+  busModeMenu.hidden = bikes;
 
   const mapView = viewMapBtn.getAttribute("aria-selected") === "true";
   listEl.hidden = bikes || mapView;
@@ -3088,7 +3175,9 @@ function applyLocation(position, { recenter = false, forceNearby = false } = {})
   }
   render();
   renderBikes();
-  void loadNearbyAt(myLocation[0], myLocation[1], { force: forceNearby });
+  void loadNearbyAt(myLocation[0], myLocation[1], { force: forceNearby }).then(() => {
+    if (nearbyStopsDialog.open) renderClosestStopsDialog();
+  });
   void loadBikesNear(myLocation[0], myLocation[1], { force: forceNearby });
   scheduleJourneys({ force: forceNearby });
 }

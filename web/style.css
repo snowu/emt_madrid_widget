@@ -144,6 +144,10 @@ button:active { transform: scale(0.97); }
 }
 
 #section-menu button { flex: 1; font-weight: 600; }
+.compact-segmented { align-self: center; margin-top: 0.45rem; flex: none; }
+.compact-segmented button { min-height: 34px; min-width: 5.5rem; padding: 0.25rem 0.65rem; font-size: 0.78rem; }
+.compact-segmented[hidden] { display: none; }
+#nearby-stops-open { width: var(--tap); padding: 0; color: var(--accent); }
 
 .bike-account {
   display: flex;
@@ -455,6 +459,13 @@ body.map-is-fullscreen { overflow: hidden; }
 #place-picked { margin: 0; font-size: 0.72rem; font-variant-numeric: tabular-nums; }
 .place-editor-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; }
 .place-editor-actions button { flex: 1 1 auto; }
+#nearby-stops-dialog { width: min(92vw, 28rem); }
+#nearby-stops-list { display: grid; gap: 0.45rem; }
+.nearby-stop-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0.6rem; padding: 0.6rem; border: 1px solid var(--line); border-radius: 10px; }
+.nearby-stop-card > div:first-child { display: flex; min-width: 0; flex-direction: column; }
+.nearby-stop-card small { color: var(--muted); font-size: 0.72rem; overflow-wrap: anywhere; }
+.nearby-stop-card > div:last-child { display: flex; gap: 0.3rem; }
+.nearby-stop-card button { width: 38px; min-height: 38px; padding: 0; }
 
 .stop {
   background: var(--card);
