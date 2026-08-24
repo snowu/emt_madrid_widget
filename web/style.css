@@ -218,7 +218,7 @@ button:active { transform: scale(0.97); }
   overflow: hidden;
 }
 .trip-group.noteworthy, .trip-card.noteworthy { border-color: var(--noteworthy); }
-.trip-group summary {
+.trip-group > summary {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -226,9 +226,9 @@ button:active { transform: scale(0.97); }
   padding: 0.5rem 0.65rem;
   cursor: pointer;
 }
-.trip-group summary::marker { display: none; }
-.trip-group summary > span { display: flex; flex-direction: column; }
-.trip-group summary small { color: var(--muted); font-size: 0.72rem; }
+.trip-group > summary::marker { display: none; }
+.trip-group > summary > span { display: flex; flex-direction: column; }
+.trip-group > summary small { color: var(--muted); font-size: 0.72rem; }
 .copy-bike { min-height: 34px; width: 38px; padding: 0; flex: none; }
 .trip-rows { border-top: 1px solid var(--line); }
 .trip-card { border: 1px solid var(--line); border-radius: 10px; background: var(--bg); overflow: hidden; }
@@ -250,6 +250,12 @@ button:active { transform: scale(0.97); }
 .trip-row:last-child { border-bottom: none; }
 .trip-row .trip-dates { grid-column: 1 / -1; color: var(--fg); font-size: 0.74rem; }
 .trip-row .warn { grid-column: 1 / -1; color: var(--warning); }
+.trip-history { border-bottom: 1px solid var(--separator); color: var(--muted); font-size: 0.72rem; }
+.trip-history > summary { padding: 0.35rem 0.65rem; color: var(--warning); cursor: pointer; }
+.trip-history > div { padding: 0 0.65rem 0.45rem; }
+.trip-history-revision { display: grid; gap: 0.1rem; padding-top: 0.3rem; }
+.trip-history-revision time { color: var(--muted); }
+.trip-history-revision span { color: var(--fg); overflow-wrap: anywhere; }
 #bike-trips-fields code { overflow-wrap: anywhere; color: var(--muted); }
 
 .section-heading {

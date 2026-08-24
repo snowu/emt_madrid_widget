@@ -16,7 +16,13 @@ import {
   writeBikeTrips,
   setUserCacheScope,
 } from "./cache.js";
-import { mergeTripHistory, tripIdentity, tripsAreOldestFirst } from "./trips.js";
+import {
+  mergeTripHistory,
+  tripIdentity,
+  tripsAreOldestFirst,
+  updateTripDiagnostics,
+  TRIP_DIAGNOSTIC_LABELS,
+} from "./trips.js";
 
 const API = "https://emt-arrivals.zancato-t.workers.dev";
 const THEME_KEY = "emt:theme";
@@ -1701,6 +1707,7 @@ let bikeTripsSynced = false;
 let bikeTripsSync = null;
 let bikeTripsCachedAt = null;
 let groupBikeTrips = false;
+let bikeTripDiagnostics = {};
 const bikeRatings = new Map();
 
 function resetBikePrivateState() {
@@ -1712,6 +1719,7 @@ function resetBikePrivateState() {
   bikeTripsSynced = false;
   bikeTripsSync = null;
   bikeTripsCachedAt = null;
+  bikeTripDiagnostics = {};
   bikeRatings.clear();
 }
 
@@ -1777,7 +1785,7 @@ function renderTripRow(trip) {
   if (trip.lockFailed || trip.dockIncident || trip.incorrectDockBlock || trip.forcedClosed) {
     const incident = document.createElement("span");
     incident.className = "warn";
-    incident.textContent = trip.lockFailed ? "Lock failed" : "Docking issue recorded";
+    incident.textContent = trip.lockFailed ? "Lock failed" : "Dock event recorded";
     row.append(incident);
   }
   return row;
@@ -1786,6 +1794,46 @@ function renderTripRow(trip) {
 function hasTripIssue(trip) {
   return Boolean(Number(trip.penaltyCount) || Number(trip.penaltyAmount) ||
     trip.lockFailed || trip.dockIncident || trip.incorrectDockBlock || trip.forcedClosed);
+}
+
+function diagnosticValue(field, value) {
+  if (value == null || value === "") return "—";
+  if (["cost", "previousBalance", "resultingBalance", "penaltyAmount", "extraAmount"].includes(field)) {
+    return euro(value) ?? String(value);
+  }
+  if (["startedAt", "endedAt", "extraDate"].includes(field)) return tripDate(value) ?? String(value);
+  if (field === "minutes") return `${value} min`;
+  if (typeof value === "boolean") return value ? "yes" : "no";
+  return String(value);
+}
+
+function renderTripDiagnostics(trip) {
+  const entry = bikeTripDiagnostics[tripIdentity(trip)];
+  if (!entry?.revisions?.length) return null;
+  const history = document.createElement("details");
+  history.className = "trip-history";
+  const summary = document.createElement("summary");
+  summary.textContent = `Updated by EMT · ${entry.revisions.length}`;
+  const list = document.createElement("div");
+  for (const revision of [...entry.revisions].reverse()) {
+    const item = document.createElement("div");
+    item.className = "trip-history-revision";
+    const observed = new Date(revision.observedAt);
+    const time = document.createElement("time");
+    time.dateTime = observed.toISOString();
+    time.textContent = new Intl.DateTimeFormat(undefined, {
+      day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
+    }).format(observed);
+    const changes = document.createElement("span");
+    changes.textContent = revision.changes.map((change) =>
+      `${TRIP_DIAGNOSTIC_LABELS[change.field] ?? change.field}: `
+      + `${diagnosticValue(change.field, change.from)} → ${diagnosticValue(change.field, change.to)}`)
+      .join(" · ");
+    item.append(time, changes);
+    list.append(item);
+  }
+  history.append(summary, list);
+  return history;
 }
 
 function ratingControl(bikeNumber) {
@@ -1847,7 +1895,8 @@ function copyBikeButton(bikeNumber) {
 
 function renderBikeTripGroup(bikeNumber, trips) {
   const group = document.createElement("details");
-  group.className = `trip-group${trips.length > 1 || trips.some(hasTripIssue) ? " noteworthy" : ""}`;
+  group.className = `trip-group${trips.length > 1 || trips.some((trip) =>
+    hasTripIssue(trip) || bikeTripDiagnostics[tripIdentity(trip)]) ? " noteworthy" : ""}`;
   const summary = document.createElement("summary");
   const heading = document.createElement("span");
   const name = document.createElement("strong");
@@ -1862,7 +1911,8 @@ function renderBikeTripGroup(bikeNumber, trips) {
   summary.append(heading, copyBikeButton(bikeNumber));
   const rows = document.createElement("div");
   rows.className = "trip-rows";
-  rows.replaceChildren(ratingControl(bikeNumber), ...trips.map(renderTripRow));
+  const tripRows = trips.flatMap((trip) => [renderTripRow(trip), renderTripDiagnostics(trip)].filter(Boolean));
+  rows.replaceChildren(ratingControl(bikeNumber), ...tripRows);
   group.append(summary, rows);
   return group;
 }
@@ -1870,7 +1920,8 @@ function renderBikeTripGroup(bikeNumber, trips) {
 function renderChronologicalTrip(trip, counts) {
   const bikeNumber = String(trip.bikeNumber ?? "unknown").replace(/^0+(?=\d)/, "");
   const card = document.createElement("article");
-  card.className = `trip-card${counts.get(bikeNumber) > 1 || hasTripIssue(trip) ? " noteworthy" : ""}`;
+  const diagnostic = renderTripDiagnostics(trip);
+  card.className = `trip-card${counts.get(bikeNumber) > 1 || hasTripIssue(trip) || diagnostic ? " noteworthy" : ""}`;
   const head = document.createElement("div");
   head.className = "trip-card-head";
   const title = document.createElement("strong");
@@ -1885,9 +1936,12 @@ function renderChronologicalTrip(trip, counts) {
   if (counts.get(bikeNumber) > 1) badge(`${counts.get(bikeNumber)} rides`);
   if (Number(trip.penaltyCount) || Number(trip.penaltyAmount)) badge("Penalty");
   if (trip.lockFailed) badge("Lock failed");
-  else if (trip.dockIncident || trip.incorrectDockBlock || trip.forcedClosed) badge("Dock issue");
+  else if (trip.dockIncident || trip.incorrectDockBlock || trip.forcedClosed) badge("Dock event");
+  if (diagnostic) badge("Updated by EMT");
   head.append(title, badges, copyBikeButton(bikeNumber));
-  card.append(head, renderTripRow(trip), ratingControl(bikeNumber));
+  card.append(head, renderTripRow(trip));
+  if (diagnostic) card.append(diagnostic);
+  card.append(ratingControl(bikeNumber));
   return card;
 }
 
@@ -1927,6 +1981,11 @@ function restoreBikeTrips() {
   bikeTripPages = Number(cached.pages) || 0;
   bikeTripFieldsSeen = Array.isArray(cached.fields) ? cached.fields : [];
   bikeTripsCachedAt = Number(cached.syncedAt) || null;
+  bikeTripDiagnostics = updateTripDiagnostics(
+    [],
+    [],
+    cached.diagnostics && typeof cached.diagnostics === "object" ? cached.diagnostics : {},
+  );
   return true;
 }
 
@@ -1996,6 +2055,7 @@ async function syncBikeTrips({ force = false } = {}) {
     const newCount = new Set(
       fetched.filter((trip) => !known.has(tripIdentity(trip))).map(tripIdentity),
     ).size;
+    bikeTripDiagnostics = updateTripDiagnostics(existing, fetched, bikeTripDiagnostics);
     allBikeTrips = mergeTripHistory(existing, fetched, oldestFirst);
     bikeTripPages = Math.max(bikeTripPages, maxPageSeen + 1);
     bikeTripFieldsSeen = [...new Set([...bikeTripFieldsSeen, ...fields])].sort();
@@ -2005,6 +2065,7 @@ async function syncBikeTrips({ force = false } = {}) {
       trips: allBikeTrips,
       pages: bikeTripPages,
       fields: bikeTripFieldsSeen,
+      diagnostics: bikeTripDiagnostics,
       syncedAt: bikeTripsCachedAt,
     });
     const suffix = newCount ? `${newCount} new trip${newCount === 1 ? "" : "s"}` : "No new trips";
