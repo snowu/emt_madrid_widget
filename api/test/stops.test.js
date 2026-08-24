@@ -6,6 +6,9 @@ import {
   removeStop,
   listBikeRatings,
   rateBike,
+  listPlaces,
+  addPlace,
+  updatePlace,
 } from "../src/stops.js";
 
 const token = "test-user-token";
@@ -104,5 +107,38 @@ describe("bike ratings", () => {
     await expect(rateBike(env, token, { bikeNumber: "18302", rating: 6 }))
       .rejects.toMatchObject({ kind: "not_found" });
     expect(spy).not.toHaveBeenCalled();
+  });
+});
+
+describe("places", () => {
+  it("lists only the user's place fields", async () => {
+    const spy = mockFetch([{ id: "p1", name: "Work", lat: 40.4, lon: -3.7 }]);
+    await expect(listPlaces(env, token)).resolves.toHaveLength(1);
+    expect(spy.mock.calls[0][0]).toContain("places?select=id,name,lat,lon");
+  });
+
+  it("creates an actual location with sensible default radii", async () => {
+    const spy = mockFetch([{ id: "p1", name: "Work" }]);
+    await addPlace(env, token, { name: " Work ", lat: 40.46, lon: -3.68 });
+    expect(JSON.parse(spy.mock.calls[0][1].body)).toEqual({
+      name: "Work", lat: 40.46, lon: -3.68,
+      geofence_radius_m: 200, destination_radius_m: 500,
+    });
+  });
+
+  it("rejects invalid coordinates before touching Supabase", async () => {
+    const spy = mockFetch([]);
+    await expect(addPlace(env, token, { name: "Nowhere", lat: 140, lon: -3.7 }))
+      .rejects.toMatchObject({ kind: "not_found" });
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("patches only supplied fields", async () => {
+    const spy = mockFetch([{ id: "p1", name: "Office" }]);
+    await updatePlace(env, token, "p1", { name: "Office" });
+    const body = JSON.parse(spy.mock.calls[0][1].body);
+    expect(body.name).toBe("Office");
+    expect(body).not.toHaveProperty("lat");
+    expect(body.updated_at).toBeTruthy();
   });
 });

@@ -425,6 +425,24 @@ body.map-is-fullscreen { overflow: hidden; }
   flex: none; /* a squeezed flex item would clip a two-line message */
 }
 
+.place-context { margin: 0.7rem 0 0.25rem; color: var(--muted); font-size: 0.78rem; }
+.place-card { margin-top: 0.65rem; padding: 0.7rem 0.8rem; border-radius: 12px; background: var(--card); }
+.place-card-heading { display: grid; grid-template-columns: minmax(0, 1fr) auto var(--tap); align-items: center; gap: 0.45rem; }
+.place-card-heading h2 { margin: 0; overflow-wrap: anywhere; font-size: 1rem; }
+.place-card-heading > span { font-size: 0.72rem; white-space: nowrap; }
+.place-directions { width: var(--tap); padding: 0; color: var(--accent); font-size: 1.05rem; }
+.place-route { display: grid; grid-template-columns: 3.5rem minmax(0, 1fr) auto; align-items: center; gap: 0.55rem; margin-top: 0.55rem; padding-top: 0.5rem; border-top: 1px solid var(--separator); color: var(--muted); font-size: 0.78rem; }
+.place-route p { margin: 0; }
+.place-route p b { color: var(--fg); }
+.place-route time { color: var(--fg); font-size: 1.05rem; font-variant-numeric: tabular-nums; }
+.place-line { font-size: 1.15rem; }
+#places-dialog { width: min(92vw, 28rem); }
+#places-list { display: grid; gap: 0.4rem; }
+.place-manage-row { display: flex; align-items: center; gap: 0.6rem; padding: 0.45rem 0; border-bottom: 1px solid var(--separator); }
+.place-manage-row > span { display: flex; flex: 1; min-width: 0; flex-direction: column; }
+.place-manage-row small { color: var(--muted); font-size: 0.7rem; }
+.place-manage-row button { width: 36px; min-height: 36px; padding: 0; }
+
 .stop {
   background: var(--card);
   border-radius: 12px;

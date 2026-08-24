@@ -16,6 +16,10 @@ import {
   removeBikeStation,
   listBikeRatings,
   rateBike,
+  listPlaces,
+  addPlace,
+  updatePlace,
+  removePlace,
 } from "./stops.js";
 import {
   getBikeStations,
@@ -28,6 +32,7 @@ import { EmtError, errorResponse } from "./errors.js";
 import { getBikeAccountStatus, getBikeTrips } from "./bicimad-account.js";
 import { authenticatedUser, bearerToken } from "./auth.js";
 import { getBikeTripDiagnostics, monitorBikeTrips } from "./trip-monitor.js";
+import { nearbyAccess, planJourney, uniqueLineCodes } from "./journey-planner.js";
 
 // Short-lived, high-traffic data belongs in the Cache API, not KV. Cache API
 // operations do not consume the Workers KV daily operation allowance.
@@ -160,6 +165,80 @@ async function cachedNearby(requestUrl, env, lat, lon, radius, ctx) {
     () => getNearbyStops(env, { lat, lon, radius }), ctx);
 }
 
+function plannerLocation(value, name) {
+  const lat = Number(value?.lat);
+  const lon = Number(value?.lon);
+  if (!Number.isFinite(lat) || Math.abs(lat) > 90 || !Number.isFinite(lon) || Math.abs(lon) > 180) {
+    throw new EmtError("not_found", `invalid ${name} coordinates`);
+  }
+  return { lat, lon };
+}
+
+function prioritizedRouteCodes(originStops, destinationGroups, max = 20) {
+  const origin = uniqueLineCodes(originStops);
+  const destinations = destinationGroups.map(uniqueLineCodes);
+  const common = destinations.flatMap((codes) => codes.filter((code) => origin.includes(code)));
+  const ordered = [...new Set(common)];
+  const queues = [origin, ...destinations].map((codes) => [...codes]);
+  while (ordered.length < max && queues.some((queue) => queue.length)) {
+    for (const queue of queues) {
+      const code = queue.shift();
+      if (code && !ordered.includes(code)) ordered.push(code);
+      if (ordered.length === max) break;
+    }
+  }
+  return ordered;
+}
+
+async function journeys(request, body, env, ctx) {
+  const origin = plannerLocation(body?.origin, "origin");
+  if (!Array.isArray(body?.destinations) || body.destinations.length < 1 || body.destinations.length > 3) {
+    throw new EmtError("not_found", "destinations must contain 1–3 places");
+  }
+  const destinations = body.destinations.map((destination, index) => ({
+    id: String(destination.id ?? index),
+    name: String(destination.name ?? "Destination").slice(0, 80),
+    ...plannerLocation(destination, `destination ${index + 1}`),
+    radius: Math.min(1000, Math.max(100, Number(destination.destinationRadiusM) || 500)),
+  }));
+  const originRaw = await cachedNearby(request.url, env, origin.lat, origin.lon, 700, ctx);
+  const originStops = nearbyAccess(originRaw, origin, 6);
+  const destinationStops = await Promise.all(destinations.map(async (destination) =>
+    nearbyAccess(await cachedNearby(request.url, env, destination.lat, destination.lon,
+      destination.radius, ctx), destination, 6)));
+
+  // Direct matches go first, then round-robin origin/destination lines. The
+  // hard ceiling protects EMT on a cold cache; route entries then live 7 days.
+  const routeCodes = prioritizedRouteCodes(originStops, destinationStops);
+  const routeEntries = await Promise.all(routeCodes.map(async (code) =>
+    [code, await cachedRoute(request.url, env, code, ctx)]));
+  const routes = new Map(routeEntries);
+  const planned = destinations.map((destination, index) => ({
+    destination,
+    options: planJourney({ originStops, destinationStops: destinationStops[index], routes }),
+  }));
+
+  // Only the stops used by the best result get live reads, never more than 3.
+  const liveStopIds = [...new Set(planned.flatMap((item) =>
+    item.options.slice(0, 1).map((option) => String(option.originStop.stopId))))].slice(0, 3);
+  const live = new Map(await Promise.all(liveStopIds.map(async (stopId) =>
+    [stopId, await cachedArrivals(request.url, env, stopId, ctx)])));
+  for (const item of planned) {
+    for (const option of item.options) {
+      const arrivals = live.get(String(option.originStop.stopId))?.arrivals ?? [];
+      const matching = arrivals.filter((arrival) =>
+        arrival.line === option.firstLeg.label || arrival.line === option.firstLeg.line);
+      option.firstLeg.arrivals = matching.slice(0, 2).map(({ seconds }) => seconds);
+    }
+  }
+  return {
+    origin,
+    destinations: planned,
+    generatedAt: Date.now(),
+    calls: { nearby: 1 + destinations.length, routes: routeCodes.length, arrivals: liveStopIds.length },
+  };
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -200,6 +279,27 @@ export default {
 
       if (pathname === "/stops" && method === "GET") {
         return json(await listStops(env, bearerToken(request)), env);
+      }
+
+      if (pathname === "/places" && method === "GET") {
+        return json(await listPlaces(env, bearerToken(request)), env);
+      }
+      if (pathname === "/places" && method === "POST") {
+        return json(await addPlace(env, bearerToken(request), await request.json()), env, 201);
+      }
+      const place = pathname.match(/^\/places\/([^/]+)$/);
+      if (place && method === "PATCH") {
+        return json(await updatePlace(env, bearerToken(request), decodeURIComponent(place[1]),
+          await request.json()), env);
+      }
+      if (place && method === "DELETE") {
+        await removePlace(env, bearerToken(request), decodeURIComponent(place[1]));
+        return new Response(null, { status: 204, headers: cors(env) });
+      }
+
+      if (pathname === "/journeys" && method === "POST") {
+        await authenticatedUser(env, request);
+        return json(await journeys(request, await request.json(), env, ctx), env);
       }
 
       const detail = pathname.match(/^\/stops\/([^/]+)\/detail$/);

@@ -36,6 +36,11 @@ let authSession = null;
 let authUser = null;
 let isOwner = false;
 let myLocation = null;
+let places = [];
+let journeyPayload = null;
+let journeyCell = null;
+let journeyLoadedAt = 0;
+let journeyTimer = null;
 
 const listEl = document.getElementById("stops");
 const statusEl = document.getElementById("status");
@@ -52,6 +57,10 @@ const accountMenu = document.getElementById("account-menu");
 const accountMenuEmail = document.getElementById("account-menu-email");
 const accountSignout = document.getElementById("account-signout");
 const themeButtons = [...document.querySelectorAll("[data-theme-choice]")];
+const placesDialog = document.getElementById("places-dialog");
+const placesForm = document.getElementById("places-form");
+const placesList = document.getElementById("places-list");
+const placesMessage = document.getElementById("places-message");
 
 function setTheme(choice) {
   themeChoice = ["light", "dark"].includes(choice) ? choice : "system";
@@ -319,7 +328,103 @@ function openWalkingDirections(coordinates) {
   window.open(url.toString(), "_blank", "noopener,noreferrer");
 }
 
+function placeDistance(place) {
+  if (!myLocation) return null;
+  return metresBetweenCoordinates([myLocation[1], myLocation[0]], [place.lon, place.lat]);
+}
+
+function activeDestinations() {
+  return places.filter((place) => place.enabled !== false &&
+    (placeDistance(place) == null || placeDistance(place) > place.geofence_radius_m))
+    .sort((a, b) => proximity(placeDistance(a)) - proximity(placeDistance(b)))
+    .slice(0, 3);
+}
+
+function journeyFor(placeId) {
+  return journeyPayload?.destinations?.find((item) => item.destination.id === placeId);
+}
+
+function placeCard(place) {
+  const card = document.createElement("article");
+  card.className = "place-card";
+  const heading = document.createElement("div");
+  heading.className = "place-card-heading";
+  const title = document.createElement("h2");
+  title.textContent = place.name;
+  const distance = document.createElement("span");
+  distance.className = "muted";
+  distance.textContent = formatDistance(placeDistance(place)) || "location unavailable";
+  const directions = document.createElement("button");
+  directions.className = "place-directions";
+  directions.type = "button";
+  directions.title = `Walking directions to ${place.name}`;
+  directions.setAttribute("aria-label", directions.title);
+  directions.textContent = "➤";
+  directions.addEventListener("click", () => openWalkingDirections([place.lon, place.lat]));
+  heading.append(title, distance, directions);
+  card.append(heading);
+
+  const planned = journeyFor(place.id);
+  const option = planned?.options?.[0];
+  const route = document.createElement("div");
+  route.className = "place-route";
+  if (!myLocation) route.textContent = "Waiting for your location…";
+  else if (!journeyPayload) route.textContent = "Finding the useful buses…";
+  else if (!option) route.textContent = "No direct or one-transfer route found nearby.";
+  else {
+    const first = document.createElement("strong");
+    first.className = "place-line";
+    first.style.color = lineColor(option.firstLeg.label);
+    first.textContent = option.firstLeg.label;
+    const copy = document.createElement("p");
+    const wait = option.firstLeg.arrivals?.[0];
+    const connection = option.type === "direct"
+      ? "direct"
+      : `then ${option.secondLeg.label} · ${option.transfer.walkM} m transfer`;
+    const origin = document.createElement("b");
+    origin.textContent = `Stop ${option.originStop.stopId} · ${Math.round(option.originStop.distanceM)} m walk`;
+    const detail = document.createElement("small");
+    detail.textContent = connection;
+    copy.append(origin, document.createElement("br"), detail);
+    const eta = document.createElement("time");
+    eta.textContent = wait == null ? "—" : fmtCountdown(wait);
+    route.append(first, copy, eta);
+  }
+  card.append(route);
+  return card;
+}
+
+function renderPlaces() {
+  const destinations = activeDestinations();
+  const blocks = [];
+  const current = places.find((place) => place.enabled !== false &&
+    placeDistance(place) != null && placeDistance(place) <= place.geofence_radius_m);
+  const context = document.createElement("p");
+  context.className = "place-context";
+  context.textContent = current
+    ? `You’re at ${current.name} · showing the closest other places`
+    : "Closest places from where you are";
+  blocks.push(context, ...destinations.map(placeCard));
+  if (destinations.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "muted";
+    empty.textContent = places.length ? "You are inside your only saved place." : "Add Home, Work, or anywhere you regularly travel to from the account menu.";
+    blocks.push(empty);
+  }
+  const nearestBike = (bikeNear.stations ?? [])
+    .filter((station) => Array.isArray(station.coordinates))
+    .sort((a, b) => proximity(distanceToStation(a)) - proximity(distanceToStation(b)))[0];
+  if (nearestBike) {
+    blocks.push(sectionHeading("Nearest BiciMAD"));
+    const bike = bikeCard(nearestBike, bikeSaved.find((row) => row.station_id === nearestBike.id) ?? null);
+    bike.classList.add("place-nearest-bike");
+    blocks.push(bike);
+  }
+  listEl.replaceChildren(...blocks);
+}
+
 function render() {
+  if (authSession && places.length > 0) return renderPlaces();
   listEl.replaceChildren(
     ...[...stops]
       .sort((a, b) => proximity(metresFromCurrent(details[a.stop_id]?.coordinates)) -
@@ -455,6 +560,8 @@ function showSignedOut(message = "") {
   isOwner = false;
   setUserCacheScope(null);
   stops = [];
+  places = [];
+  journeyPayload = null;
   bikeSaved = [];
   resetBikePrivateState();
   authButton.textContent = "Sign in";
@@ -493,7 +600,52 @@ async function applySession(session) {
   }
   bikeAccountEl.hidden = section !== "bikes" || !isOwner;
   if (isOwner) showCachedBikeAccount();
-  await Promise.all([loadStops(), loadBikeSaved()]);
+  await Promise.all([loadStops(), loadBikeSaved(), loadPlaces()]);
+}
+
+async function loadPlaces() {
+  if (!authSession) return;
+  try {
+    places = await api("/places");
+    renderPlaces();
+    scheduleJourneys({ force: true });
+    renderPlacesDialog();
+  } catch (err) {
+    // The migration is deliberately non-breaking: saved stops remain the UI
+    // until places.sql has been applied.
+    statusEl.textContent = `Places are not ready yet: ${err.message}`;
+    render();
+  }
+}
+
+async function loadJourneys({ force = false } = {}) {
+  if (!authSession || !myLocation || places.length === 0) return;
+  const destinations = activeDestinations();
+  if (destinations.length === 0) return;
+  const cell = `${myLocation[0].toFixed(3)},${myLocation[1].toFixed(3)}`;
+  if (!force && cell === journeyCell && Date.now() - journeyLoadedAt < 60_000) return;
+  try {
+    journeyPayload = await api("/journeys", {
+      method: "POST",
+      body: JSON.stringify({
+        origin: { lat: myLocation[0], lon: myLocation[1] },
+        destinations: destinations.map((place) => ({
+          id: place.id, name: place.name, lat: place.lat, lon: place.lon,
+          destinationRadiusM: place.destination_radius_m,
+        })),
+      }),
+    });
+    journeyCell = cell;
+    journeyLoadedAt = Date.now();
+    renderPlaces();
+  } catch (err) {
+    statusEl.textContent = `Could not plan journeys: ${err.message}`;
+  }
+}
+
+function scheduleJourneys({ force = false } = {}) {
+  if (journeyTimer != null) clearTimeout(journeyTimer);
+  journeyTimer = setTimeout(() => { journeyTimer = null; void loadJourneys({ force }); }, 250);
 }
 
 async function initAuth() {
@@ -529,6 +681,76 @@ accountSignout.addEventListener("click", async () => {
   } finally {
     accountSignout.disabled = false;
     if (accountMenu.open) accountMenu.close();
+  }
+});
+
+function renderPlacesDialog() {
+  placesList.replaceChildren(...places.map((place) => {
+    const row = document.createElement("div");
+    row.className = "place-manage-row";
+    const label = document.createElement("span");
+    const name = document.createElement("b");
+    name.textContent = place.name;
+    const coordinates = document.createElement("small");
+    coordinates.textContent = `${Number(place.lat).toFixed(5)}, ${Number(place.lon).toFixed(5)}`;
+    label.append(name, coordinates);
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "danger";
+    remove.textContent = "×";
+    remove.setAttribute("aria-label", `Delete ${place.name}`);
+    remove.addEventListener("click", async () => {
+      remove.disabled = true;
+      try {
+        await api(`/places/${encodeURIComponent(place.id)}`, { method: "DELETE" });
+        places = places.filter((item) => item.id !== place.id);
+        journeyPayload = null;
+        renderPlacesDialog();
+        render();
+        scheduleJourneys({ force: true });
+      } catch (err) {
+        placesMessage.textContent = `Could not delete place: ${err.message}`;
+        remove.disabled = false;
+      }
+    });
+    row.append(label, remove);
+    return row;
+  }));
+}
+
+document.getElementById("manage-places").addEventListener("click", () => {
+  accountMenu.close();
+  placesMessage.textContent = "";
+  renderPlacesDialog();
+  placesDialog.showModal();
+});
+document.getElementById("places-close").addEventListener("click", () => placesDialog.close());
+placesForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const name = document.getElementById("place-name").value.trim();
+  if (!name) return;
+  if (!myLocation) {
+    placesMessage.textContent = "Waiting for a GPS location — tap the location button if needed.";
+    return;
+  }
+  const add = document.getElementById("place-add");
+  add.disabled = true;
+  try {
+    const place = await api("/places", {
+      method: "POST",
+      body: JSON.stringify({ name, lat: myLocation[0], lon: myLocation[1] }),
+    });
+    places.push(place);
+    document.getElementById("place-name").value = "";
+    journeyPayload = null;
+    placesMessage.textContent = `${place.name} saved.`;
+    renderPlacesDialog();
+    renderPlaces();
+    scheduleJourneys({ force: true });
+  } catch (err) {
+    placesMessage.textContent = `Could not save place: ${err.message}`;
+  } finally {
+    add.disabled = false;
   }
 });
 
@@ -2340,6 +2562,7 @@ async function loadBikesNear(lat, lon, { force = false } = {}) {
     bikeCell = cell;
     writeBikeNear(payload);
     renderBikes();
+    if (section === "buses" && places.length) renderPlaces();
     rebuildBikeMarkers();
   } catch (err) {
     statusEl.textContent = `Could not load bike stations: ${err.message}`;
@@ -2759,6 +2982,7 @@ function applyLocation(position, { recenter = false, forceNearby = false } = {})
   renderBikes();
   void loadNearbyAt(myLocation[0], myLocation[1], { force: forceNearby });
   void loadBikesNear(myLocation[0], myLocation[1], { force: forceNearby });
+  scheduleJourneys({ force: forceNearby });
 }
 
 function refreshLocation({ userInitiated = false, recenter = false, forceNearby = false } = {}) {

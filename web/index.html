@@ -112,7 +112,22 @@
             <button type="button" data-theme-choice="dark" aria-pressed="false">Dark</button>
           </div>
         </section>
+        <button id="manage-places" type="button">Manage places</button>
         <button id="account-signout" class="danger" type="button">Sign out</button>
+      </form>
+    </dialog>
+
+    <dialog id="places-dialog" aria-labelledby="places-title">
+      <form id="places-form" method="dialog">
+        <div class="account-menu-heading">
+          <h2 id="places-title">Places</h2>
+          <button type="button" id="places-close" aria-label="Close">×</button>
+        </div>
+        <p class="muted">Save the location you are currently standing at. Routes will use nearby stops, not pretend the place itself is a stop.</p>
+        <div id="places-list"></div>
+        <label class="field"><span>Name</span><input id="place-name" maxlength="80" placeholder="Home, Work, favorite park…" autocomplete="off" /></label>
+        <button id="place-add" type="submit">＋ Save current location</button>
+        <p id="places-message" class="muted" role="status"></p>
       </form>
     </dialog>
 

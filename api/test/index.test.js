@@ -64,6 +64,14 @@ describe("personal data protection", () => {
     const res = await call("/stops");
     expect(res.status).toBe(401);
   });
+
+  it("rejects journey planning without a user session", async () => {
+    const res = await call("/journeys", {
+      method: "POST",
+      body: JSON.stringify({ origin: { lat: 40.4, lon: -3.7 }, destinations: [] }),
+    });
+    expect(res.status).toBe(401);
+  });
 });
 
 describe("GET /arrivals", () => {

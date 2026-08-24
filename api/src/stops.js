@@ -3,6 +3,7 @@ import { EmtError } from "./errors.js";
 const TABLE = "bus_stops";
 const BIKE_TABLE = "bike_stations";
 const BIKE_RATING_TABLE = "bike_ratings";
+const PLACE_TABLE = "places";
 
 function headers(env, accessToken, extra = {}) {
   // The publishable/anon key identifies the project. The caller's JWT carries
@@ -132,4 +133,65 @@ export async function rateBike(env, accessToken, { bikeNumber, rating }) {
       }),
     });
   return rows[0];
+}
+
+/* ---- Places ----------------------------------------------------------- */
+
+export async function listPlaces(env, accessToken) {
+  return call(env, accessToken,
+    `${PLACE_TABLE}?select=id,name,lat,lon,geofence_radius_m,destination_radius_m,enabled,created_at,updated_at&order=created_at.asc`);
+}
+
+function placeValues(input, { partial = false } = {}) {
+  const values = {};
+  if (!partial || Object.hasOwn(input, "name")) {
+    const name = String(input.name ?? "").trim();
+    if (!name || name.length > 80) throw new EmtError("not_found", "place name must be 1–80 characters");
+    values.name = name;
+  }
+  for (const key of ["lat", "lon"]) {
+    if (!partial || Object.hasOwn(input, key)) {
+      const value = Number(input[key]);
+      const valid = Number.isFinite(value) && (key === "lat" ? Math.abs(value) <= 90 : Math.abs(value) <= 180);
+      if (!valid) throw new EmtError("not_found", `invalid ${key}`);
+      values[key] = value;
+    }
+  }
+  for (const [key, fallback] of [["geofenceRadiusM", 200], ["destinationRadiusM", 500]]) {
+    if (!partial || Object.hasOwn(input, key)) {
+      const value = Number(input[key] ?? fallback);
+      if (!Number.isInteger(value) || value < 50 || value > 1500) {
+        throw new EmtError("not_found", `${key} must be an integer from 50 to 1500`);
+      }
+      values[key === "geofenceRadiusM" ? "geofence_radius_m" : "destination_radius_m"] = value;
+    }
+  }
+  if (Object.hasOwn(input, "enabled")) values.enabled = Boolean(input.enabled);
+  return values;
+}
+
+export async function addPlace(env, accessToken, input) {
+  const rows = await call(env, accessToken, PLACE_TABLE, {
+    method: "POST",
+    headers: { Prefer: "return=representation" },
+    body: JSON.stringify(placeValues(input)),
+  });
+  return rows[0];
+}
+
+export async function updatePlace(env, accessToken, id, input) {
+  const values = placeValues(input, { partial: true });
+  if (Object.keys(values).length === 0) throw new EmtError("not_found", "no place fields to update");
+  values.updated_at = new Date().toISOString();
+  const rows = await call(env, accessToken, `${PLACE_TABLE}?id=eq.${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: { Prefer: "return=representation" },
+    body: JSON.stringify(values),
+  });
+  if (!rows?.[0]) throw new EmtError("not_found", `no place ${id}`);
+  return rows[0];
+}
+
+export async function removePlace(env, accessToken, id) {
+  await call(env, accessToken, `${PLACE_TABLE}?id=eq.${encodeURIComponent(id)}`, { method: "DELETE" });
 }
