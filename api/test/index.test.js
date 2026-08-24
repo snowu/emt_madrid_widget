@@ -345,7 +345,7 @@ describe("GET /bikes/trips", () => {
     expect(later.status).toBe(200);
     expect((await later.json()).matchedOnPage[1]).toMatchObject({
       startedAt: "24/08/2026 09:30",
-      endedAt: new Date(2026, 7, 24, 9, 37).getTime(),
+      endedAt: "2026-08-24T09:37:00",
     });
     expect(spy.mock.calls.filter(([url]) => String(url).includes("/bicimad/userdata/")))
       .toHaveLength(1);

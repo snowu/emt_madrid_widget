@@ -201,15 +201,32 @@ function intervalTimestamps(value) {
   return (value.match(/\d{1,2}[/-]\d{1,2}[/-]\d{4}[ T]\d{1,2}:\d{2}(?::\d{2})?/g) || []).slice(0, 2);
 }
 
-function timestampMillis(value) {
-  if (typeof value === "number") return value < 10_000_000_000 ? value * 1000 : value;
-  if (typeof value !== "string") return NaN;
-  const local = value.trim().match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?/);
-  if (local) {
-    return new Date(Number(local[3]), Number(local[2]) - 1, Number(local[1]),
-      Number(local[4]), Number(local[5]), Number(local[6] || 0)).getTime();
+function shiftedTimestamp(value, minutes) {
+  if (typeof value === "number") {
+    const millis = value < 10_000_000_000 ? value * 1000 : value;
+    return millis + minutes * 60_000;
   }
-  return Date.parse(value);
+  if (typeof value !== "string") return null;
+  const text = value.trim();
+  const european = text.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  const isoLocal = text.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{1,2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?$/);
+  let parts;
+  if (european) {
+    parts = [european[3], european[2], european[1], european[4], european[5], european[6] || 0];
+  } else if (isoLocal) {
+    parts = [isoLocal[1], isoLocal[2], isoLocal[3], isoLocal[4], isoLocal[5], isoLocal[6] || 0];
+  }
+  if (parts) {
+    // Arithmetic in UTC deliberately preserves the supplied wall-clock fields;
+    // the timezone-less result is then interpreted in the user's local zone.
+    const shifted = new Date(Date.UTC(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]),
+      Number(parts[3]), Number(parts[4]), Number(parts[5])) + minutes * 60_000);
+    const pad = (part) => String(part).padStart(2, "0");
+    return `${shifted.getUTCFullYear()}-${pad(shifted.getUTCMonth() + 1)}-${pad(shifted.getUTCDate())}`
+      + `T${pad(shifted.getUTCHours())}:${pad(shifted.getUTCMinutes())}:${pad(shifted.getUTCSeconds())}`;
+  }
+  const millis = Date.parse(text);
+  return Number.isFinite(millis) ? millis + minutes * 60_000 : null;
 }
 
 function tripSummary(trip) {
@@ -224,15 +241,12 @@ function tripSummary(trip) {
     // `message_timestamp` has been observed as Madrid wall time shifted to UTC
     // without an offset. Prefer the unambiguous trip start + duration.
     if (startedAt == null && endedAt != null) {
-      const endMs = timestampMillis(endedAt);
-      if (Number.isFinite(endMs)) startedAt = endMs - minutes * 60_000;
+      startedAt = shiftedTimestamp(endedAt, -minutes);
     } else if (endedAt == null && startedAt != null) {
-      const startMs = timestampMillis(startedAt);
-      if (Number.isFinite(startMs)) endedAt = startMs + minutes * 60_000;
+      endedAt = shiftedTimestamp(startedAt, minutes);
     } else if (startedAt == null && messageAt != null) {
       endedAt = messageAt;
-      const endMs = timestampMillis(endedAt);
-      if (Number.isFinite(endMs)) startedAt = endMs - minutes * 60_000;
+      startedAt = shiftedTimestamp(endedAt, -minutes);
     }
   }
   endedAt ??= messageAt;
