@@ -26,6 +26,7 @@ without making live arrival or bike data misleadingly stale.
 | Open or pan bus map | 1 per ~110m search cell | 0 for a cached cell | 1 EMT nearby call |
 | Open or pan bike map | 1 combined nearby + saved request | 0 inside 45s | 2 GBFS reads; 1 MobilityLabs fallback if GBFS fails |
 | Reopen bike trip history | 0 to render cache; 1+ for background sync | one trip page until cached overlap | all pages only on the first device load |
+| Scheduled trip monitor | none | 1 trip page every 30 minutes | userdata once when the cached MPass session lacks NIF |
 | Read bike account status | 0 from browser cache; refresh is 1 | 0 until explicit refresh | 1 userdata call; plus MPass login only when expired |
 | Read/write bike ratings | 1 | 1 Supabase REST call | same |
 
@@ -41,6 +42,10 @@ arrival cache once and renders once.
 - Trip history persists per signed-in browser user. Sync reads pages only until
   it overlaps a known trip (or resumes at the last page for oldest-first data),
   while searches and grouping remain entirely local.
+- A 30-minute Cron Trigger observes only trip page 0 while the browser is
+  closed. It performs one monitor-state KV read plus the existing private
+  session read on a cold isolate, and writes the bounded state only for a new
+  trip, a material correction, or 48-hour diagnostic expiry.
 - Normal account checks reuse the normalized status inside the private MPass
   session and browser cache. Only the Refresh button calls userdata again.
 - Each trip page no longer performs an identical userdata lookup; the NIF is

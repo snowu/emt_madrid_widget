@@ -27,6 +27,7 @@ import {
 import { EmtError, errorResponse } from "./errors.js";
 import { getBikeAccountStatus, getBikeTrips } from "./bicimad-account.js";
 import { authenticatedUser, bearerToken } from "./auth.js";
+import { getBikeTripDiagnostics, monitorBikeTrips } from "./trip-monitor.js";
 
 // Short-lived, high-traffic data belongs in the Cache API, not KV. Cache API
 // operations do not consume the Workers KV daily operation allowance.
@@ -261,6 +262,14 @@ export default {
         return json(await getBikeTrips(env, { page, bikeNumber }), env);
       }
 
+      if (pathname === "/bikes/trip-diagnostics" && method === "GET") {
+        const user = await authenticatedUser(env, request);
+        if (!env.OWNER_USER_ID || user.id !== env.OWNER_USER_ID) {
+          throw new EmtError("forbidden", "BiciMAD trip diagnostics are owner-only");
+        }
+        return json(await getBikeTripDiagnostics(env), env);
+      }
+
       if (pathname === "/bikes/ratings" && method === "GET") {
         const token = bearerToken(request);
         return json(await listBikeRatings(env, token), env);
@@ -352,5 +361,11 @@ export default {
       if (err instanceof EmtError) return errorResponse(err, cors(env));
       return errorResponse(new EmtError("upstream", err.message), cors(env));
     }
+  },
+  async scheduled(_controller, env, ctx) {
+    ctx.waitUntil(monitorBikeTrips(env).catch((err) => {
+      console.error(JSON.stringify({ event: "bicimad_trip_monitor_failed", message: err.message }));
+      throw err;
+    }));
   },
 };

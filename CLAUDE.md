@@ -33,6 +33,7 @@ api/                 Cloudflare Worker. Holds EMT and optional owner MPass crede
   src/index.js       routing, CORS, auth boundaries, every edge-cache decision
   src/emt.js         EMT auth + buses: token, arrivals, detail, nearby, timetable, route
   src/bikes.js       BiciMAD stations + local distance filtering
+  src/trip-monitor.js bounded 30-minute owner trip reconciliation monitor
   src/stops.js       Supabase REST for saved bus stops and saved bike stations
   src/errors.js      EmtError kinds → HTTP status
   test/              vitest under workerd, recorded fixtures in test/fixtures/
@@ -430,6 +431,13 @@ per signed-in user and performs overlap-based incremental sync: newest-first
 feeds start at page 0 and stop on a known trip; an oldest-first ordering resumes
 from the previous final page. A manual Refresh repeats that sync.
 
+A `*/30 * * * *` Cron Trigger polls only trip page 0 while the app is closed.
+One KV key holds the latest normalized page and at most four field-delta
+revisions per trip. Revisions disappear after 48 hours without another change;
+raw EMTPay payloads, credentials and identity fields are never stored. The
+owner-only `/bikes/trip-diagnostics` route supplies these revisions to the
+existing trip cards.
+
 Aggregate usage *is* available separately: datos.madrid.es publishes
 anonymised BiciMAD trips 2017-2023 and station status by day/hour.
 
@@ -437,8 +445,9 @@ anonymised BiciMAD trips 2017-2023 and station status by day/hour.
 
 **Minimal backend, holding only secrets.** The worker exists because a public
 page cannot hold credentials and cannot call EMT directly (CORS). It forwards
-requests and retains only shared login state and normalized owner status; raw
-account payloads never enter a cache or browser response.
+requests and retains shared login state, normalized owner status, and one
+bounded normalized trip-monitor snapshot; raw account payloads never enter a
+cache or browser response.
 
 **Cloudflare Workers, free plan, no card attached.** Past the daily limit the
 free plan rejects requests rather than billing. Cost cannot balloon.

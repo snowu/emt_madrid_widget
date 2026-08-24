@@ -13,3 +13,6 @@ kv_namespaces = [
 # or locally in .dev.vars (gitignored). Test fakes live in vitest.config.js,
 # NOT here — a [vars] name collides with its secret at creation time.
 ALLOWED_ORIGIN = "https://snowu.github.io"
+
+[triggers]
+crons = ["*/30 * * * *"]

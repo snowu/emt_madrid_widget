@@ -19,6 +19,7 @@ beforeEach(async () => {
   clearBikeSessionMemoryForTest();
   await env.KV.put("emt:token", "cached-token");
   await env.KV.delete("bicimad:owner-session");
+  await env.KV.delete("bicimad:trip-monitor:v1");
   await env.KV.delete("arrivals:v4:1234");
 });
 afterEach(() => vi.restoreAllMocks());
@@ -349,6 +350,33 @@ describe("GET /bikes/trips", () => {
     });
     expect(spy.mock.calls.filter(([url]) => String(url).includes("/bicimad/userdata/")))
       .toHaveLength(1);
+  });
+});
+
+describe("GET /bikes/trip-diagnostics", () => {
+  const userAuth = { headers: { Authorization: "Bearer user-jwt" } };
+
+  it("is owner-only and returns only bounded normalized revisions", async () => {
+    await env.KV.put("bicimad:trip-monitor:v1", JSON.stringify({
+      updatedAt: Date.now(),
+      trips: { "id:1": { tripId: 1, cost: 0.5 } },
+      diagnostics: {
+        "id:1": {
+          lastChangedAt: Date.now(),
+          revisions: [{ observedAt: Date.now(), changes: [{ field: "cost", from: 20, to: 0.5 }] }],
+        },
+      },
+    }));
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      id: env.OWNER_USER_ID, email: "owner@example.com",
+    })));
+    const res = await call("/bikes/trip-diagnostics", userAuth);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      monitoring: true,
+      initialized: true,
+      diagnostics: { "id:1": { revisions: [{ changes: [{ field: "cost", from: 20, to: 0.5 }] }] } },
+    });
   });
 });
 

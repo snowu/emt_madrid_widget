@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   mergeTripHistory,
   materialTripChanges,
+  mergeTripDiagnostics,
   tripIdentity,
   tripsAreOldestFirst,
   updateTripDiagnostics,
@@ -70,5 +71,18 @@ test("keeps revision history bounded and expires it after 48 quiet hours", () =>
   assert.deepEqual(
     updateTripDiagnostics([], [], diagnostics, 6_000 + TRIP_DIAGNOSTIC_RETENTION_MS + 1),
     {},
+  );
+});
+
+test("merges Worker observations without duplicating the local copy", () => {
+  const changes = [{ field: "cost", from: 20, to: 0.5 }];
+  const local = { "id:1": { lastChangedAt: 2_000, revisions: [{ observedAt: 2_000, changes }] } };
+  const monitored = { "id:1": { lastChangedAt: 1_000, revisions: [{ observedAt: 1_000, changes }] } };
+  assert.deepEqual(mergeTripDiagnostics(local, monitored), {
+    "id:1": { lastChangedAt: 2_000, revisions: [{ observedAt: 2_000, changes }] },
+  });
+  assert.deepEqual(
+    updateTripDiagnostics([{ tripId: 1, cost: 20 }], [{ tripId: 1, cost: 0.5 }], local, 3_000),
+    local,
   );
 });

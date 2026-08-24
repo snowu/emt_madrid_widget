@@ -21,6 +21,7 @@ import {
   tripIdentity,
   tripsAreOldestFirst,
   updateTripDiagnostics,
+  mergeTripDiagnostics,
   TRIP_DIAGNOSTIC_LABELS,
 } from "./trips.js";
 
@@ -1708,6 +1709,7 @@ let bikeTripsSync = null;
 let bikeTripsCachedAt = null;
 let groupBikeTrips = false;
 let bikeTripDiagnostics = {};
+let bikeTripDiagnosticsLoaded = false;
 const bikeRatings = new Map();
 
 function resetBikePrivateState() {
@@ -1720,6 +1722,7 @@ function resetBikePrivateState() {
   bikeTripsSync = null;
   bikeTripsCachedAt = null;
   bikeTripDiagnostics = {};
+  bikeTripDiagnosticsLoaded = false;
   bikeRatings.clear();
 }
 
@@ -1798,7 +1801,10 @@ function hasTripIssue(trip) {
 
 function diagnosticValue(field, value) {
   if (value == null || value === "") return "—";
-  if (["cost", "previousBalance", "resultingBalance", "penaltyAmount", "extraAmount"].includes(field)) {
+  if ([
+    "cost", "previousBalance", "resultingBalance", "dockBonus", "undockBonus",
+    "reservationBonus", "penaltyAmount", "extraAmount",
+  ].includes(field)) {
     return euro(value) ?? String(value);
   }
   if (["startedAt", "endedAt", "extraDate"].includes(field)) return tripDate(value) ?? String(value);
@@ -2021,6 +2027,16 @@ async function syncBikeTrips({ force = false } = {}) {
   if (!force && bikeTripsSynced) return;
   const operation = (async () => {
     restoreBikeTrips();
+    if (!bikeTripDiagnosticsLoaded) {
+      try {
+        const monitored = await api("/bikes/trip-diagnostics");
+        bikeTripDiagnostics = mergeTripDiagnostics(bikeTripDiagnostics, monitored.diagnostics);
+        bikeTripDiagnosticsLoaded = true;
+      } catch {
+        // Local comparison remains a complete fallback if monitoring is
+        // temporarily unavailable; trip loading itself should still work.
+      }
+    }
     const existing = allBikeTrips ?? [];
     const known = new Set(existing.map(tripIdentity));
     const fetched = [];

@@ -35,6 +35,9 @@ export const TRIP_DIAGNOSTIC_LABELS = Object.freeze({
   cost: "Cost",
   previousBalance: "Previous balance",
   resultingBalance: "Resulting balance",
+  dockBonus: "Dock bonus",
+  undockBonus: "Undock bonus",
+  reservationBonus: "Reservation bonus",
   penaltyCount: "Penalty count",
   penaltyAmount: "Penalty amount",
   extraAmount: "Extra charge/credit",
@@ -51,6 +54,25 @@ const MAX_REVISIONS_PER_TRIP = 4;
 
 function sameValue(left, right) {
   return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+}
+
+function changesKey(changes) {
+  return JSON.stringify(changes || []);
+}
+
+export function mergeTripDiagnostics(local = {}, monitored = {}) {
+  const merged = { ...local };
+  for (const [key, remote] of Object.entries(monitored)) {
+    const revisions = [...(local[key]?.revisions || []), ...(remote?.revisions || [])]
+      .sort((left, right) => Number(left.observedAt) - Number(right.observedAt));
+    const unique = new Map();
+    for (const revision of revisions) unique.set(changesKey(revision.changes), revision);
+    merged[key] = {
+      lastChangedAt: Math.max(Number(local[key]?.lastChangedAt) || 0, Number(remote?.lastChangedAt) || 0),
+      revisions: [...unique.values()].slice(-MAX_REVISIONS_PER_TRIP),
+    };
+  }
+  return merged;
 }
 
 /** Store only material field deltas—not duplicate trips or raw EMT payloads. */
@@ -75,8 +97,11 @@ export function updateTripDiagnostics(existing, fetched, diagnostics = {}, obser
     if (!previous) continue;
     const changes = materialTripChanges(previous, trip);
     if (!changes.length) continue;
-    const revisions = [...(next[key]?.revisions || []), { observedAt, changes }]
+    const retained = next[key]?.revisions || [];
+    const duplicate = retained.some((revision) => changesKey(revision.changes) === changesKey(changes));
+    const revisions = duplicate ? retained : [...retained, { observedAt, changes }]
       .slice(-MAX_REVISIONS_PER_TRIP);
+    if (duplicate) continue;
     next[key] = { lastChangedAt: observedAt, revisions };
   }
   return next;
