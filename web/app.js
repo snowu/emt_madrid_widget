@@ -316,7 +316,7 @@ function isStub(detail) {
 function fmtCountdown(seconds) {
   // EMT's sentinel: "running on schedule, no GPS estimate yet". Not a
   // countdown; render it as words.
-  if (seconds >= 888888) return "scheduled";
+  if (seconds >= 24 * 3600) return "scheduled";
   if (seconds <= 0) return "due";
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
@@ -340,6 +340,9 @@ function openWalkingDirections(coordinates) {
   url.searchParams.set("travelmode", "walking");
   window.open(url.toString(), "_blank", "noopener,noreferrer");
 }
+
+const WALKING_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="13" cy="4" r="1.8"></circle><path d="m10.5 8 2.5-1 2.5 2.5 2.5 1"></path><path d="m13 7-2 5 3 2 1.5 5"></path><path d="m11 12-3 3-2 4"></path></svg>';
+const ROUTE_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s6-5.4 6-11a6 6 0 1 0-12 0c0 5.6 6 11 6 11Z"></path><circle cx="12" cy="10" r="2"></circle></svg>';
 
 function openTransitDirections(place) {
   if (!myLocation || !place) return;
@@ -394,7 +397,7 @@ function placeCard(place) {
   stopDirections.type = "button";
   stopDirections.title = option ? `Walk to stop ${option.originStop.stopId}` : "No boarding stop available";
   stopDirections.setAttribute("aria-label", stopDirections.title);
-  stopDirections.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="13" cy="4" r="1.8"></circle><path d="m10.5 8 2.5-1 2.5 2.5 2.5 1"></path><path d="m13 7-2 5 3 2 1.5 5"></path><path d="m11 12-3 3-2 4"></path></svg>';
+  stopDirections.innerHTML = WALKING_ICON;
   stopDirections.disabled = !option?.originStop?.coordinates;
   stopDirections.addEventListener("click", () => openWalkingDirections(option?.originStop?.coordinates));
 
@@ -403,7 +406,7 @@ function placeCard(place) {
   fullRoute.type = "button";
   fullRoute.title = `Transit directions to ${place.name}`;
   fullRoute.setAttribute("aria-label", fullRoute.title);
-  fullRoute.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s6-5.4 6-11a6 6 0 1 0-12 0c0 5.6 6 11 6 11Z"></path><circle cx="12" cy="10" r="2"></circle></svg>';
+  fullRoute.innerHTML = ROUTE_ICON;
   fullRoute.disabled = !myLocation;
   fullRoute.addEventListener("click", () => openTransitDirections(place));
   heading.append(title, distance, stopDirections, fullRoute);
@@ -518,6 +521,18 @@ function renderSavedStops() {
         deleteStop(stop.id);
       });
 
+      const coordinates = details[stop.stop_id]?.coordinates;
+      const walking = document.createElement("button");
+      walking.className = "stop-directions-icon";
+      walking.innerHTML = WALKING_ICON;
+      walking.title = `Walk to stop ${stop.stop_id}`;
+      walking.setAttribute("aria-label", walking.title);
+      walking.disabled = !coordinates;
+      walking.addEventListener("click", (event) => {
+        event.stopPropagation();
+        openWalkingDirections(coordinates);
+      });
+
       const list = document.createElement("ul");
       if (!cached) {
         list.innerHTML = `<li class="muted">No data yet</li>`;
@@ -565,7 +580,7 @@ function renderSavedStops() {
 
       const controls = document.createElement("div");
       controls.className = "controls";
-      controls.append(refresh, remove);
+      controls.append(walking, refresh, remove);
 
       const head = document.createElement("div");
       head.className = "head";

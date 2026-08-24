@@ -532,6 +532,9 @@ body.map-is-fullscreen { overflow: hidden; }
 
 .controls { display: flex; gap: 0.35rem; }
 .controls button { min-width: var(--tap); padding: 0.25rem 0.6rem; }
+.controls .stop-directions-icon { min-width: 34px; width: 34px; min-height: 34px; padding: 0; color: var(--accent); }
+.stop-directions-icon svg, .icon-action svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.icon-action { width: var(--tap); padding: 0; color: var(--accent); }
 
 .stop ul { list-style: none; margin: 0.5rem 0 0; padding: 0; }
 
