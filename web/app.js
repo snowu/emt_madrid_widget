@@ -341,6 +341,17 @@ function openWalkingDirections(coordinates) {
   window.open(url.toString(), "_blank", "noopener,noreferrer");
 }
 
+function openTransitDirections(place) {
+  if (!myLocation || !place) return;
+  const [lat, lon] = myLocation;
+  const url = new URL("https://www.google.com/maps/dir/");
+  url.searchParams.set("api", "1");
+  url.searchParams.set("origin", `${lat},${lon}`);
+  url.searchParams.set("destination", `${place.lat},${place.lon}`);
+  url.searchParams.set("travelmode", "transit");
+  window.open(url.toString(), "_blank", "noopener,noreferrer");
+}
+
 function placeDistance(place) {
   if (!myLocation) return null;
   return metresBetweenCoordinates([myLocation[1], myLocation[0]], [place.lon, place.lat]);
@@ -378,15 +389,24 @@ function placeCard(place) {
   distance.textContent = formatDistance(placeDistance(place)) || "—";
   const planned = journeyFor(place.id);
   const option = planned?.options?.[0];
-  const directions = document.createElement("button");
-  directions.className = "place-directions";
-  directions.type = "button";
-  directions.title = option ? `Walking directions to stop ${option.originStop.stopId}` : "No boarding stop available";
-  directions.setAttribute("aria-label", directions.title);
-  directions.textContent = "➤";
-  directions.disabled = !option?.originStop?.coordinates;
-  directions.addEventListener("click", () => openWalkingDirections(option?.originStop?.coordinates));
-  heading.append(title, distance, directions);
+  const stopDirections = document.createElement("button");
+  stopDirections.className = "place-directions";
+  stopDirections.type = "button";
+  stopDirections.title = option ? `Walk to stop ${option.originStop.stopId}` : "No boarding stop available";
+  stopDirections.setAttribute("aria-label", stopDirections.title);
+  stopDirections.textContent = "➤";
+  stopDirections.disabled = !option?.originStop?.coordinates;
+  stopDirections.addEventListener("click", () => openWalkingDirections(option?.originStop?.coordinates));
+
+  const fullRoute = document.createElement("button");
+  fullRoute.className = "place-directions place-transit-directions";
+  fullRoute.type = "button";
+  fullRoute.title = `Transit directions to ${place.name}`;
+  fullRoute.setAttribute("aria-label", fullRoute.title);
+  fullRoute.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s6-5.4 6-11a6 6 0 1 0-12 0c0 5.6 6 11 6 11Z"></path><circle cx="12" cy="10" r="2"></circle></svg>';
+  fullRoute.disabled = !myLocation;
+  fullRoute.addEventListener("click", () => openTransitDirections(place));
+  heading.append(title, distance, stopDirections, fullRoute);
   card.append(heading);
 
   const route = document.createElement("div");
