@@ -453,6 +453,42 @@ describe("GET /places/geocode", () => {
   });
 });
 
+describe("POST /walking-distances", () => {
+  const userAuth = {
+    method: "POST",
+    headers: { Authorization: "Bearer user-jwt", "content-type": "application/json" },
+  };
+
+  it("requires a signed-in user", async () => {
+    const res = await call("/walking-distances", {
+      method: "POST", body: JSON.stringify({ origin: {}, destinations: [] }),
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it("returns pedestrian-network distances for multiple stops", async () => {
+    const spy = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      if (String(url).includes("/auth/v1/user")) return new Response(JSON.stringify({ id: "user-id" }));
+      return new Response(JSON.stringify({
+        code: "Ok", distances: [[0, 1002.4, 583.1]], durations: [[0, 801.9, 466.7]],
+      }));
+    });
+    const res = await call("/walking-distances", {
+      ...userAuth,
+      body: JSON.stringify({
+        origin: { lat: 40.4168, lon: -3.7038 },
+        destinations: [{ lat: 40.42, lon: -3.7 }, { lat: 40.415, lon: -3.71 }],
+      }),
+    });
+    expect(res.status).toBe(200);
+    expect((await res.json()).routes).toEqual([
+      { metres: 1002, seconds: 802 }, { metres: 583, seconds: 467 },
+    ]);
+    expect(String(spy.mock.calls.find(([url]) => String(url).includes("routed-foot"))[0]))
+      .toContain("annotations=distance,duration");
+  });
+});
+
 describe("GET /stops/nearby", () => {
   beforeEach(async () => {
     await env.KV.delete("nearby:v4:-3.6897:40.4674:500");

@@ -1070,6 +1070,8 @@ let busUserMarker = null;
 let nearbyCell = null;
 let nearbyStops = [];
 let nearbySeq = 0;
+let closestWalking = new Map();
+let closestWalkingOrigin = null;
 
 const NEARBY_RADIUS = 2000;
 
@@ -1561,7 +1563,8 @@ function renderClosestStopsDialog() {
     return;
   }
   const closest = [...nearbyStops].sort((a, b) =>
-    proximity(metresFromCurrent(a.coordinates)) - proximity(metresFromCurrent(b.coordinates))).slice(0, 8);
+    proximity(closestWalking.get(String(a.stopId))?.metres ?? metresFromCurrent(a.coordinates)) -
+    proximity(closestWalking.get(String(b.stopId))?.metres ?? metresFromCurrent(b.coordinates))).slice(0, 8);
   nearbyStopsMessage.textContent = closest.length ? "" : "No stops within 2 km";
   nearbyStopsList.replaceChildren(...closest.map((stop) => {
     const card = document.createElement("article");
@@ -1571,7 +1574,8 @@ function renderClosestStopsDialog() {
     name.textContent = stop.name || `Stop ${stop.stopId}`;
     const meta = document.createElement("small");
     const lineLabels = (stop.lines ?? []).map(normaliseLine).map((line) => line.label).filter(Boolean);
-    meta.textContent = `Nº ${stop.stopId} · ${formatDistance(metresFromCurrent(stop.coordinates)) || "distance unknown"}${lineLabels.length ? ` · ${lineLabels.join(" · ")}` : ""}`;
+    const walk = closestWalking.get(String(stop.stopId));
+    meta.textContent = `Nº ${stop.stopId}${walk?.metres != null ? ` · ${formatDistance(walk.metres)}` : ""}${lineLabels.length ? ` · ${lineLabels.join(" · ")}` : ""}`;
     head.append(name, meta);
     const actions = document.createElement("div");
     const directions = document.createElement("button");
@@ -1606,14 +1610,46 @@ async function updateClosestStopsDialog() {
   if (!nearbyStopsDialog.open || !myLocation) return;
   nearbyStopsMessage.textContent = "Finding nearby stops…";
   await loadNearbyAt(myLocation[0], myLocation[1], { force: true });
+  const originKey = `${myLocation[0].toFixed(5)},${myLocation[1].toFixed(5)}`;
+  if (closestWalkingOrigin !== originKey) {
+    closestWalkingOrigin = originKey;
+    closestWalking = new Map();
+  }
   renderClosestStopsDialog();
+  const candidates = [...nearbyStops]
+    .filter((stop) => Array.isArray(stop.coordinates))
+    .sort((a, b) => proximity(metresFromCurrent(a.coordinates)) - proximity(metresFromCurrent(b.coordinates)))
+    .slice(0, 20);
+  if (candidates.length === 0) return;
+  try {
+    const payload = await api("/walking-distances", {
+      method: "POST",
+      body: JSON.stringify({
+        origin: { lat: myLocation[0], lon: myLocation[1] },
+        destinations: candidates.map((stop) => ({
+          lat: stop.coordinates[1], lon: stop.coordinates[0],
+        })),
+      }),
+    });
+    if (closestWalkingOrigin !== originKey) return;
+    closestWalking = new Map(candidates.map((stop, index) =>
+      [String(stop.stopId), payload.routes[index]]));
+    renderClosestStopsDialog();
+  } catch {
+    // With no pedestrian route, omit distance rather than relabel air distance.
+  }
 }
 
 document.getElementById("nearby-stops-open").addEventListener("click", () => {
   nearbyStopsDialog.showModal();
-  renderClosestStopsDialog();
-  if (!myLocation) refreshLocation({ userInitiated: true, forceNearby: true });
-  else void updateClosestStopsDialog();
+  if (!myLocation) {
+    renderClosestStopsDialog();
+    refreshLocation({ userInitiated: true, forceNearby: true });
+  } else {
+    nearbyStopsMessage.textContent = "Loading…";
+    nearbyStopsList.replaceChildren();
+    void updateClosestStopsDialog();
+  }
 });
 document.getElementById("nearby-stops-close").addEventListener("click", () => nearbyStopsDialog.close());
 
@@ -3181,7 +3217,7 @@ function applyLocation(position, { recenter = false, forceNearby = false } = {})
   render();
   renderBikes();
   void loadNearbyAt(myLocation[0], myLocation[1], { force: forceNearby }).then(() => {
-    if (nearbyStopsDialog.open) renderClosestStopsDialog();
+    if (nearbyStopsDialog.open) void updateClosestStopsDialog();
   });
   void loadBikesNear(myLocation[0], myLocation[1], { force: forceNearby });
   scheduleJourneys({ force: forceNearby });

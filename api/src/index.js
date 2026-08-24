@@ -49,6 +49,7 @@ const TIMETABLE_CACHE_TTL = 24 * 3600;
 // Route geometry changes when EMT redraws a line — a week is generous.
 const ROUTE_CACHE_TTL = 7 * 24 * 3600;
 const GEOCODE_CACHE_TTL = 30 * 24 * 3600;
+const WALKING_CACHE_TTL = 7 * 24 * 3600;
 // One operator-feed read serves the whole city and every area for 45 seconds.
 const BIKES_CACHE_TTL = 45;
 // Names and positions only change when a station is built or moved.
@@ -194,6 +195,50 @@ async function geocodeMadrid(requestUrl, query, ctx) {
     }, ctx);
 }
 
+function madridPoint(value) {
+  const lat = Number(value?.lat);
+  const lon = Number(value?.lon);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon) ||
+      lat < 40.25 || lat > 40.65 || lon < -3.95 || lon > -3.45) {
+    throw new EmtError("not_found", "invalid Madrid coordinate");
+  }
+  return { lat, lon };
+}
+
+async function walkingMatrix(requestUrl, body, ctx) {
+  const origin = madridPoint(body?.origin);
+  if (!Array.isArray(body?.destinations) || body.destinations.length < 1 || body.destinations.length > 25) {
+    throw new EmtError("not_found", "destinations must contain 1–25 coordinates");
+  }
+  const destinations = body.destinations.map(madridPoint);
+  const rounded = [origin, ...destinations]
+    .map(({ lon, lat }) => `${lon.toFixed(5)},${lat.toFixed(5)}`);
+  return edgeCachedJson(requestUrl, `walking/${rounded.join(";")}`, WALKING_CACHE_TTL, async () => {
+    const target = `https://routing.openstreetmap.de/routed-foot/table/v1/driving/${rounded.join(";")}` +
+      "?sources=0&annotations=distance,duration";
+    const response = await fetch(target, {
+      headers: {
+        "user-agent": "emt-madrid-widget/1.0 (https://snowu.github.io/emt_madrid_widget/)",
+        accept: "application/json",
+      },
+    });
+    if (!response.ok) throw new EmtError("upstream", `walking routes HTTP ${response.status}`);
+    const payload = await response.json();
+    if (payload.code !== "Ok" || !Array.isArray(payload.distances?.[0])) {
+      throw new EmtError("upstream", "walking routes returned no matrix");
+    }
+    return {
+      routes: destinations.map((_point, index) => ({
+        metres: payload.distances[0][index + 1] == null
+          ? null : Math.round(payload.distances[0][index + 1]),
+        seconds: payload.durations?.[0]?.[index + 1] == null
+          ? null : Math.round(payload.durations[0][index + 1]),
+      })),
+      fetchedAt: Date.now(),
+    };
+  }, ctx);
+}
+
 function plannerLocation(value, name) {
   const lat = Number(value?.lat);
   const lon = Number(value?.lon);
@@ -335,6 +380,11 @@ export default {
       if (pathname === "/journeys" && method === "POST") {
         await authenticatedUser(env, request);
         return json(await journeys(request, await request.json(), env, ctx), env);
+      }
+
+      if (pathname === "/walking-distances" && method === "POST") {
+        await authenticatedUser(env, request);
+        return json(await walkingMatrix(request.url, await request.json(), ctx), env);
       }
 
       const detail = pathname.match(/^\/stops\/([^/]+)\/detail$/);
