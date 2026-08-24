@@ -1,10 +1,10 @@
 :root {
   color-scheme: dark;
-  --bg: #12141a;
-  --card: #1b1f28;
-  --fg: #f2f4f8;
-  --muted: #8b93a7;
-  --accent: #4ea3ff;
+  --bg: #0c0f14;
+  --card: #171b23;
+  --fg: #f5f7fb;
+  --muted: #929baa;
+  --accent: #54a9ff;
   --accent-ink: #06121f;
   --line: #2c313d;
   --separator: #252a35;
@@ -75,7 +75,11 @@ html, body { height: 100%; }
 
 body {
   margin: 0;
-  padding: 0.75rem 1rem calc(env(safe-area-inset-bottom, 0px) + 5.5rem);
+  width: 100%;
+  max-width: 430px;
+  min-height: 100dvh;
+  margin-inline: auto;
+  padding: 0.6rem 0.75rem calc(env(safe-area-inset-bottom, 0px) + 5.5rem);
   background: var(--bg);
   color: var(--fg);
   font: 16px/1.4 system-ui, -apple-system, sans-serif;
@@ -87,7 +91,7 @@ header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 0.75rem;
+  gap: 0.55rem;
 }
 
 h1 { font-size: 1.25rem; margin: 0; }
@@ -104,7 +108,7 @@ button {
   background: var(--card);
   color: var(--fg);
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 13px;
   min-height: var(--tap);
   padding: 0.5rem 0.9rem;
   font-size: 1rem;
@@ -115,18 +119,23 @@ button:active { transform: scale(0.97); }
 
 .segmented {
   display: flex;
+  gap: 3px;
+  padding: 3px;
+  background: var(--card);
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 14px;
   overflow: hidden;
 }
 
 .segmented button {
   border: none;
-  border-radius: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
   min-width: 4.5rem;
 }
 
-.segmented button + button { border-left: 1px solid var(--line); }
+.segmented button + button { border-left: 0; }
 
 .segmented button[aria-selected="true"] {
   background: var(--accent);
@@ -135,7 +144,7 @@ button:active { transform: scale(0.97); }
 }
 
 #section-menu {
-  margin-top: 0.6rem;
+  margin-top: 0.5rem;
   width: 100%;
   /* body is a flex column, and `overflow: hidden` on .segmented zeroes a flex
      item's automatic minimum size — without this the nav shrinks to its 2px
@@ -144,7 +153,7 @@ button:active { transform: scale(0.97); }
 }
 
 #section-menu button { flex: 1; font-weight: 600; }
-.compact-segmented { align-self: center; margin-top: 0.45rem; flex: none; }
+.compact-segmented { align-self: center; margin-top: 0.4rem; flex: none; }
 .compact-segmented button { min-height: 34px; min-width: 5.5rem; padding: 0.25rem 0.65rem; font-size: 0.78rem; }
 .compact-segmented[hidden] { display: none; }
 #nearby-stops-open { width: var(--tap); padding: 0; color: var(--accent); }
@@ -262,7 +271,7 @@ button:active { transform: scale(0.97); }
 .trip-history-revision span { color: var(--fg); overflow-wrap: anywhere; }
 
 .section-heading {
-  margin: 1rem 0 0;
+  margin: 1.05rem 0 0.45rem;
   font-size: 0.75rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -446,17 +455,20 @@ body.map-is-fullscreen { overflow: hidden; }
   flex: none; /* a squeezed flex item would clip a two-line message */
 }
 
-.place-context { margin: 0.7rem 0 0.25rem; color: var(--muted); font-size: 0.78rem; }
-.place-card { margin-top: 0.65rem; padding: 0.7rem 0.8rem; border-radius: 12px; background: var(--card); }
+.place-context { display: flex; align-items: center; gap: 0.45rem; margin: 0.8rem 0.15rem 0.35rem; color: var(--muted); font-size: 0.75rem; }
+.place-context::before { content: ""; width: 0.42rem; height: 0.42rem; flex: none; border-radius: 50%; background: var(--success); }
+.place-card { margin-top: 0.55rem; padding: 0.7rem 0.75rem 0.6rem; border: 1px solid var(--line); border-radius: 17px; background: var(--card); overflow: hidden; }
+.place-card.featured { border-color: #34664b; background: linear-gradient(145deg, #163126, var(--card) 68%); }
 .place-card-heading { display: grid; grid-template-columns: minmax(0, 1fr) auto var(--tap); align-items: center; gap: 0.45rem; }
 .place-card-heading h2 { margin: 0; overflow-wrap: anywhere; font-size: 1rem; }
 .place-card-heading > span { font-size: 0.72rem; white-space: nowrap; }
-.place-directions { width: var(--tap); padding: 0; color: var(--accent); font-size: 1.05rem; }
-.place-route { display: grid; grid-template-columns: 3.5rem minmax(0, 1fr) auto; align-items: center; gap: 0.55rem; margin-top: 0.55rem; padding-top: 0.5rem; border-top: 1px solid var(--separator); color: var(--muted); font-size: 0.78rem; }
+.place-directions { width: 38px; min-height: 38px; padding: 0; color: var(--accent); font-size: 1.05rem; background: var(--active); }
+.place-route { display: grid; grid-template-columns: 3rem minmax(0, 1fr) auto; align-items: center; gap: 0.55rem; margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid var(--separator); color: var(--muted); font-size: 0.75rem; }
 .place-route p { margin: 0; }
 .place-route p b { color: var(--fg); }
-.place-route time { color: var(--fg); font-size: 1.05rem; font-variant-numeric: tabular-nums; }
-.place-line { font-size: 1.15rem; }
+.place-route time { color: var(--success); font-size: 1.15rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+.place-line { display: grid; place-items: center; min-height: 32px; border-radius: 10px; background: var(--active); font-size: 1.1rem; }
+.place-card > .age { margin: 0.4rem 0 0; }
 #places-dialog { width: min(92vw, 28rem); }
 #places-list { display: grid; gap: 0.4rem; }
 .place-manage-row { display: flex; align-items: center; gap: 0.6rem; padding: 0.45rem 0; border-bottom: 1px solid var(--separator); }
@@ -492,10 +504,20 @@ body.map-is-fullscreen { overflow: hidden; }
 
 .stop {
   background: var(--card);
-  border-radius: 12px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
   padding: 0.75rem 1rem;
   margin-top: 0.75rem;
 }
+
+.place-nearest-bike { margin-top: 0; border-radius: 17px; }
+.place-nearest-bike .bike-counts { margin-inline: -1rem; margin-bottom: -0.75rem; padding: 0.35rem 0.45rem 0.4rem; background: color-mix(in srgb, var(--card) 88%, var(--active)); }
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) .place-card.featured { background: linear-gradient(145deg, #dff7e7, var(--card) 68%); }
+}
+
+:root[data-theme="light"] .place-card.featured { background: linear-gradient(145deg, #dff7e7, var(--card) 68%); }
 
 .head { display: flex; align-items: center; justify-content: space-between; }
 .title h2 {

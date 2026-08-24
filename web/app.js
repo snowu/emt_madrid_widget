@@ -357,9 +357,10 @@ function journeyFor(placeId) {
   return journeyPayload?.destinations?.find((item) => item.destination.id === placeId);
 }
 
-function placeCard(place) {
+function placeCard(place, { featured = false } = {}) {
   const card = document.createElement("article");
   card.className = "place-card";
+  card.classList.toggle("featured", featured);
   const heading = document.createElement("div");
   heading.className = "place-card-heading";
   const title = document.createElement("h2");
@@ -428,7 +429,7 @@ function renderPlaces() {
   context.className = "place-context";
   context.textContent = current ? `At ${current.name}` : "";
   if (current) blocks.push(context);
-  blocks.push(...destinations.map(placeCard));
+  blocks.push(...destinations.map((place, index) => placeCard(place, { featured: index === 0 })));
   if (destinations.length === 0) {
     const empty = document.createElement("p");
     empty.className = "muted";
