@@ -254,10 +254,12 @@ async function journeys(request, body, env, ctx) {
     [stopId, await cachedArrivals(request.url, env, stopId, ctx)])));
   for (const item of planned) {
     for (const option of item.options) {
-      const arrivals = live.get(String(option.originStop.stopId))?.arrivals ?? [];
+      const board = live.get(String(option.originStop.stopId));
+      const arrivals = board?.arrivals ?? [];
       const matching = arrivals.filter((arrival) =>
         arrival.line === option.firstLeg.label || arrival.line === option.firstLeg.line);
       option.firstLeg.arrivals = matching.slice(0, 2).map(({ seconds }) => seconds);
+      option.firstLeg.fetchedAt = board?.fetchedAt ?? null;
     }
   }
   return {

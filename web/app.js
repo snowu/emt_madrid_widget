@@ -401,10 +401,21 @@ function placeCard(place) {
     detail.textContent = connection;
     copy.append(origin, document.createElement("br"), detail);
     const eta = document.createElement("time");
-    eta.textContent = wait == null ? "—" : fmtCountdown(wait);
+    const fetchedAt = option.firstLeg.fetchedAt ?? journeyPayload.generatedAt;
+    eta.className = "eta";
+    eta.textContent = wait == null ? "—" : fmtCountdown(wait - Math.floor((Date.now() - fetchedAt) / 1000));
+    if (wait != null) {
+      eta.dataset.seconds = String(wait);
+      eta.dataset.fetchedAt = String(fetchedAt);
+    }
     route.append(first, copy, eta);
   }
-  card.append(route);
+  const age = document.createElement("p");
+  age.className = "age";
+  const fetchedAt = option?.firstLeg?.fetchedAt ?? journeyPayload?.generatedAt;
+  age.textContent = fetchedAt ? `updated ${fmtAge(fetchedAt)}` : "never updated";
+  if (fetchedAt) age.dataset.fetchedAt = String(fetchedAt);
+  card.append(route, age);
   return card;
 }
 
@@ -1990,7 +2001,9 @@ addForm.addEventListener("submit", async (event) => {
 });
 
 document.getElementById("refresh-all").addEventListener("click", () => {
-  if (section !== "bikes") return refreshAll({ force: true });
+  if (section !== "bikes") {
+    return busListMode === "places" ? loadJourneys({ force: true }) : refreshAll({ force: true });
+  }
   const c = bikeMap?.getCenter();
   loadBikesNear(c?.lat ?? myLocation?.[0] ?? 40.4168, c?.lng ?? myLocation?.[1] ?? -3.7038, {
     force: true,
@@ -2031,7 +2044,8 @@ document.addEventListener("visibilitychange", () => {
     const c = bikeMap?.getCenter();
     loadBikesNear(c?.lat ?? myLocation?.[0] ?? 40.4168, c?.lng ?? myLocation?.[1] ?? -3.7038);
   } else {
-    refreshAll();
+    if (busListMode === "places") loadJourneys();
+    else refreshAll();
   }
 });
 
