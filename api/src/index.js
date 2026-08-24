@@ -32,7 +32,7 @@ import { EmtError, errorResponse } from "./errors.js";
 import { getBikeAccountStatus, getBikeTrips } from "./bicimad-account.js";
 import { authenticatedUser, bearerToken } from "./auth.js";
 import { getBikeTripDiagnostics, monitorBikeTrips } from "./trip-monitor.js";
-import { nearbyAccess, planJourney, stopsWithLiveLines, uniqueLineCodes } from "./journey-planner.js";
+import { nearbyAccess, planJourney, uniqueLineCodes } from "./journey-planner.js";
 
 // Short-lived, high-traffic data belongs in the Cache API, not KV. Cache API
 // operations do not consume the Workers KV daily operation allowance.
@@ -300,35 +300,22 @@ async function journeys(request, body, env, ctx) {
     nearbyAccess(await cachedNearby(request.url, env, destination.lat, destination.lon,
       destination.radius, ctx), destination, 6)));
 
-  // A geometrically good daytime line is useless after its service ends. Read
-  // the candidate boarding boards first and plan with lines EMT predicts now.
-  // These reads share the normal 20-second arrival cache.
-  const liveStopIds = originStops.map((stop) => String(stop.stopId));
-  const live = new Map(await Promise.all(liveStopIds.map(async (stopId) =>
-    [stopId, await cachedArrivals(request.url, env, stopId, ctx)])));
-  const activeOriginStops = stopsWithLiveLines(originStops, live);
-
-  // Put active lines first without discarding the static set used for fallback.
-  // The hard ceiling protects EMT on a cold cache; route entries then live 7 days.
-  const routeCodes = prioritizedRouteCodes([...activeOriginStops, ...originStops], destinationStops);
+  // Direct matches go first, then round-robin origin/destination lines. The
+  // hard ceiling protects EMT on a cold cache; route entries then live 7 days.
+  const routeCodes = prioritizedRouteCodes(originStops, destinationStops);
   const routeEntries = await Promise.all(routeCodes.map(async (code) =>
     [code, await cachedRoute(request.url, env, code, ctx)]));
   const routes = new Map(routeEntries);
-  const planned = destinations.map((destination, index) => {
-    const active = planJourney({
-      originStops: activeOriginStops,
-      destinationStops: destinationStops[index],
-      routes,
-    });
-    return {
-      destination,
-      options: active.length ? active : planJourney({
-        originStops,
-        destinationStops: destinationStops[index],
-        routes,
-      }),
-    };
-  });
+  const planned = destinations.map((destination, index) => ({
+    destination,
+    options: planJourney({ originStops, destinationStops: destinationStops[index], routes }),
+  }));
+
+  // Only the stops used by the best result get live reads, never more than 3.
+  const liveStopIds = [...new Set(planned.flatMap((item) =>
+    item.options.slice(0, 1).map((option) => String(option.originStop.stopId))))].slice(0, 3);
+  const live = new Map(await Promise.all(liveStopIds.map(async (stopId) =>
+    [stopId, await cachedArrivals(request.url, env, stopId, ctx)])));
   for (const item of planned) {
     for (const option of item.options) {
       const board = live.get(String(option.originStop.stopId));
