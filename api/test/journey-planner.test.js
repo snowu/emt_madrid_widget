@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { nearbyAccess, planJourney, stopsWithLiveLines } from "../src/journey-planner.js";
+import {
+  boardHasLine,
+  nearbyAccess,
+  planJourney,
+  stopsWithLiveLines,
+} from "../src/journey-planner.js";
 
 const stop = (stopId, lon, lat, lines = []) => ({
   stopId, coordinates: [lon, lat], lines: lines.map((line) => ({ line, label: line })),
@@ -19,6 +24,12 @@ describe("journey planner", () => {
     expect(stopsWithLiveLines(stops, boards)).toEqual([
       { stopId: "1836", lines: [{ label: "N2" }] },
     ]);
+  });
+
+  it("matches onward lines against live transfer predictions", () => {
+    const board = { arrivals: [{ line: "N1" }, { line: "N2" }] };
+    expect(boardHasLine(board, { line: "N2" })).toBe(true);
+    expect(boardHasLine(board, { label: "29" })).toBe(false);
   });
 
   it("sorts nearby access stops by walking distance", () => {

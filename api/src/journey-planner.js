@@ -18,6 +18,12 @@ function lineCode(entry) {
   return String(entry?.line ?? entry?.label ?? "").trim();
 }
 
+export function boardHasLine(board, line) {
+  const wanted = lineCode(line).toUpperCase();
+  return Boolean(wanted) && (board?.arrivals ?? [])
+    .some((arrival) => lineCode(arrival).toUpperCase() === wanted);
+}
+
 export function stopsWithLiveLines(stops, boards) {
   return (stops ?? []).map((stop) => {
     const arrivals = boards.get(String(stop.stopId))?.arrivals ?? [];
