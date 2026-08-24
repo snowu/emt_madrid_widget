@@ -405,7 +405,8 @@ function placeCard(place) {
       ? "direct"
       : `then ${option.secondLeg.label} · ${option.transfer.walkM} m transfer`;
     const origin = document.createElement("b");
-    origin.textContent = `Stop ${option.originStop.stopId} · ${Math.round(option.originStop.distanceM)} m walk`;
+    const walkMetres = option.originStop.walkMetres ?? option.originStop.distanceM;
+    origin.textContent = `Stop ${option.originStop.stopId} · ${Math.round(walkMetres)} m walk`;
     const detail = document.createElement("small");
     detail.textContent = connection;
     copy.append(origin, document.createElement("br"), detail);

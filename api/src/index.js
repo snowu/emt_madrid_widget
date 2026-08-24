@@ -276,23 +276,20 @@ async function journeys(request, body, env, ctx) {
     radius: Math.min(3000, Math.max(2000, Number(destination.destinationRadiusM) || 2000)),
   }));
   const originRaw = await cachedNearby(request.url, env, origin.lat, origin.lon, 2000, ctx);
-  const originCandidates = nearbyAccess(originRaw, origin, 20);
-  let originStops = originCandidates.slice(0, 6);
+  const originStops = nearbyAccess(originRaw, origin, 6);
   let walkingRouted = false;
   try {
     const matrix = await walkingMatrix(request.url, {
       origin,
-      destinations: originCandidates.map((stop) => ({
+      destinations: originStops.map((stop) => ({
         lat: stop.coordinates?.[1], lon: stop.coordinates?.[0],
       })),
     }, ctx);
-    const routed = originCandidates.map((stop, index) => ({
-      ...stop,
-      distanceM: matrix.routes[index]?.metres,
-      walkSeconds: matrix.routes[index]?.seconds,
-    })).filter((stop) => Number.isFinite(stop.distanceM) && Number.isFinite(stop.walkSeconds));
-    if (routed.length) {
-      originStops = routed.sort((a, b) => a.distanceM - b.distanceM).slice(0, 6);
+    for (const [index, stop] of originStops.entries()) {
+      const route = matrix.routes[index];
+      if (!Number.isFinite(route?.metres) || !Number.isFinite(route?.seconds)) continue;
+      stop.walkMetres = route.metres;
+      stop.walkSeconds = route.seconds;
       walkingRouted = true;
     }
   } catch {
