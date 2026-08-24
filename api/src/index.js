@@ -32,13 +32,7 @@ import { EmtError, errorResponse } from "./errors.js";
 import { getBikeAccountStatus, getBikeTrips } from "./bicimad-account.js";
 import { authenticatedUser, bearerToken } from "./auth.js";
 import { getBikeTripDiagnostics, monitorBikeTrips } from "./trip-monitor.js";
-import {
-  boardHasLine,
-  nearbyAccess,
-  planJourney,
-  stopsWithLiveLines,
-  uniqueLineCodes,
-} from "./journey-planner.js";
+import { nearbyAccess, planJourney, stopsWithLiveLines, uniqueLineCodes } from "./journey-planner.js";
 
 // Short-lived, high-traffic data belongs in the Cache API, not KV. Cache API
 // operations do not consume the Workers KV daily operation allowance.
@@ -328,7 +322,7 @@ async function journeys(request, body, env, ctx) {
     });
     return {
       destination,
-      options: activeOriginStops.length ? active : planJourney({
+      options: active.length ? active : planJourney({
         originStops,
         destinationStops: destinationStops[index],
         routes,
@@ -345,22 +339,6 @@ async function journeys(request, body, env, ctx) {
       option.firstLeg.fetchedAt = board?.fetchedAt ?? null;
     }
   }
-
-  // A live first bus is not enough: at night, a geometrically valid transfer
-  // can point to a daytime line that has already stopped. Validate the onward
-  // boarding boards too. Six unique stops caps the extra live reads, and each
-  // still shares the normal 20-second arrival cache.
-  const transferStopIds = [...new Set(planned.flatMap((item) => item.options
-    .filter((option) => option.type === "one_transfer")
-    .map((option) => String(option.transfer.toStop.stopId))))].slice(0, 6);
-  const transferLive = new Map(await Promise.all(transferStopIds.map(async (stopId) =>
-    [stopId, await cachedArrivals(request.url, env, stopId, ctx)])));
-  for (const item of planned) {
-    item.options = item.options.filter((option) => option.type === "direct" || boardHasLine(
-      transferLive.get(String(option.transfer.toStop.stopId)),
-      option.secondLeg,
-    ));
-  }
   return {
     origin,
     destinations: planned,
@@ -369,7 +347,7 @@ async function journeys(request, body, env, ctx) {
       nearby: 1 + destinations.length,
       walking: walkingRouted ? 1 : 0,
       routes: routeCodes.length,
-      arrivals: liveStopIds.length + transferStopIds.length,
+      arrivals: liveStopIds.length,
     },
   };
 }
