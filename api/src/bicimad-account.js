@@ -217,18 +217,25 @@ function tripSummary(trip) {
   const extra = trip?.extrainfo && typeof trip.extrainfo === "object" ? trip.extrainfo : {};
   const interval = intervalTimestamps(trip?.trip_interval);
   let startedAt = tripTimestamp(trip?.undock) ?? tripTimestamp(trip?.start_ts) ?? interval[0] ?? null;
-  let endedAt = tripTimestamp(trip?.dock) ?? tripTimestamp(trip?.end_ts) ?? interval[1]
-    ?? tripTimestamp(trip?.message_timestamp) ?? null;
+  let endedAt = tripTimestamp(trip?.dock) ?? tripTimestamp(trip?.end_ts) ?? interval[1] ?? null;
+  const messageAt = tripTimestamp(trip?.message_timestamp);
   const minutes = Number(trip?.trip_minutes);
   if (Number.isFinite(minutes) && minutes >= 0) {
+    // `message_timestamp` has been observed as Madrid wall time shifted to UTC
+    // without an offset. Prefer the unambiguous trip start + duration.
     if (startedAt == null && endedAt != null) {
       const endMs = timestampMillis(endedAt);
       if (Number.isFinite(endMs)) startedAt = endMs - minutes * 60_000;
     } else if (endedAt == null && startedAt != null) {
       const startMs = timestampMillis(startedAt);
       if (Number.isFinite(startMs)) endedAt = startMs + minutes * 60_000;
+    } else if (startedAt == null && messageAt != null) {
+      endedAt = messageAt;
+      const endMs = timestampMillis(endedAt);
+      if (Number.isFinite(endMs)) startedAt = endMs - minutes * 60_000;
     }
   }
+  endedAt ??= messageAt;
   return {
     tripId: trip?.trip_id ?? null,
     bikeNumber: displayedBikeNumber(trip?.id_bike),
