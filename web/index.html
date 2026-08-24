@@ -175,7 +175,20 @@
 
     <dialog id="bike-trips-dialog">
       <form id="bike-trips-form" method="dialog">
-        <h2>Trip history</h2>
+        <div class="trip-dialog-head">
+          <h2>Trip history</h2>
+          <div class="trip-dialog-actions" role="group" aria-label="Trip history actions">
+            <button type="submit" id="bike-trips-search" title="Search" aria-label="Search">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"></circle><path d="m15.5 15.5 5 5"></path></svg>
+            </button>
+            <button type="button" id="bike-trips-refresh" title="Refresh trips" aria-label="Refresh trips">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6v5h-5"></path><path d="M18.4 15a8 8 0 1 1 .5-7.2L20 11"></path></svg>
+            </button>
+            <button type="button" id="bike-trips-close" title="Close" aria-label="Close">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"></path></svg>
+            </button>
+          </div>
+        </div>
         <p class="muted">Cached history syncs incrementally. Leave the bike number empty to show every ride.</p>
         <input id="bike-trips-number" inputmode="numeric" autocomplete="off" placeholder="Bike number (optional)" />
         <div class="trip-view-toggle" role="group" aria-label="Trip display">
@@ -188,11 +201,6 @@
           <summary>Fields returned by BiciMAD</summary>
           <code></code>
         </details>
-        <div class="dialog-actions">
-          <button type="button" id="bike-trips-close">Close</button>
-          <button type="button" id="bike-trips-refresh">Refresh</button>
-          <button type="submit" id="bike-trips-search">Search</button>
-        </div>
       </form>
     </dialog>
 

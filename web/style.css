@@ -166,6 +166,36 @@ button:active { transform: scale(0.97); }
 #bike-trips-open { min-height: 36px; padding: 0.3rem 0.7rem; font-size: 0.85rem; }
 
 .trip-results { display: flex; flex-direction: column; gap: 0.5rem; }
+.trip-dialog-head {
+  position: sticky;
+  top: -1.25rem;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin: -1.25rem -0.25rem 0;
+  padding: 1rem 0.25rem 0.65rem;
+  background: var(--card);
+  border-bottom: 1px solid var(--line);
+}
+.trip-dialog-actions { display: flex; gap: 0.35rem; }
+.trip-dialog-actions button {
+  width: 2.25rem;
+  min-height: 2.25rem;
+  padding: 0;
+  font-size: 1.25rem;
+  line-height: 1;
+}
+.trip-dialog-actions svg {
+  width: 1.1rem;
+  height: 1.1rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
 .trip-view-toggle { display: flex; gap: 0.35rem; margin: 0.65rem 0 0; }
 .trip-view-toggle button { flex: 1; min-height: 38px; }
 .trip-view-toggle button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); background: var(--selected-wash); }
