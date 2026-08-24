@@ -56,7 +56,8 @@ export function writeDetail(stopId, detail) {
 const BIKE_SAVED_KEY = "emt:bikes:saved";
 const BIKE_NEAR_KEY = "emt:bikes:near";
 const BIKE_ACCOUNT_KEY = "emt:bikes:account";
-const BIKE_TRIPS_KEY = "emt:bikes:trips:v1";
+// v2 adds normalized trip start/end timestamps; repopulate old histories once.
+const BIKE_TRIPS_KEY = "emt:bikes:trips:v2";
 
 /** Saved bike stations mirror the same rule as saved bus stops: the server
  *  owns them, this is only so a cold start renders something. */

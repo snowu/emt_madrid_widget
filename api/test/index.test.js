@@ -309,7 +309,7 @@ describe("GET /bikes/trips", () => {
       return new Response(JSON.stringify({
         code: "00",
         data: [
-          { trip_id: 1, id_bike: "00018302", trip_minutes: 18, trip_cost: 0.5, old_amount: 8, new_amount: 7.5, internal_secret: "nope" },
+          { trip_id: 1, id_bike: "00018302", undock: "2026-08-24T08:10:00+02:00", dock: { timestamp: "2026-08-24T08:28:00+02:00" }, trip_minutes: 18, trip_cost: 0.5, old_amount: 8, new_amount: 7.5, internal_secret: "nope" },
           { trip_id: 2, id_bike: 9999, trip_minutes: 7, trip_cost: 0 },
         ],
       }), { status: 200 });
@@ -323,7 +323,14 @@ describe("GET /bikes/trips", () => {
       bikeNumber: "18302",
       internalBikeId: "00018302",
       countOnPage: 2,
-      matchedOnPage: [{ tripId: 1, bikeNumber: "18302", minutes: 18, cost: 0.5 }],
+      matchedOnPage: [{
+        tripId: 1,
+        bikeNumber: "18302",
+        startedAt: "2026-08-24T08:10:00+02:00",
+        endedAt: "2026-08-24T08:28:00+02:00",
+        minutes: 18,
+        cost: 0.5,
+      }],
     });
     expect(body.fields).toContain("internal_secret");
     expect(JSON.stringify(body)).not.toContain("private-nif");

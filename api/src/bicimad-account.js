@@ -180,12 +180,23 @@ function accountSummary(data) {
   };
 }
 
+function tripTimestamp(value) {
+  if (typeof value === "string" || typeof value === "number") return value;
+  if (!value || typeof value !== "object") return null;
+  for (const key of ["timestamp", "datetime", "date", "time", "ts", "start_ts", "end_ts"]) {
+    if (typeof value[key] === "string" || typeof value[key] === "number") return value[key];
+  }
+  return null;
+}
+
 function tripSummary(trip) {
   const penalty = trip?.penalty && typeof trip.penalty === "object" ? trip.penalty : {};
   const extra = trip?.extrainfo && typeof trip.extrainfo === "object" ? trip.extrainfo : {};
   return {
     tripId: trip?.trip_id ?? null,
     bikeNumber: displayedBikeNumber(trip?.id_bike),
+    startedAt: tripTimestamp(trip?.undock ?? trip?.start_ts),
+    endedAt: tripTimestamp(trip?.dock ?? trip?.end_ts),
     interval: trip?.trip_interval ?? null,
     minutes: trip?.trip_minutes ?? null,
     cost: trip?.trip_cost ?? null,

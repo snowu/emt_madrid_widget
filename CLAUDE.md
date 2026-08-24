@@ -396,7 +396,7 @@ app 5.8.8 on 2026-08-23).** The current app uses:
 GET https://apiemtpay.emtmadrid.es/v2/bicimad/userdata/
     NM_STATE, IT_STATUS, DS_BALANCE, contracts and access media
 GET https://apiemtpay.emtmadrid.es/v2/bicimad/trips/
-    trip cost, old/new balance, bonuses, penalty count/amount/timestamps
+    start/end time, trip cost, old/new balance, bonuses and penalties
 GET https://api.mpass.mobi/v1/core/identity/whoami
 GET https://api.mpass.mobi/v3/transportcard/list/0
 ```

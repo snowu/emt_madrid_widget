@@ -248,6 +248,7 @@ button:active { transform: scale(0.97); }
   font-size: 0.78rem;
 }
 .trip-row:last-child { border-bottom: none; }
+.trip-row .trip-dates { grid-column: 1 / -1; color: var(--fg); font-size: 0.74rem; }
 .trip-row .warn { grid-column: 1 / -1; color: var(--warning); }
 #bike-trips-fields code { overflow-wrap: anywhere; color: var(--muted); }
 

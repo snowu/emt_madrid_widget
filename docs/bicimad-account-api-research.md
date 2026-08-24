@@ -77,7 +77,7 @@ request mapping. Incremental consumers must page until they overlap a retained
 
 Each trip can contain:
 
-- `trip_id`, `id_bike`, `trip_interval`, `trip_minutes`
+- `trip_id`, `id_bike`, `undock`, `dock`, `trip_interval`, `trip_minutes`
 - `old_amount`, `new_amount`, `trip_cost`
 - `dock_bono`, `undock_bono`, `reserve_bono`
 - `penalty.penalty`

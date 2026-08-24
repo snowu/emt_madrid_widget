@@ -1722,12 +1722,42 @@ function euro(value) {
     : null;
 }
 
+function tripDate(value) {
+  if (value == null || value === "") return null;
+  let date;
+  if (typeof value === "number") {
+    date = new Date(value < 10_000_000_000 ? value * 1000 : value);
+  } else {
+    const text = String(value).trim();
+    const local = text.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?/);
+    date = local
+      ? new Date(Number(local[3]), Number(local[2]) - 1, Number(local[1]),
+        Number(local[4]), Number(local[5]), Number(local[6] || 0))
+      : new Date(text);
+  }
+  if (Number.isNaN(date.getTime())) return String(value);
+  return new Intl.DateTimeFormat(undefined, {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
 function renderTripRow(trip) {
   const shownBikeNumber = trip.bikeNumber == null
     ? null
     : String(trip.bikeNumber).replace(/^0+(?=\d)/, "");
   const row = document.createElement("div");
   row.className = "trip-row";
+  const started = tripDate(trip.startedAt);
+  const ended = tripDate(trip.endedAt);
+  if (started || ended) {
+    const dates = document.createElement("span");
+    dates.className = "trip-dates";
+    dates.textContent = `${started ?? "Start unavailable"} → ${ended ?? "End unavailable"}`;
+    row.append(dates);
+  }
   const timing = document.createElement("span");
   timing.textContent = [trip.interval, trip.minutes == null ? null : `${trip.minutes} min`]
     .filter(Boolean).join(" · ") || "Time unavailable";
