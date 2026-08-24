@@ -19,9 +19,9 @@ alter table public.places add constraint places_address_check
   check (address is null or char_length(address) <= 240);
 
 -- Upgrade installations created with the original 500 m destination search.
+alter table public.places drop constraint if exists places_destination_radius_m_check;
 update public.places set destination_radius_m = 2000 where destination_radius_m < 2000;
 alter table public.places alter column destination_radius_m set default 2000;
-alter table public.places drop constraint if exists places_destination_radius_m_check;
 alter table public.places add constraint places_destination_radius_m_check
   check (destination_radius_m between 2000 and 3000);
 
