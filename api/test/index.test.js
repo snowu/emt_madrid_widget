@@ -310,7 +310,7 @@ describe("GET /bikes/trips", () => {
         code: "00",
         data: [
           { trip_id: 1, id_bike: "00018302", undock: "2026-08-24T08:10:00+02:00", dock: { timestamp: "2026-08-24T08:28:00+02:00" }, trip_minutes: 18, trip_cost: 0.5, old_amount: 8, new_amount: 7.5, internal_secret: "nope" },
-          { trip_id: 2, id_bike: 9999, trip_minutes: 7, trip_cost: 0 },
+          { trip_id: 2, id_bike: 9999, undock: true, dock: true, trip_interval: "24/08/2026 09:30 - 24/08/2026 09:37", trip_minutes: 7, trip_cost: 0 },
         ],
       }), { status: 200 });
     });
@@ -341,7 +341,12 @@ describe("GET /bikes/trips", () => {
 
     // The NIF is retained only inside the secret owner session. Later pages
     // skip the otherwise-identical userdata request.
-    expect((await call("/bikes/trips?page=3", userAuth)).status).toBe(200);
+    const later = await call("/bikes/trips?page=3", userAuth);
+    expect(later.status).toBe(200);
+    expect((await later.json()).matchedOnPage[1]).toMatchObject({
+      startedAt: "24/08/2026 09:30",
+      endedAt: "24/08/2026 09:37",
+    });
     expect(spy.mock.calls.filter(([url]) => String(url).includes("/bicimad/userdata/")))
       .toHaveLength(1);
   });

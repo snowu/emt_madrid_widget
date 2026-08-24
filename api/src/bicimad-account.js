@@ -183,20 +183,57 @@ function accountSummary(data) {
 function tripTimestamp(value) {
   if (typeof value === "string" || typeof value === "number") return value;
   if (!value || typeof value !== "object") return null;
-  for (const key of ["timestamp", "datetime", "date", "time", "ts", "start_ts", "end_ts"]) {
+  for (const key of [
+    "timestamp", "datetime", "dateTime", "date_time", "date", "time", "ts",
+    "start_ts", "end_ts", "startTime", "endTime", "createdAt", "updatedAt",
+  ]) {
     if (typeof value[key] === "string" || typeof value[key] === "number") return value[key];
   }
   return null;
 }
 
+function intervalTimestamps(value) {
+  if (typeof value !== "string") return [];
+  // EMT has shipped both ISO timestamps and dd/mm/yyyy values inside
+  // `trip_interval`; retain the original timezone when it is present.
+  const iso = value.match(/\d{4}-\d{2}-\d{2}[T ]\d{1,2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?/g);
+  if (iso?.length) return iso.slice(0, 2);
+  return (value.match(/\d{1,2}[/-]\d{1,2}[/-]\d{4}[ T]\d{1,2}:\d{2}(?::\d{2})?/g) || []).slice(0, 2);
+}
+
+function timestampMillis(value) {
+  if (typeof value === "number") return value < 10_000_000_000 ? value * 1000 : value;
+  if (typeof value !== "string") return NaN;
+  const local = value.trim().match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?/);
+  if (local) {
+    return new Date(Number(local[3]), Number(local[2]) - 1, Number(local[1]),
+      Number(local[4]), Number(local[5]), Number(local[6] || 0)).getTime();
+  }
+  return Date.parse(value);
+}
+
 function tripSummary(trip) {
   const penalty = trip?.penalty && typeof trip.penalty === "object" ? trip.penalty : {};
   const extra = trip?.extrainfo && typeof trip.extrainfo === "object" ? trip.extrainfo : {};
+  const interval = intervalTimestamps(trip?.trip_interval);
+  let startedAt = tripTimestamp(trip?.undock) ?? tripTimestamp(trip?.start_ts) ?? interval[0] ?? null;
+  let endedAt = tripTimestamp(trip?.dock) ?? tripTimestamp(trip?.end_ts) ?? interval[1]
+    ?? tripTimestamp(trip?.message_timestamp) ?? null;
+  const minutes = Number(trip?.trip_minutes);
+  if (Number.isFinite(minutes) && minutes >= 0) {
+    if (startedAt == null && endedAt != null) {
+      const endMs = timestampMillis(endedAt);
+      if (Number.isFinite(endMs)) startedAt = endMs - minutes * 60_000;
+    } else if (endedAt == null && startedAt != null) {
+      const startMs = timestampMillis(startedAt);
+      if (Number.isFinite(startMs)) endedAt = startMs + minutes * 60_000;
+    }
+  }
   return {
     tripId: trip?.trip_id ?? null,
     bikeNumber: displayedBikeNumber(trip?.id_bike),
-    startedAt: tripTimestamp(trip?.undock ?? trip?.start_ts),
-    endedAt: tripTimestamp(trip?.dock ?? trip?.end_ts),
+    startedAt,
+    endedAt,
     interval: trip?.trip_interval ?? null,
     minutes: trip?.trip_minutes ?? null,
     cost: trip?.trip_cost ?? null,
