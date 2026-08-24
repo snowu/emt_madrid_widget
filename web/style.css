@@ -483,6 +483,12 @@ body.map-is-fullscreen { overflow: hidden; }
 .nearby-stop-card small { color: var(--muted); font-size: 0.72rem; overflow-wrap: anywhere; }
 .nearby-stop-card > div:last-child { display: flex; gap: 0.3rem; }
 .nearby-stop-card button { width: 38px; min-height: 38px; padding: 0; }
+.nearby-stop-card .nearby-stop-favourite {
+  border-color: transparent;
+  background: transparent;
+  color: var(--star);
+  font-size: 1.1rem;
+}
 
 .stop {
   background: var(--card);

@@ -1587,15 +1587,16 @@ function renderClosestStopsDialog() {
     const saved = stops.find((row) => row.stop_id === String(stop.stopId));
     const save = document.createElement("button");
     save.type = "button";
-    save.textContent = saved ? "Saved" : "＋";
-    save.disabled = Boolean(saved);
-    save.title = saved ? "Already saved" : `Save stop ${stop.stopId}`;
+    save.className = "nearby-stop-favourite";
+    save.textContent = saved ? "★" : "☆";
+    save.title = saved ? `Remove stop ${stop.stopId} from saved` : `Save stop ${stop.stopId}`;
     save.setAttribute("aria-label", save.title);
     save.addEventListener("click", async () => {
       save.disabled = true;
       try {
-        await addStopById(String(stop.stopId), stop.name, stop);
-        save.textContent = "Saved";
+        if (saved) await deleteStop(saved.id);
+        else await addStopById(String(stop.stopId), stop.name, stop);
+        renderClosestStopsDialog();
       } catch {
         save.disabled = false;
       }
@@ -2867,6 +2868,7 @@ async function toggleBikeSaved(station, saved) {
     writeBikeSaved(bikeSaved);
     statusEl.textContent = "";
     renderBikes();
+    render();
     rebuildBikeMarkers();
   } catch (err) {
     statusEl.textContent = `Could not save station: ${err.message}`;
