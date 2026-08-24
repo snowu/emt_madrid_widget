@@ -320,7 +320,8 @@ async function journeys(request, body, env, ctx) {
 
   // Active lines get the scarce route slots first; static lines remain loaded
   // for the fallback used when EMT supplied no live boards at all.
-  const routeCodes = prioritizedRouteCodes([...activeOriginStops, ...originStops], destinationStops);
+  const plannerOrigins = activeOriginStops.length ? activeOriginStops : originStops;
+  const routeCodes = prioritizedRouteCodes(plannerOrigins, destinationStops, 10);
   const routeEntries = await Promise.all(routeCodes.map(async (code) =>
     [code, await cachedRoute(request.url, env, code, ctx)]));
   const routes = new Map(routeEntries);
@@ -352,9 +353,10 @@ async function journeys(request, body, env, ctx) {
 
   let transferStopIds = [];
   if (activeOriginStops.length) {
-    transferStopIds = [...new Set(planned.flatMap((item) => item.options
-      .filter((option) => option.type === "one_transfer")
-      .map((option) => String(option.transfer.toStop.stopId))))].slice(0, 6);
+    transferStopIds = [...new Set(planned.map((item) => item.options
+      .find((option) => option.type === "one_transfer"))
+      .filter(Boolean)
+      .map((option) => String(option.transfer.toStop.stopId)))].slice(0, 3);
     const transferLive = new Map(await Promise.all(transferStopIds.map(async (stopId) => {
       try {
         return [stopId, await cachedArrivals(request.url, env, stopId, ctx)];
