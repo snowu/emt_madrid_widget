@@ -1722,7 +1722,7 @@ function euro(value) {
     : null;
 }
 
-function tripDate(value) {
+function tripDate(value, { timeOnly = false } = {}) {
   if (value == null || value === "") return null;
   let date;
   if (typeof value === "number") {
@@ -1736,7 +1736,10 @@ function tripDate(value) {
       : new Date(text);
   }
   if (Number.isNaN(date.getTime())) return String(value);
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat(undefined, timeOnly ? {
+    hour: "2-digit",
+    minute: "2-digit",
+  } : {
     day: "2-digit",
     month: "short",
     hour: "2-digit",
@@ -1751,7 +1754,7 @@ function renderTripRow(trip) {
   const row = document.createElement("div");
   row.className = "trip-row";
   const started = tripDate(trip.startedAt);
-  const ended = tripDate(trip.endedAt);
+  const ended = tripDate(trip.endedAt, { timeOnly: true });
   if (started || ended) {
     const dates = document.createElement("span");
     dates.className = "trip-dates";
