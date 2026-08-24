@@ -2663,6 +2663,8 @@ function bikeCard(station, saved) {
   const card = document.createElement("article");
   card.className = "stop bike";
   const known = station.bikes != null;
+  card.classList.toggle("station-unavailable",
+    known && (!station.inService || station.renting === false));
   card.addEventListener("click", () => openBikeStation(station));
 
   const titleWrap = document.createElement("div");
@@ -2685,9 +2687,20 @@ function bikeCard(station, saved) {
     toggleBikeSaved(station, saved);
   });
 
+  const directions = document.createElement("button");
+  directions.className = "bike-directions";
+  directions.textContent = "➤";
+  directions.title = `Walking directions to ${bikeTitle(station, saved)}`;
+  directions.setAttribute("aria-label", directions.title);
+  directions.disabled = !station.coordinates;
+  directions.addEventListener("click", (event) => {
+    event.stopPropagation();
+    openWalkingDirections(station.coordinates);
+  });
+
   const controls = document.createElement("div");
   controls.className = "controls";
-  controls.append(fav);
+  controls.append(directions, fav);
 
   const head = document.createElement("div");
   head.className = "head bike-head";
@@ -2845,7 +2858,6 @@ const bikeForm = document.getElementById("bike-form");
 const bikeSheetHeading = document.getElementById("bike-sheet-heading");
 const bikeSheetMeta = document.getElementById("bike-sheet-meta");
 const bikeSheetCounts = document.getElementById("bike-sheet-counts");
-const bikeSheetDetails = document.getElementById("bike-sheet-details");
 const bikeSheetName = document.getElementById("bike-sheet-name");
 const bikeSheetLabel = document.getElementById("bike-sheet-label");
 const bikeSheetEdit = document.getElementById("bike-sheet-edit");
@@ -2910,24 +2922,6 @@ function renderBikeSheet() {
     ? `Nº ${station.number} · ${station.address}`
     : `Nº ${station.number}`;
   bikeSheetCounts.replaceChildren(bikeCounts(station));
-
-  const facts = [
-    ["Taking bikes", station.renting === false ? "Unavailable" : "Available"],
-    ["Returning bikes", station.returning === false ? "Unavailable" : "Available"],
-    ["Station", station.inService ? "In service" : "Out of service"],
-    ["Capacity", station.totalBases ?? "—"],
-  ];
-  if (station.broken > 0) facts.push(["Disabled bikes", station.broken]);
-  if (station.brokenDocks > 0) facts.push(["Disabled docks", station.brokenDocks]);
-  bikeSheetDetails.replaceChildren(...facts.map(([label, value]) => {
-    const row = document.createElement("div");
-    const term = document.createElement("span");
-    term.textContent = label;
-    const result = document.createElement("strong");
-    result.textContent = value;
-    row.append(term, result);
-    return row;
-  }));
 
   bikeSheetLabel.value = saved?.label ?? "";
   bikeSheetLabel.placeholder = station.name || "BiciMAD station";
