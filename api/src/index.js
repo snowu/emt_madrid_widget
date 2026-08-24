@@ -276,7 +276,29 @@ async function journeys(request, body, env, ctx) {
     radius: Math.min(3000, Math.max(2000, Number(destination.destinationRadiusM) || 2000)),
   }));
   const originRaw = await cachedNearby(request.url, env, origin.lat, origin.lon, 2000, ctx);
-  const originStops = nearbyAccess(originRaw, origin, 6);
+  const originCandidates = nearbyAccess(originRaw, origin, 20);
+  let originStops = originCandidates.slice(0, 6);
+  let walkingRouted = false;
+  try {
+    const matrix = await walkingMatrix(request.url, {
+      origin,
+      destinations: originCandidates.map((stop) => ({
+        lat: stop.coordinates?.[1], lon: stop.coordinates?.[0],
+      })),
+    }, ctx);
+    const routed = originCandidates.map((stop, index) => ({
+      ...stop,
+      distanceM: matrix.routes[index]?.metres,
+      walkSeconds: matrix.routes[index]?.seconds,
+    })).filter((stop) => Number.isFinite(stop.distanceM) && Number.isFinite(stop.walkSeconds));
+    if (routed.length) {
+      originStops = routed.sort((a, b) => a.distanceM - b.distanceM).slice(0, 6);
+      walkingRouted = true;
+    }
+  } catch {
+    // Journey planning remains available if the public pedestrian router is
+    // temporarily down. Without routed timing the UI deliberately stays neutral.
+  }
   const destinationStops = await Promise.all(destinations.map(async (destination) =>
     nearbyAccess(await cachedNearby(request.url, env, destination.lat, destination.lon,
       destination.radius, ctx), destination, 6)));
@@ -311,7 +333,12 @@ async function journeys(request, body, env, ctx) {
     origin,
     destinations: planned,
     generatedAt: Date.now(),
-    calls: { nearby: 1 + destinations.length, routes: routeCodes.length, arrivals: liveStopIds.length },
+    calls: {
+      nearby: 1 + destinations.length,
+      walking: walkingRouted ? 1 : 0,
+      routes: routeCodes.length,
+      arrivals: liveStopIds.length,
+    },
   };
 }
 

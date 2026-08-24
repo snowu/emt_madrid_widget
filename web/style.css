@@ -458,7 +458,9 @@ body.map-is-fullscreen { overflow: hidden; }
 .place-context { display: flex; align-items: center; gap: 0.45rem; margin: 0.8rem 0.15rem 0.35rem; color: var(--muted); font-size: 0.75rem; }
 .place-context::before { content: ""; width: 0.42rem; height: 0.42rem; flex: none; border-radius: 50%; background: var(--success); }
 .place-card { margin-top: 0.55rem; padding: 0.7rem 0.75rem 0.6rem; border: 1px solid var(--line); border-radius: 17px; background: var(--card); overflow: hidden; }
-.place-card.featured { border-color: #34664b; background: linear-gradient(145deg, #163126, var(--card) 68%); }
+.place-card.reachability-comfortable { border-color: color-mix(in srgb, var(--success) 58%, var(--line)); background: color-mix(in srgb, var(--card) 92%, var(--success)); }
+.place-card.reachability-tight { border-color: color-mix(in srgb, var(--warning) 65%, var(--line)); background: color-mix(in srgb, var(--card) 92%, var(--warning)); }
+.place-card.reachability-missed { border-color: color-mix(in srgb, var(--danger) 58%, var(--line)); background: color-mix(in srgb, var(--card) 94%, var(--danger)); }
 .place-card-heading { display: grid; grid-template-columns: minmax(0, 1fr) auto var(--tap); align-items: center; gap: 0.45rem; }
 .place-card-heading h2 { margin: 0; overflow-wrap: anywhere; font-size: 1rem; }
 .place-card-heading > span { font-size: 0.72rem; white-space: nowrap; }
@@ -513,11 +515,6 @@ body.map-is-fullscreen { overflow: hidden; }
 .place-nearest-bike { margin-top: 0; border-radius: 17px; }
 .place-nearest-bike .bike-counts { margin-inline: -1rem; margin-bottom: -0.75rem; padding: 0.35rem 0.45rem 0.4rem; background: color-mix(in srgb, var(--card) 88%, var(--active)); }
 
-@media (prefers-color-scheme: light) {
-  :root:not([data-theme="dark"]) .place-card.featured { background: linear-gradient(145deg, #dff7e7, var(--card) 68%); }
-}
-
-:root[data-theme="light"] .place-card.featured { background: linear-gradient(145deg, #dff7e7, var(--card) 68%); }
 
 .head { display: flex; align-items: center; justify-content: space-between; }
 .title h2 {

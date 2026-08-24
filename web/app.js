@@ -357,10 +357,18 @@ function journeyFor(placeId) {
   return journeyPayload?.destinations?.find((item) => item.destination.id === placeId);
 }
 
-function placeCard(place, { featured = false } = {}) {
+function setPlaceReachability(card, waitSeconds, walkSeconds) {
+  card.classList.remove("reachability-comfortable", "reachability-tight", "reachability-missed");
+  const margin = Number(waitSeconds) - Number(walkSeconds);
+  if (!Number.isFinite(margin)) return;
+  card.classList.add(margin < 0
+    ? "reachability-missed"
+    : margin < 120 ? "reachability-tight" : "reachability-comfortable");
+}
+
+function placeCard(place) {
   const card = document.createElement("article");
   card.className = "place-card";
-  card.classList.toggle("featured", featured);
   const heading = document.createElement("div");
   heading.className = "place-card-heading";
   const title = document.createElement("h2");
@@ -403,11 +411,14 @@ function placeCard(place, { featured = false } = {}) {
     copy.append(origin, document.createElement("br"), detail);
     const eta = document.createElement("time");
     const fetchedAt = option.firstLeg.fetchedAt ?? journeyPayload.generatedAt;
+    const elapsed = Math.floor((Date.now() - fetchedAt) / 1000);
     eta.className = "eta";
-    eta.textContent = wait == null ? "—" : fmtCountdown(wait - Math.floor((Date.now() - fetchedAt) / 1000));
+    eta.textContent = wait == null ? "—" : fmtCountdown(wait - elapsed);
     if (wait != null) {
       eta.dataset.seconds = String(wait);
       eta.dataset.fetchedAt = String(fetchedAt);
+      eta.dataset.walkSeconds = String(option.originStop.walkSeconds ?? "");
+      setPlaceReachability(card, wait - elapsed, option.originStop.walkSeconds);
     }
     route.append(first, copy, eta);
   }
@@ -429,7 +440,7 @@ function renderPlaces() {
   context.className = "place-context";
   context.textContent = current ? `At ${current.name}` : "";
   if (current) blocks.push(context);
-  blocks.push(...destinations.map((place, index) => placeCard(place, { featured: index === 0 })));
+  blocks.push(...destinations.map(placeCard));
   if (destinations.length === 0) {
     const empty = document.createElement("p");
     empty.className = "muted";
@@ -2041,7 +2052,12 @@ function tickStopList() {
   const now = Date.now();
   for (const eta of listEl.querySelectorAll(".eta[data-seconds][data-fetched-at]")) {
     const elapsed = Math.floor((now - Number(eta.dataset.fetchedAt)) / 1000);
-    eta.textContent = fmtCountdown(Number(eta.dataset.seconds) - elapsed);
+    const remaining = Number(eta.dataset.seconds) - elapsed;
+    eta.textContent = fmtCountdown(remaining);
+    if (eta.dataset.walkSeconds) {
+      const card = eta.closest(".place-card");
+      if (card) setPlaceReachability(card, remaining, eta.dataset.walkSeconds);
+    }
   }
   for (const age of listEl.querySelectorAll(".age[data-fetched-at]")) {
     age.textContent = `updated ${fmtAge(Number(age.dataset.fetchedAt))}`;
