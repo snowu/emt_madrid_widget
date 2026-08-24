@@ -25,8 +25,8 @@ without making live arrival or bike data misleadingly stale.
 | Refresh all buses | one request per saved stop, concurrent | 0 for warm stops | one EMT arrival call per cold stop |
 | Open or pan bus map | 1 per ~110m search cell | 0 for a cached cell | 1 EMT nearby call |
 | Open or pan bike map | 1 combined nearby + saved request | 0 inside 45s | 2 GBFS reads; 1 MobilityLabs fallback if GBFS fails |
-| Reopen bike trip history | 0 after first complete load | 0 | one EMTPay trip call per 30-row page, plus userdata once per MPass session |
-| Read bike account status | 1, owner only | 1 EMTPay userdata call | plus 1 MPass login when the session expired |
+| Reopen bike trip history | 0 to render cache; 1+ for background sync | one trip page until cached overlap | all pages only on the first device load |
+| Read bike account status | 0 from browser cache; refresh is 1 | 0 until explicit refresh | 1 userdata call; plus MPass login only when expired |
 | Read/write bike ratings | 1 | 1 Supabase REST call | same |
 
 The browser coalesces identical concurrent GETs. Bus arrival data also has a
@@ -38,8 +38,11 @@ arrival cache once and renders once.
 
 - Bike map refresh no longer follows `/bikes/nearby` with a separate
   `/bikes/stations?ids=...`; saved stations ride in the nearby response.
-- Trip searches no longer download all history again. The full history and
-  ratings are loaded once per browser session, then filtered/grouped locally.
+- Trip history persists per signed-in browser user. Sync reads pages only until
+  it overlaps a known trip (or resumes at the last page for oldest-first data),
+  while searches and grouping remain entirely local.
+- Normal account checks reuse the normalized status inside the private MPass
+  session and browser cache. Only the Refresh button calls userdata again.
 - Each trip page no longer performs an identical userdata lookup; the NIF is
   retained only in the encrypted Worker secret store/session cache.
 - Nearby healing for detail-less saved bus stops clusters origins covered by a
@@ -58,8 +61,9 @@ arrival cache once and renders once.
 - Arrival requests remain per stop because EMT exposes a per-stop endpoint.
   Parallel refresh minimizes latency; the 20-second edge and browser guards
   prevent rapid repeats.
-- Trip history is paginated upstream and owner-only. Pages stay sequential to
-  avoid a burst of private EMTPay calls and because the final page is unknown.
+- Trip history is paginated upstream and owner-only. No date/since parameter is
+  present in the captured app contract, so cached overlap is the incremental
+  cursor. Pages stay sequential because the final page is unknown.
 - Saved buses and saved bike stations remain separate Supabase calls. Combining
   the Worker routes would remove one browser round trip but not one database
   call, while coupling two independently optional datasets.

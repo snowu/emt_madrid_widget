@@ -244,7 +244,8 @@ export default {
         if (!env.OWNER_USER_ID || user.id !== env.OWNER_USER_ID) {
           throw new EmtError("forbidden", "BiciMAD account status is owner-only");
         }
-        return json(await getBikeAccountStatus(env), env);
+        const refresh = url.searchParams.get("refresh") === "1";
+        return json(await getBikeAccountStatus(env, { force: refresh }), env);
       }
 
       if (pathname === "/bikes/trips" && method === "GET") {

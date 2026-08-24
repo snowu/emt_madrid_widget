@@ -10,8 +10,13 @@ import {
   writeBikeSaved,
   readBikeNear,
   writeBikeNear,
+  readBikeAccount,
+  writeBikeAccount,
+  readBikeTrips,
+  writeBikeTrips,
   setUserCacheScope,
 } from "./cache.js";
+import { mergeTripHistory, tripIdentity, tripsAreOldestFirst } from "./trips.js";
 
 const API = "https://emt-arrivals.zancato-t.workers.dev";
 const THEME_KEY = "emt:theme";
@@ -444,6 +449,7 @@ function showSignedOut(message = "") {
   setUserCacheScope(null);
   stops = [];
   bikeSaved = [];
+  resetBikePrivateState();
   authButton.textContent = "Sign in";
   authButton.title = "Sign in with an email link";
   authButton.setAttribute("aria-label", "Sign in");
@@ -461,6 +467,7 @@ async function applySession(session) {
   authSession = session;
   authUser = session.user;
   setUserCacheScope(authUser.id);
+  resetBikePrivateState();
   stops = readStops();
   bikeSaved = readBikeSaved();
   authButton.textContent = "☰";
@@ -478,6 +485,7 @@ async function applySession(session) {
     isOwner = false;
   }
   bikeAccountEl.hidden = section !== "bikes" || !isOwner;
+  if (isOwner) showCachedBikeAccount();
   await Promise.all([loadStops(), loadBikeSaved()]);
 }
 
@@ -1628,18 +1636,37 @@ function showBikeAccount(text, tone = "") {
   bikeAccountDot.className = `bike-account-dot${tone ? ` ${tone}` : ""}`;
 }
 
-async function loadBikeAccount() {
+function renderBikeAccountStatus(payload) {
+  const age = payload?.checkedAt ? ` · checked ${fmtAge(payload.checkedAt)}` : "";
+  if (payload?.blocked) {
+    showBikeAccount(`Account blocked by BiciMAD${age}`, "blocked");
+  } else if (!payload?.accountEnabled || !payload?.activeContract) {
+    showBikeAccount(`Account not ready to rent${age}`, "warn");
+  } else {
+    showBikeAccount(`Account active · not blocked${age}`, "ready");
+  }
+}
+
+function showCachedBikeAccount() {
+  const cached = readBikeAccount();
+  if (cached) renderBikeAccountStatus(cached);
+  else showBikeAccount("Account status not checked");
+}
+
+async function loadBikeAccount({ force = false } = {}) {
+  if (!force) {
+    const cached = readBikeAccount();
+    if (cached) {
+      renderBikeAccountStatus(cached);
+      return;
+    }
+  }
   bikeAccountCheck.disabled = true;
   showBikeAccount("Checking account…");
   try {
-    const payload = await api("/bikes/account");
-    if (payload.blocked) {
-      showBikeAccount("Account blocked by BiciMAD", "blocked");
-    } else if (!payload.accountEnabled || !payload.activeContract) {
-      showBikeAccount("Account not ready to rent", "warn");
-    } else {
-      showBikeAccount("Account active · not blocked", "ready");
-    }
+    const payload = await api(`/bikes/account${force ? "?refresh=1" : ""}`);
+    writeBikeAccount(payload);
+    renderBikeAccountStatus(payload);
   } catch (err) {
     if (err.kind === "auth") {
       showBikeAccount("BiciMAD session expired", "warn");
@@ -1653,7 +1680,7 @@ async function loadBikeAccount() {
   }
 }
 
-bikeAccountCheck.addEventListener("click", loadBikeAccount);
+bikeAccountCheck.addEventListener("click", () => loadBikeAccount({ force: true }));
 
 const bikeTripsDialog = document.getElementById("bike-trips-dialog");
 const bikeTripsForm = document.getElementById("bike-trips-form");
@@ -1663,13 +1690,29 @@ const bikeTripsResults = document.getElementById("bike-trips-results");
 const bikeTripsFields = document.getElementById("bike-trips-fields");
 const bikeTripsChronological = document.getElementById("bike-trips-chronological");
 const bikeTripsGrouped = document.getElementById("bike-trips-grouped");
+const bikeTripsRefresh = document.getElementById("bike-trips-refresh");
 let loadedBikeTrips = [];
 let allBikeTrips = null;
 let bikeTripPages = 0;
 let bikeTripFieldsSeen = [];
 let bikeRatingsLoaded = false;
+let bikeTripsSynced = false;
+let bikeTripsSync = null;
+let bikeTripsCachedAt = null;
 let groupBikeTrips = false;
 const bikeRatings = new Map();
+
+function resetBikePrivateState() {
+  loadedBikeTrips = [];
+  allBikeTrips = null;
+  bikeTripPages = 0;
+  bikeTripFieldsSeen = [];
+  bikeRatingsLoaded = false;
+  bikeTripsSynced = false;
+  bikeTripsSync = null;
+  bikeTripsCachedAt = null;
+  bikeRatings.clear();
+}
 
 function euro(value) {
   const numeric = Number(value);
@@ -1841,64 +1884,116 @@ async function loadBikeRatings() {
   if (loadedBikeTrips.length) renderBikeTrips();
 }
 
-async function loadBikeTrips() {
+function restoreBikeTrips() {
+  if (allBikeTrips) return true;
+  const cached = readBikeTrips();
+  if (!cached || !Array.isArray(cached.trips)) return false;
+  allBikeTrips = cached.trips;
+  bikeTripPages = Number(cached.pages) || 0;
+  bikeTripFieldsSeen = Array.isArray(cached.fields) ? cached.fields : [];
+  bikeTripsCachedAt = Number(cached.syncedAt) || null;
+  return true;
+}
+
+function filterAndRenderBikeTrips(status = null) {
   const bike = bikeTripsNumber.value.trim();
   if (bike && !/^\d+$/.test(bike)) {
     bikeTripsStatus.textContent = "Enter the number painted on the bike.";
-    return;
+    return false;
   }
-  if (allBikeTrips) {
-    loadedBikeTrips = bike
-      ? allBikeTrips.filter((trip) => String(trip.bikeNumber) === bike.replace(/^0+(?=\d)/, ""))
-      : allBikeTrips;
-    renderBikeTrips();
-    const uniqueBikes = new Set(loadedBikeTrips.map((trip) => trip.bikeNumber)).size;
-    bikeTripsStatus.textContent = loadedBikeTrips.length
-      ? `${loadedBikeTrips.length} trips · ${uniqueBikes} bikes · cached this session`
-      : `No rides for bike ${bike}`;
-    return;
+  loadedBikeTrips = bike
+    ? (allBikeTrips ?? []).filter((trip) => String(trip.bikeNumber) === bike.replace(/^0+(?=\d)/, ""))
+    : (allBikeTrips ?? []);
+  renderBikeTrips();
+  const uniqueBikes = new Set(loadedBikeTrips.map((trip) => trip.bikeNumber)).size;
+  if (status) {
+    bikeTripsStatus.textContent = status;
+  } else if (loadedBikeTrips.length) {
+    const cached = bikeTripsCachedAt ? ` · synced ${fmtAge(bikeTripsCachedAt)}` : "";
+    bikeTripsStatus.textContent = `${loadedBikeTrips.length} trips · ${uniqueBikes} bikes${cached}`;
+  } else {
+    bikeTripsStatus.textContent = bike ? `No rides for bike ${bike}` : "No rides cached";
   }
-  bikeTripsStatus.textContent = "Loading…";
-  bikeTripsResults.replaceChildren();
-  try {
-    const allTrips = [];
+  bikeTripsFields.hidden = bikeTripFieldsSeen.length === 0;
+  bikeTripsFields.querySelector("code").textContent = bikeTripFieldsSeen.join(", ");
+  return true;
+}
+
+/** EMTPay exposes page only—there is no observed since/date parameter. Fetch
+ * newest-first pages until one overlaps our persistent history, then merge.
+ * With no cache this naturally walks the complete history once. */
+async function syncBikeTrips({ force = false } = {}) {
+  if (bikeTripsSync) return bikeTripsSync;
+  if (!force && bikeTripsSynced) return;
+  const operation = (async () => {
+    restoreBikeTrips();
+    const existing = allBikeTrips ?? [];
+    const known = new Set(existing.map(tripIdentity));
+    const fetched = [];
     const fields = new Set();
     const pageSignatures = new Set();
-    let pages = 0;
+    const oldestFirst = tripsAreOldestFirst(existing);
+    const startPage = oldestFirst ? Math.max(0, bikeTripPages - 1) : 0;
+    let fetchedPages = 0;
+    let maxPageSeen = startPage - 1;
+    let overlap = false;
     const maxPages = 50;
-    for (; pages < maxPages; pages += 1) {
-      bikeTripsStatus.textContent = `Loading page ${pages + 1}…`;
-      const query = new URLSearchParams({ page: String(pages) });
+    for (let page = startPage; fetchedPages < maxPages; page += 1) {
+      bikeTripsStatus.textContent = known.size
+        ? `Checking for new trips · page ${page + 1}…`
+        : `Loading history · page ${page + 1}…`;
+      const query = new URLSearchParams({ page: String(page) });
       const payload = await api(`/bikes/trips?${query}`);
+      fetchedPages += 1;
+      maxPageSeen = page;
       const signature = payload.matchedOnPage
-        .map((trip) => `${trip.tripId}:${trip.bikeNumber}:${trip.interval}`)
+        .map(tripIdentity)
         .join("|");
       if (signature && pageSignatures.has(signature)) break;
       pageSignatures.add(signature);
-      allTrips.push(...payload.matchedOnPage);
+      fetched.push(...payload.matchedOnPage);
       for (const field of payload.fields) fields.add(field);
-      if (payload.countOnPage < 30) {
-        pages += 1;
-        break;
-      }
+      overlap = known.size > 0 && payload.matchedOnPage.some((trip) => known.has(tripIdentity(trip)));
+      if (overlap && !oldestFirst) break;
+      if (payload.countOnPage < 30) break;
     }
 
-    allBikeTrips = allTrips;
-    bikeTripPages = pages;
-    bikeTripFieldsSeen = [...fields].sort();
-    loadedBikeTrips = bike
-      ? allTrips.filter((trip) => String(trip.bikeNumber) === bike.replace(/^0+(?=\d)/, ""))
-      : allTrips;
-    renderBikeTrips();
-    const uniqueBikes = new Set(loadedBikeTrips.map((trip) => trip.bikeNumber)).size;
-    bikeTripsStatus.textContent = loadedBikeTrips.length
-      ? `${loadedBikeTrips.length} trips · ${uniqueBikes} bikes · ${bikeTripPages} pages`
-      : bike ? `No rides for bike ${bike}` : `No rides across ${bikeTripPages} pages`;
-    bikeTripsFields.hidden = bikeTripFieldsSeen.length === 0;
-    bikeTripsFields.querySelector("code").textContent = bikeTripFieldsSeen.join(", ");
+    const newCount = new Set(
+      fetched.filter((trip) => !known.has(tripIdentity(trip))).map(tripIdentity),
+    ).size;
+    allBikeTrips = mergeTripHistory(existing, fetched, oldestFirst);
+    bikeTripPages = Math.max(bikeTripPages, maxPageSeen + 1);
+    bikeTripFieldsSeen = [...new Set([...bikeTripFieldsSeen, ...fields])].sort();
+    bikeTripsCachedAt = Date.now();
+    bikeTripsSynced = true;
+    writeBikeTrips({
+      trips: allBikeTrips,
+      pages: bikeTripPages,
+      fields: bikeTripFieldsSeen,
+      syncedAt: bikeTripsCachedAt,
+    });
+    const suffix = newCount ? `${newCount} new trip${newCount === 1 ? "" : "s"}` : "No new trips";
+    filterAndRenderBikeTrips(`${allBikeTrips.length} trips cached · ${suffix}`);
+  })();
+  bikeTripsSync = operation;
+  try {
+    await operation;
   } catch (err) {
-    bikeTripsStatus.textContent = err.message;
+    bikeTripsStatus.textContent = `Showing cached trips · ${err.message}`;
+  } finally {
+    if (bikeTripsSync === operation) bikeTripsSync = null;
   }
+}
+
+async function loadBikeTrips() {
+  if (!filterAndRenderBikeTrips()) return;
+  if (!restoreBikeTrips()) {
+    bikeTripsStatus.textContent = "Loading history…";
+    bikeTripsResults.replaceChildren();
+  } else {
+    filterAndRenderBikeTrips();
+  }
+  await syncBikeTrips();
 }
 
 bikeTripsOpen.addEventListener("click", () => {
@@ -1906,19 +2001,15 @@ bikeTripsOpen.addEventListener("click", () => {
   void loadBikeRatings().catch((err) => {
     bikeTripsStatus.textContent = `Ratings unavailable: ${err.message}`;
   });
-  if (allBikeTrips) {
-    void loadBikeTrips();
-  } else {
-    bikeTripsStatus.textContent = "";
-    bikeTripsResults.replaceChildren();
-    void loadBikeTrips();
-  }
+  bikeTripsStatus.textContent = "";
+  void loadBikeTrips();
 });
 bikeTripsForm.addEventListener("submit", (event) => {
   event.preventDefault();
   void loadBikeTrips();
 });
 document.getElementById("bike-trips-close").addEventListener("click", () => bikeTripsDialog.close());
+bikeTripsRefresh.addEventListener("click", () => void syncBikeTrips({ force: true }));
 bikeTripsChronological.addEventListener("click", () => {
   groupBikeTrips = false;
   bikeTripsChronological.setAttribute("aria-pressed", "true");

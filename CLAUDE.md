@@ -25,7 +25,8 @@ avoid churn. Ignore it.
 web/                 static page, deployed to GitHub Pages. Holds no secrets.
   index.html         every dialog and view lives here; nothing is templated in JS
   app.js             the whole page (~1.6k lines), one ES module, no framework
-  cache.js           localStorage read/write, the only module app.js imports
+  cache.js           localStorage read/write helpers
+  trips.js           pure trip identity, ordering and incremental-merge helpers
   style.css          system/light/dark themes, phone-first; no preprocessor
   manifest.webmanifest, icon.svg    home-screen install
 api/                 Cloudflare Worker. Holds EMT and optional owner MPass credentials.
@@ -68,7 +69,7 @@ GET    /lines/:line/route          both directions: paths + stops
 GET    /lines/:line/timetable      service window per day type
 GET    /bikes/stations?ids=a,b     all 680, or just the ids asked for
 GET    /bikes/nearby?lat=&lon=&radius=&ids=   nearby plus optional saved stations
-GET    /bikes/account                 minimal private account eligibility summary
+GET    /bikes/account?refresh=1       cached eligibility; refresh=1 rechecks upstream
 GET    /bikes/trips?page=&bike=       owner-only normalized trip history
 GET    /bikes/ratings                 current user's bike ratings
 PUT    /bikes/ratings/:bikeNumber     {rating: 1..5}
@@ -87,13 +88,13 @@ Upstream auth and upstream failures are 502; quota is 503 until daily reset.
 ### Cache keys and TTLs
 
 Public transport payloads use the Workers Cache API, which does not consume KV
-operations. Only shared credentials remain in KV. TTLs are declared at the top
-of `src/index.js`:
+operations. KV holds shared credentials plus the normalized owner-status cache.
+TTLs are declared at the top of `src/index.js`:
 
 | key | storage | TTL | why |
 | --- | --- | --- | --- |
 | `emt:token` | KV + isolate memory | login expiry − 60s | shared credential, not public data |
-| `bicimad:owner-session` | KV + isolate memory | login expiry − 60s | private MPass session and cached NIF |
+| `bicimad:owner-session` | KV + isolate memory | login expiry − 60s | private MPass session, NIF and normalized account status |
 | `arrivals/` | Cache API | 20s | one full board serves card and detail views |
 | `bikes` | Cache API | 45s | one call serves the whole city, nearby and saved stations |
 | `bike-info` | Cache API | 24h | station names and coordinates are nearly static |
@@ -423,6 +424,12 @@ write endpoints while researching. Full findings and response fields are in
 `docs/bicimad-account-api-research.md`; `tools/bicimad-account.mjs` is the
 GET-only probe.
 
+The captured trips request exposes only `page`; no date, cursor or `since`
+parameter has been observed. The browser therefore persists normalized trips
+per signed-in user and performs overlap-based incremental sync: newest-first
+feeds start at page 0 and stop on a known trip; an oldest-first ordering resumes
+from the previous final page. A manual Refresh repeats that sync.
+
 Aggregate usage *is* available separately: datos.madrid.es publishes
 anonymised BiciMAD trips 2017-2023 and station status by day/hour.
 
@@ -430,7 +437,8 @@ anonymised BiciMAD trips 2017-2023 and station status by day/hour.
 
 **Minimal backend, holding only secrets.** The worker exists because a public
 page cannot hold credentials and cannot call EMT directly (CORS). It forwards
-requests and caches the token. Nothing else belongs in it.
+requests and retains only shared login state and normalized owner status; raw
+account payloads never enter a cache or browser response.
 
 **Cloudflare Workers, free plan, no card attached.** Past the daily limit the
 free plan rejects requests rather than billing. Cost cannot balloon.
@@ -442,9 +450,10 @@ compares `auth.uid()` with each row's `user_id`, providing the actual tenant
 boundary even if a route filter is missed.
 
 **localStorage is a cache, not shared state.** Public arrival/detail/count data
-is shared locally. Saved-stop and favourite-station mirrors are namespaced by
-Supabase user id so two people using one browser never see each other's cache.
-The server owns all persisted state; `cache.js` is only a mirror.
+is shared locally. Saved-stop, favourite-station, owner-status and normalized
+trip-history caches are namespaced by Supabase user id so two people using one
+browser never see each other's data. EMT/Supabase remain authoritative;
+`cache.js` only provides last-known and incremental-sync state.
 
 **Stop IDs are typed in by hand.** No GTFS index; build that pipeline only if
 hand-entry becomes annoying. (The map's nearby search has since made this

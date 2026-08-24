@@ -157,6 +157,29 @@ function setFlag(value) {
   return value === true || value === 1 || value === "1" || value === "true";
 }
 
+function accountSummary(data) {
+  if (!data || typeof data !== "object") {
+    throw new EmtError("upstream", "BiciMAD account response has no user data");
+  }
+  const contracts = Array.isArray(data.dataContract) ? data.dataContract : [];
+  const activeContract = contracts.some(
+    (contract) => contract?.IT_ACTIVE === true && contract?.IT_STATUS === true,
+  );
+  const accountEnabled = data.IT_STATUS === true;
+  const blocked = data.IT_BLOCKED === true;
+  return {
+    accountEnabled,
+    blocked,
+    changesBlocked: data.NM_BLOCK_CHANGES === true,
+    activeContract,
+    // Preserve the opaque backend state for diagnosis; observed meanings are
+    // not guessed from the MPass access-medium enum.
+    stateCode: Number.isFinite(Number(data.NM_STATE)) ? Number(data.NM_STATE) : null,
+    accountReady: accountEnabled && !blocked && activeContract,
+    checkedAt: Date.now(),
+  };
+}
+
 function tripSummary(trip) {
   const penalty = trip?.penalty && typeof trip.penalty === "object" ? trip.penalty : {};
   const extra = trip?.extrainfo && typeof trip.extrainfo === "object" ? trip.extrainfo : {};
@@ -204,7 +227,7 @@ export async function getBikeTrips(env, { page = 0, bikeNumber = null } = {}) {
     const account = Array.isArray(accountBody?.data) ? accountBody.data[0] : accountBody?.data;
     nif = account?.DS_NIF || account?.DS_DN;
     if (nif) {
-      session = { ...session, nif };
+      session = { ...session, nif, accountStatus: accountSummary(account) };
       await cacheSession(env, session);
     }
   }
@@ -246,9 +269,12 @@ export async function getBikeTrips(env, { page = 0, bikeNumber = null } = {}) {
   };
 }
 
-/** Query the account backend and expose no identity, card or contract ids. */
-export async function getBikeAccountStatus(env) {
+/** Query the account backend and expose no identity, card or contract ids.
+ * The normalized status lives inside the private MPass session cache. `force`
+ * bypasses only that status value; it does not discard a valid login. */
+export async function getBikeAccountStatus(env, { force = false } = {}) {
   let session = await login(env);
+  if (!force && session.accountStatus) return session.accountStatus;
   let response = await requestAccount(env, session);
 
   let body;
@@ -273,25 +299,7 @@ export async function getBikeAccountStatus(env) {
   }
 
   const data = Array.isArray(body.data) ? body.data[0] : body.data;
-  if (!data || typeof data !== "object") {
-    throw new EmtError("upstream", "BiciMAD account response has no user data");
-  }
-  const contracts = Array.isArray(data.dataContract) ? data.dataContract : [];
-  const activeContract = contracts.some(
-    (contract) => contract?.IT_ACTIVE === true && contract?.IT_STATUS === true,
-  );
-  const accountEnabled = data.IT_STATUS === true;
-  const blocked = data.IT_BLOCKED === true;
-
-  return {
-    accountEnabled,
-    blocked,
-    changesBlocked: data.NM_BLOCK_CHANGES === true,
-    activeContract,
-    // Preserve the opaque backend state for diagnosis; observed meanings are
-    // not guessed from the MPass access-medium enum.
-    stateCode: Number.isFinite(Number(data.NM_STATE)) ? Number(data.NM_STATE) : null,
-    accountReady: accountEnabled && !blocked && activeContract,
-    checkedAt: Date.now(),
-  };
+  const status = accountSummary(data);
+  await cacheSession(env, { ...session, accountStatus: status });
+  return status;
 }

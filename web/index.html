@@ -40,7 +40,7 @@
     <section id="bike-account" class="bike-account" hidden aria-live="polite">
       <span id="bike-account-dot" class="bike-account-dot" aria-hidden="true"></span>
       <span id="bike-account-text">Account status not checked</span>
-      <button id="bike-account-check" type="button">Check</button>
+      <button id="bike-account-check" type="button">Refresh</button>
       <button id="bike-trips-open" type="button">Trips</button>
     </section>
 
@@ -176,7 +176,7 @@
     <dialog id="bike-trips-dialog">
       <form id="bike-trips-form" method="dialog">
         <h2>Trip history</h2>
-        <p class="muted">Leave the bike number empty to inspect all rides on a page.</p>
+        <p class="muted">Cached history syncs incrementally. Leave the bike number empty to show every ride.</p>
         <input id="bike-trips-number" inputmode="numeric" autocomplete="off" placeholder="Bike number (optional)" />
         <div class="trip-view-toggle" role="group" aria-label="Trip display">
           <button type="button" id="bike-trips-chronological" aria-pressed="true">Chronological</button>
@@ -190,6 +190,7 @@
         </details>
         <div class="dialog-actions">
           <button type="button" id="bike-trips-close">Close</button>
+          <button type="button" id="bike-trips-refresh">Refresh</button>
           <button type="submit" id="bike-trips-search">Search</button>
         </div>
       </form>

@@ -32,6 +32,7 @@ jobs:
           v="${GITHUB_SHA::8}"
           sed -i "s#\(href\|src\)=\"\(style.css\|app.js\|icon.svg\|manifest.webmanifest\)\"#\1=\"\2?v=$v\"#g" web/index.html
           sed -i "s#from \"./cache.js\"#from \"./cache.js?v=$v\"#" web/app.js
+          sed -i "s#from \"./trips.js\"#from \"./trips.js?v=$v\"#" web/app.js
           grep -n "?v=" web/index.html web/app.js
       - uses: actions/upload-pages-artifact@v3
         with:

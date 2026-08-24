@@ -71,6 +71,10 @@ Headers are the account headers above plus:
 nif, session, mode: mPass, page (optional)
 ```
 
+No date, cursor, or `since` header/parameter is present in the published app's
+request mapping. Incremental consumers must page until they overlap a retained
+`trip_id`; they cannot ask EMTPay to filter server-side by date.
+
 Each trip can contain:
 
 - `trip_id`, `id_bike`, `trip_interval`, `trip_minutes`

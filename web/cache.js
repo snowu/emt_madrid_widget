@@ -55,6 +55,8 @@ export function writeDetail(stopId, detail) {
 
 const BIKE_SAVED_KEY = "emt:bikes:saved";
 const BIKE_NEAR_KEY = "emt:bikes:near";
+const BIKE_ACCOUNT_KEY = "emt:bikes:account";
+const BIKE_TRIPS_KEY = "emt:bikes:trips:v1";
 
 /** Saved bike stations mirror the same rule as saved bus stops: the server
  *  owns them, this is only so a cold start renders something. */
@@ -74,4 +76,21 @@ export function readBikeNear() {
 
 export function writeBikeNear(payload) {
   localStorage.setItem(BIKE_NEAR_KEY, JSON.stringify(payload));
+}
+
+/** Private owner data is scoped to the signed-in Supabase user. */
+export function readBikeAccount() {
+  return read(userKey(BIKE_ACCOUNT_KEY), null);
+}
+
+export function writeBikeAccount(payload) {
+  localStorage.setItem(userKey(BIKE_ACCOUNT_KEY), JSON.stringify(payload));
+}
+
+export function readBikeTrips() {
+  return read(userKey(BIKE_TRIPS_KEY), null);
+}
+
+export function writeBikeTrips(payload) {
+  localStorage.setItem(userKey(BIKE_TRIPS_KEY), JSON.stringify(payload));
 }

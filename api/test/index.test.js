@@ -223,6 +223,17 @@ describe("GET /bikes/account", () => {
     });
     expect(JSON.stringify(body)).not.toContain("private-user-id");
     expect(JSON.stringify(body)).not.toContain("private@example.com");
+
+    // Ordinary checks reuse the normalized private session value. Explicit
+    // refresh bypasses it without throwing away the still-valid MPass login.
+    expect((await call("/bikes/account", userAuth)).status).toBe(200);
+    expect(spy.mock.calls.filter(([url]) => String(url).includes("/bicimad/userdata/")))
+      .toHaveLength(1);
+    expect((await call("/bikes/account?refresh=1", userAuth)).status).toBe(200);
+    expect(spy.mock.calls.filter(([url]) => String(url).includes("/bicimad/userdata/")))
+      .toHaveLength(2);
+    expect(spy.mock.calls.filter(([url]) => String(url).includes("/identity/login/integrator")))
+      .toHaveLength(1);
   });
 
   it("shares one MPass login across simultaneous owner requests", async () => {
