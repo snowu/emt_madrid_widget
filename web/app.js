@@ -1595,7 +1595,11 @@ setInterval(() => {
 
 // Coming back to a backgrounded tab is exactly when the data is most stale.
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState !== "visible") return;
+  if (document.visibilityState !== "visible") {
+    stopLocationRefresh();
+    return;
+  }
+  startLocationRefresh();
   if (section === "bikes") {
     const c = bikeMap?.getCenter();
     loadBikesNear(c?.lat ?? myLocation?.[0] ?? 40.4168, c?.lng ?? myLocation?.[1] ?? -3.7038);
@@ -2738,31 +2742,60 @@ function closeFullscreenMap() {
   });
 }
 
-locateBtn.addEventListener("click", () => {
+let locationRefreshTimer = null;
+let locationRequestPending = false;
+
+function applyLocation(position, { recenter = false, forceNearby = false } = {}) {
+  myLocation = [position.coords.latitude, position.coords.longitude];
+  statusEl.textContent = "";
+  updateUserMarkers();
+  if (recenter) {
+    // Hidden maps can be recentered safely; their size is corrected when they
+    // become visible. Background updates never disturb a map the user panned.
+    leafletMap?.setView(myLocation, 16);
+    bikeMap?.setView(myLocation, 16);
+  }
+  render();
+  renderBikes();
+  void loadNearbyAt(myLocation[0], myLocation[1], { force: forceNearby });
+  void loadBikesNear(myLocation[0], myLocation[1], { force: forceNearby });
+}
+
+function refreshLocation({ userInitiated = false, recenter = false, forceNearby = false } = {}) {
   if (!navigator.geolocation) {
-    statusEl.textContent = "This browser will not share a location.";
+    if (userInitiated) statusEl.textContent = "This browser will not share a location.";
     return;
   }
-  statusEl.textContent = "Finding you…";
+  if (locationRequestPending) return;
+  locationRequestPending = true;
+  if (userInitiated) statusEl.textContent = "Finding you…";
   navigator.geolocation.getCurrentPosition(
-    (pos) => {
-      myLocation = [pos.coords.latitude, pos.coords.longitude];
-      statusEl.textContent = "";
-      updateUserMarkers();
-      // Keep both sections tied to the same current position. Hidden maps can
-      // be recentered safely; their size is corrected when they become visible.
-      leafletMap?.setView(myLocation, 16);
-      bikeMap?.setView(myLocation, 16);
-      render();
-      renderBikes();
-      void loadNearbyAt(myLocation[0], myLocation[1], { force: true });
-      void loadBikesNear(myLocation[0], myLocation[1], { force: true });
+    (position) => {
+      locationRequestPending = false;
+      applyLocation(position, { recenter, forceNearby });
     },
     (err) => {
-      statusEl.textContent = `Could not get your location: ${err.message}`;
+      locationRequestPending = false;
+      if (userInitiated || !myLocation) statusEl.textContent = `Could not get your location: ${err.message}`;
     },
-    { enableHighAccuracy: true, timeout: 10_000, maximumAge: 30_000 }
+    { enableHighAccuracy: true, timeout: 8_000, maximumAge: 5_000 }
   );
+}
+
+function stopLocationRefresh() {
+  if (locationRefreshTimer != null) clearInterval(locationRefreshTimer);
+  locationRefreshTimer = null;
+}
+
+function startLocationRefresh() {
+  stopLocationRefresh();
+  if (document.visibilityState !== "visible") return;
+  refreshLocation();
+  locationRefreshTimer = setInterval(() => refreshLocation(), 10_000);
+}
+
+locateBtn.addEventListener("click", () => {
+  refreshLocation({ userInitiated: true, recenter: true, forceNearby: true });
 });
 
 mapFullscreenBtn.addEventListener("click", () => {
@@ -2784,4 +2817,5 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
+startLocationRefresh();
 initAuth();
