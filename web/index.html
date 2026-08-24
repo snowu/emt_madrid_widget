@@ -89,10 +89,6 @@
     <dialog id="auth-dialog">
       <form id="auth-form" method="dialog">
         <h2>Sign in or sign up</h2>
-        <p class="muted">
-          We’ll email you a one-time secure link. Opening it signs you in and
-          creates your account if this is your first visit. No password needed.
-        </p>
         <input id="auth-email" type="email" autocomplete="email" placeholder="you@example.com" required />
         <p id="auth-message" class="muted" role="status"></p>
         <div class="dialog-actions">
@@ -128,7 +124,6 @@
           <h2 id="places-title">Places</h2>
           <button type="button" id="places-close" aria-label="Close">×</button>
         </div>
-        <p class="muted">Search a Madrid address, use GPS, or place the pin yourself. The pin is the location that will be saved.</p>
         <div id="places-list"></div>
         <section id="place-editor" class="place-editor" hidden>
           <label class="field"><span>Name</span><input id="place-name" maxlength="80" placeholder="Home, Work, favorite park…" autocomplete="off" /></label>
@@ -138,7 +133,7 @@
           </div>
           <div id="place-search-results" class="place-search-results"></div>
           <div id="place-picker-map" aria-label="Choose place on map"></div>
-          <p id="place-picked" class="muted">Choose a point on the map.</p>
+          <p id="place-picked" class="muted"></p>
           <div class="place-editor-actions">
             <button id="place-gps" type="button">◎ Use GPS</button>
             <button id="place-editor-cancel" type="button">Cancel</button>
@@ -167,18 +162,15 @@
         </div>
         <p id="sheet-meta" class="stop-num"></p>
         <div id="sheet-map"></div>
-        <p id="sheet-no-map" class="muted" hidden>EMT has no location for this stop.</p>
+        <p id="sheet-no-map" class="muted" hidden>No location</p>
         <ul id="sheet-arrivals"></ul>
         <p id="sheet-age" class="age"></p>
         <details id="sheet-service-wrap">
           <summary>Lines and hours today</summary>
           <ul id="sheet-service"></ul>
-          <p id="sheet-service-note" class="muted" hidden>
-            * whole-line hours — EMT has no record for this stop itself.
-          </p>
         </details>
         <label class="field" id="sheet-name" hidden>
-          <span>Name — leave empty to use EMT's own</span>
+          <span>Name</span>
           <input id="sheet-label" autocomplete="off" placeholder="EMT's name" />
         </label>
         <div class="dialog-actions">
@@ -201,7 +193,7 @@
         <div id="bike-sheet-map"></div>
         <div id="bike-sheet-counts"></div>
         <label class="field" id="bike-sheet-name" hidden>
-          <span>Name — leave empty to use BiciMAD’s own</span>
+          <span>Name</span>
           <input id="bike-sheet-label" autocomplete="off" placeholder="Station name" />
         </label>
         <div class="dialog-actions">
@@ -238,10 +230,6 @@
         </div>
         <p id="bike-trips-status" class="muted" role="status"></p>
         <div id="bike-trips-results" class="trip-results"></div>
-        <details id="bike-trips-fields" hidden>
-          <summary>Fields returned by BiciMAD</summary>
-          <code></code>
-        </details>
       </form>
     </dialog>
 

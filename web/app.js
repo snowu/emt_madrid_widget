@@ -366,7 +366,7 @@ function placeCard(place) {
   title.textContent = place.name;
   const distance = document.createElement("span");
   distance.className = "muted";
-  distance.textContent = formatDistance(placeDistance(place)) || "location unavailable";
+  distance.textContent = formatDistance(placeDistance(place)) || "—";
   const planned = journeyFor(place.id);
   const option = planned?.options?.[0];
   const directions = document.createElement("button");
@@ -383,8 +383,8 @@ function placeCard(place) {
   const route = document.createElement("div");
   route.className = "place-route";
   if (!myLocation) route.textContent = "Waiting for your location…";
-  else if (!journeyPayload) route.textContent = "Finding the useful buses…";
-  else if (!option) route.textContent = "No direct or one-transfer route found nearby.";
+  else if (!journeyPayload) route.textContent = "Loading…";
+  else if (!option) route.textContent = "No route";
   else {
     const first = document.createElement("strong");
     first.className = "place-line";
@@ -426,14 +426,13 @@ function renderPlaces() {
     placeDistance(place) != null && placeDistance(place) <= place.geofence_radius_m);
   const context = document.createElement("p");
   context.className = "place-context";
-  context.textContent = current
-    ? `You’re at ${current.name} · showing the closest other places`
-    : "Closest places from where you are";
-  blocks.push(context, ...destinations.map(placeCard));
+  context.textContent = current ? `At ${current.name}` : "";
+  if (current) blocks.push(context);
+  blocks.push(...destinations.map(placeCard));
   if (destinations.length === 0) {
     const empty = document.createElement("p");
     empty.className = "muted";
-    empty.textContent = places.length ? "You are inside your only saved place." : "Add Home, Work, or anywhere you regularly travel to from the account menu.";
+    empty.textContent = places.length ? "No other places" : "No places saved";
     blocks.push(empty);
   }
   const nearestBike = (bikeNear.stations ?? [])
@@ -642,7 +641,7 @@ async function loadPlaces() {
   } catch (err) {
     // The migration is deliberately non-breaking: saved stops remain the UI
     // until places.sql has been applied.
-    statusEl.textContent = `Places are not ready yet: ${err.message}`;
+    statusEl.textContent = `Places unavailable: ${err.message}`;
     render();
   }
 }
@@ -843,7 +842,7 @@ document.getElementById("place-search").addEventListener("click", async () => {
       });
       return choice;
     }));
-    placesMessage.textContent = results.length ? "Choose a result, then confirm its pin." : "No Madrid address found.";
+    placesMessage.textContent = results.length ? "" : "No address found";
   } catch (err) {
     placesMessage.textContent = `Could not search addresses: ${err.message}`;
   } finally {
@@ -855,7 +854,7 @@ placesForm.addEventListener("submit", async (event) => {
   const name = document.getElementById("place-name").value.trim();
   if (!name) return;
   if (!placeDraft || !Number.isFinite(placeDraft.lat) || !Number.isFinite(placeDraft.lon)) {
-    placesMessage.textContent = "Choose and confirm a pin first.";
+    placesMessage.textContent = "Pin required";
     return;
   }
   const add = document.getElementById("place-add");
@@ -1563,7 +1562,7 @@ function renderClosestStopsDialog() {
   }
   const closest = [...nearbyStops].sort((a, b) =>
     proximity(metresFromCurrent(a.coordinates)) - proximity(metresFromCurrent(b.coordinates))).slice(0, 8);
-  nearbyStopsMessage.textContent = closest.length ? "Closest EMT stops, whether saved or not." : "No stops found within 2 km.";
+  nearbyStopsMessage.textContent = closest.length ? "" : "No stops within 2 km";
   nearbyStopsList.replaceChildren(...closest.map((stop) => {
     const card = document.createElement("article");
     card.className = "nearby-stop-card";
@@ -1686,7 +1685,6 @@ const sheetEdit = document.getElementById("sheet-edit");
 const sheetSave = document.getElementById("sheet-save");
 const sheetService = document.getElementById("sheet-service");
 const sheetServiceWrap = document.getElementById("sheet-service-wrap");
-const sheetNote = document.getElementById("sheet-service-note");
 const sheetDirections = document.getElementById("sheet-directions");
 
 let sheetStop = null;
@@ -1814,7 +1812,6 @@ function renderSheetService() {
   const lines = stopLines(sheetStop.stop_id);
   sheetServiceWrap.hidden = lines.length === 0;
   const today = todayDayType();
-  let borrowed = false;
 
   sheetService.replaceChildren(
     ...lines.map((l) => {
@@ -1846,12 +1843,6 @@ function renderSheetService() {
       if (window) {
         hours.textContent = `${window.from}–${window.to}`;
         if (window.overnight) hours.textContent += " (+1d)";
-        // Borrowed from the line, not this stop: the line's first and last bus
-        // anywhere on the route, which can be wider than this stop's own.
-        if (!l.from) {
-          hours.textContent += "*";
-          borrowed = true;
-        }
       }
       li.append(hours);
 
@@ -1864,8 +1855,6 @@ function renderSheetService() {
       return li;
     })
   );
-
-  sheetNote.hidden = !borrowed;
 }
 
 /** The name shows as a heading until the pencil is tapped: focusing an input
@@ -2139,7 +2128,6 @@ const bikeTripsForm = document.getElementById("bike-trips-form");
 const bikeTripsNumber = document.getElementById("bike-trips-number");
 const bikeTripsStatus = document.getElementById("bike-trips-status");
 const bikeTripsResults = document.getElementById("bike-trips-results");
-const bikeTripsFields = document.getElementById("bike-trips-fields");
 const bikeTripsChronological = document.getElementById("bike-trips-chronological");
 const bikeTripsGrouped = document.getElementById("bike-trips-grouped");
 const bikeTripsRefresh = document.getElementById("bike-trips-refresh");
@@ -2459,8 +2447,6 @@ function filterAndRenderBikeTrips(status = null) {
   } else {
     bikeTripsStatus.textContent = bike ? `No rides for bike ${bike}` : "No rides cached";
   }
-  bikeTripsFields.hidden = bikeTripFieldsSeen.length === 0;
-  bikeTripsFields.querySelector("code").textContent = bikeTripFieldsSeen.join(", ");
   return true;
 }
 
@@ -2652,7 +2638,7 @@ function bikeCounts(station) {
     const broken = document.createElement("span");
     broken.className = "bike-note muted";
     broken.textContent = `🔧 ${station.broken} broken`;
-    broken.title = `${station.broken} separate disabled bike${station.broken === 1 ? "" : "s"}; not included in the available count`;
+    broken.title = `${station.broken} broken bike${station.broken === 1 ? "" : "s"}`;
     broken.setAttribute("aria-label", broken.title);
     wrap.append(broken);
   }
@@ -2750,7 +2736,7 @@ function renderBikes() {
   if (nearby.length === 0) {
     const empty = document.createElement("p");
     empty.className = "muted";
-    empty.textContent = "No stations here yet — open the map or tap ◎ to find the ones near you.";
+    empty.textContent = "No stations nearby";
     blocks.push(empty);
   }
   for (const station of nearby.slice(0, 15)) blocks.push(bikeCard(station, null));
@@ -2814,7 +2800,7 @@ async function loadBikeSaved() {
     // The favourites table is optional: bikes work without it. Say so once
     // rather than breaking the whole section.
     statusEl.textContent =
-      "Saved bike stations need supabase/bike_stations.sql run once — everything else works.";
+      "Saved stations unavailable";
   }
   renderBikes();
   if (section === "bikes" && bikeSaved.some((row) => !bikeById.has(row.station_id))) {

@@ -260,7 +260,6 @@ button:active { transform: scale(0.97); }
 .trip-history-revision { display: grid; gap: 0.1rem; padding-top: 0.3rem; }
 .trip-history-revision time { color: var(--muted); }
 .trip-history-revision span { color: var(--fg); overflow-wrap: anywhere; }
-#bike-trips-fields code { overflow-wrap: anywhere; color: var(--muted); }
 
 .section-heading {
   margin: 1rem 0 0;
