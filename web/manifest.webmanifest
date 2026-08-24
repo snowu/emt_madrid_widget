@@ -1,6 +1,6 @@
 {
-  "name": "Buses",
-  "short_name": "Buses",
+  "name": "Madrid Mobility",
+  "short_name": "Madrid",
   "description": "Live EMT Madrid bus arrivals for saved stops.",
   "start_url": ".",
   "scope": ".",

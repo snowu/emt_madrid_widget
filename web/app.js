@@ -3189,7 +3189,7 @@ function showSection(next) {
   if (next !== section) closeFullscreenMap();
   section = next;
   const bikes = next === "bikes";
-  document.title = bikes ? "BiciMAD" : "Buses";
+  document.title = bikes ? "BiciMAD" : "Overview";
   menuBuses.setAttribute("aria-selected", String(!bikes));
   menuBikes.setAttribute("aria-selected", String(bikes));
   fab.hidden = bikes || !authSession;
