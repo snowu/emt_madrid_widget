@@ -1730,10 +1730,11 @@ function tripDate(value, { timeOnly = false } = {}) {
   } else {
     const text = String(value).trim();
     const local = text.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?/);
+    const timezoneLessIso = /^\d{4}-\d{2}-\d{2}T\d{1,2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/.test(text);
     date = local
       ? new Date(Number(local[3]), Number(local[2]) - 1, Number(local[1]),
         Number(local[4]), Number(local[5]), Number(local[6] || 0))
-      : new Date(text);
+      : new Date(timezoneLessIso ? `${text}Z` : text);
   }
   if (Number.isNaN(date.getTime())) return String(value);
   return new Intl.DateTimeFormat(undefined, timeOnly ? {

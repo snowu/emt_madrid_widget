@@ -56,9 +56,9 @@ export function writeDetail(stopId, detail) {
 const BIKE_SAVED_KEY = "emt:bikes:saved";
 const BIKE_NEAR_KEY = "emt:bikes:near";
 const BIKE_ACCOUNT_KEY = "emt:bikes:account";
-// v5 repopulates histories after preserving Madrid wall-clock time while the
-// UTC-hosted Worker derives trip endpoints from duration.
-const BIKE_TRIPS_KEY = "emt:bikes:trips:v5";
+// v6 repopulates histories after correctly treating EMTPay's timezone-less ISO
+// timestamps as UTC instants rather than Madrid wall-clock values.
+const BIKE_TRIPS_KEY = "emt:bikes:trips:v6";
 
 /** Saved bike stations mirror the same rule as saved bus stops: the server
  *  owns them, this is only so a cold start renders something. */

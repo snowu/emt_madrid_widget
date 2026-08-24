@@ -222,8 +222,15 @@ function shiftedTimestamp(value, minutes) {
     const shifted = new Date(Date.UTC(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]),
       Number(parts[3]), Number(parts[4]), Number(parts[5])) + minutes * 60_000);
     const pad = (part) => String(part).padStart(2, "0");
+    if (european) {
+      return `${pad(shifted.getUTCDate())}/${pad(shifted.getUTCMonth() + 1)}/${shifted.getUTCFullYear()}`
+        + ` ${pad(shifted.getUTCHours())}:${pad(shifted.getUTCMinutes())}:${pad(shifted.getUTCSeconds())}`;
+    }
+    // EMTPay's ISO values omit their UTC designator. Add it explicitly so the
+    // browser converts the instant to Europe/Madrid instead of reading it as
+    // an already-local clock value.
     return `${shifted.getUTCFullYear()}-${pad(shifted.getUTCMonth() + 1)}-${pad(shifted.getUTCDate())}`
-      + `T${pad(shifted.getUTCHours())}:${pad(shifted.getUTCMinutes())}:${pad(shifted.getUTCSeconds())}`;
+      + `T${pad(shifted.getUTCHours())}:${pad(shifted.getUTCMinutes())}:${pad(shifted.getUTCSeconds())}Z`;
   }
   const millis = Date.parse(text);
   return Number.isFinite(millis) ? millis + minutes * 60_000 : null;
