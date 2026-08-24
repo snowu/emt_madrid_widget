@@ -3,6 +3,7 @@ create table if not exists public.places (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
   name text not null check (char_length(trim(name)) between 1 and 80),
+  address text check (address is null or char_length(address) <= 240),
   lat double precision not null check (lat between -90 and 90),
   lon double precision not null check (lon between -180 and 180),
   geofence_radius_m integer not null default 200 check (geofence_radius_m between 50 and 1500),
@@ -11,6 +12,11 @@ create table if not exists public.places (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table public.places add column if not exists address text;
+alter table public.places drop constraint if exists places_address_check;
+alter table public.places add constraint places_address_check
+  check (address is null or char_length(address) <= 240);
 
 -- Upgrade installations created with the original 500 m destination search.
 update public.places set destination_radius_m = 700 where destination_radius_m < 700;

@@ -48,6 +48,7 @@ const NEARBY_CACHE_TTL = 24 * 3600;
 const TIMETABLE_CACHE_TTL = 24 * 3600;
 // Route geometry changes when EMT redraws a line — a week is generous.
 const ROUTE_CACHE_TTL = 7 * 24 * 3600;
+const GEOCODE_CACHE_TTL = 30 * 24 * 3600;
 // One operator-feed read serves the whole city and every area for 45 seconds.
 const BIKES_CACHE_TTL = 45;
 // Names and positions only change when a station is built or moved.
@@ -163,6 +164,34 @@ async function cachedNearby(requestUrl, env, lat, lon, radius, ctx) {
   const key = `nearby/${grid3(lon)}/${grid3(lat)}/${radius}`;
   return edgeCachedJson(requestUrl, key, NEARBY_CACHE_TTL,
     () => getNearbyStops(env, { lat, lon, radius }), ctx);
+}
+
+async function geocodeMadrid(requestUrl, query, ctx) {
+  const normalized = String(query ?? "").trim().replace(/\s+/g, " ");
+  if (normalized.length < 3 || normalized.length > 120) {
+    throw new EmtError("not_found", "address query must be 3–120 characters");
+  }
+  return edgeCachedJson(requestUrl, `geocode/${encodeURIComponent(normalized.toLocaleLowerCase("es"))}`,
+    GEOCODE_CACHE_TTL, async () => {
+      const target = new URL("https://nominatim.openstreetmap.org/search");
+      target.search = new URLSearchParams({
+        q: `${normalized}, Madrid`, format: "jsonv2", addressdetails: "1",
+        countrycodes: "es", bounded: "1", viewbox: "-3.888,40.643,-3.517,40.312", limit: "6",
+      }).toString();
+      const response = await fetch(target, {
+        headers: {
+          "user-agent": "emt-madrid-widget/1.0 (https://snowu.github.io/emt_madrid_widget/)",
+          referer: "https://snowu.github.io/emt_madrid_widget/",
+          accept: "application/json",
+        },
+      });
+      if (!response.ok) throw new EmtError("upstream", `address search HTTP ${response.status}`);
+      const rows = await response.json();
+      return rows.map((row) => ({
+        displayName: String(row.display_name ?? ""),
+        lat: Number(row.lat), lon: Number(row.lon), type: row.type ?? null,
+      })).filter((row) => row.displayName && Number.isFinite(row.lat) && Number.isFinite(row.lon));
+    }, ctx);
 }
 
 function plannerLocation(value, name) {
@@ -286,6 +315,10 @@ export default {
       }
       if (pathname === "/places" && method === "POST") {
         return json(await addPlace(env, bearerToken(request), await request.json()), env, 201);
+      }
+      if (pathname === "/places/geocode" && method === "GET") {
+        await authenticatedUser(env, request);
+        return json(await geocodeMadrid(request.url, url.searchParams.get("q"), ctx), env);
       }
       const place = pathname.match(/^\/places\/([^/]+)$/);
       if (place && method === "PATCH") {

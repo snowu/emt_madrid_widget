@@ -139,7 +139,7 @@ export async function rateBike(env, accessToken, { bikeNumber, rating }) {
 
 export async function listPlaces(env, accessToken) {
   return call(env, accessToken,
-    `${PLACE_TABLE}?select=id,name,lat,lon,geofence_radius_m,destination_radius_m,enabled,created_at,updated_at&order=created_at.asc`);
+    `${PLACE_TABLE}?select=id,name,address,lat,lon,geofence_radius_m,destination_radius_m,enabled,created_at,updated_at&order=created_at.asc`);
 }
 
 function placeValues(input, { partial = false } = {}) {
@@ -170,6 +170,11 @@ function placeValues(input, { partial = false } = {}) {
     }
   }
   if (Object.hasOwn(input, "enabled")) values.enabled = Boolean(input.enabled);
+  if (Object.hasOwn(input, "address")) {
+    const address = String(input.address ?? "").trim();
+    if (address.length > 240) throw new EmtError("not_found", "address must be at most 240 characters");
+    values.address = address || null;
+  }
   return values;
 }
 

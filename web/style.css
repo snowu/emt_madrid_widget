@@ -442,6 +442,19 @@ body.map-is-fullscreen { overflow: hidden; }
 .place-manage-row > span { display: flex; flex: 1; min-width: 0; flex-direction: column; }
 .place-manage-row small { color: var(--muted); font-size: 0.7rem; }
 .place-manage-row button { width: 36px; min-height: 36px; padding: 0; }
+.place-manage-actions { display: flex; gap: 0.3rem; }
+.place-editor { display: grid; gap: 0.55rem; margin-top: 0.65rem; padding-top: 0.65rem; border-top: 1px solid var(--line); }
+.place-editor[hidden], #place-editor-open[hidden] { display: none; }
+.place-address-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0.4rem; }
+.place-address-row input { min-width: 0; }
+.place-address-row button { padding-inline: 0.7rem; }
+.place-search-results { display: grid; gap: 0.3rem; max-height: 10rem; overflow-y: auto; }
+.place-search-results:empty { display: none; }
+.place-search-results button { min-height: 38px; padding: 0.4rem 0.55rem; text-align: left; font-size: 0.75rem; }
+#place-picker-map { height: min(38vh, 280px); min-height: 220px; border-radius: 10px; }
+#place-picked { margin: 0; font-size: 0.72rem; font-variant-numeric: tabular-nums; }
+.place-editor-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.place-editor-actions button { flex: 1 1 auto; }
 
 .stop {
   background: var(--card);

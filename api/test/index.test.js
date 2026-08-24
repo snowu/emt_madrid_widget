@@ -424,6 +424,35 @@ describe("bike request consolidation", () => {
   });
 });
 
+describe("GET /places/geocode", () => {
+  const userAuth = { headers: { Authorization: "Bearer user-jwt" } };
+
+  it("requires a signed-in user", async () => {
+    expect((await call("/places/geocode?q=Orense%201")).status).toBe(401);
+  });
+
+  it("returns only normalized Madrid search results", async () => {
+    const spy = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      if (String(url).includes("/auth/v1/user")) return new Response(JSON.stringify({
+        id: "user-id", email: "user@example.com",
+      }));
+      return new Response(JSON.stringify([{
+        display_name: "Calle de Orense, 1, Madrid, España",
+        lat: "40.4501", lon: "-3.6921", type: "house", private: "discard",
+      }]));
+    });
+    const res = await call("/places/geocode?q=Orense%201", userAuth);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual([{
+      displayName: "Calle de Orense, 1, Madrid, España",
+      lat: 40.4501, lon: -3.6921, type: "house",
+    }]);
+    const [url] = spy.mock.calls.find(([candidate]) => String(candidate).includes("nominatim"));
+    expect(String(url)).toContain("bounded=1");
+    expect(String(url)).toContain("countrycodes=es");
+  });
+});
+
 describe("GET /stops/nearby", () => {
   beforeEach(async () => {
     await env.KV.delete("nearby:v4:-3.6897:40.4674:500");

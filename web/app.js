@@ -61,6 +61,12 @@ const placesDialog = document.getElementById("places-dialog");
 const placesForm = document.getElementById("places-form");
 const placesList = document.getElementById("places-list");
 const placesMessage = document.getElementById("places-message");
+const placeEditor = document.getElementById("place-editor");
+const placeSearchResults = document.getElementById("place-search-results");
+const placePicked = document.getElementById("place-picked");
+let placePickerMap = null;
+let placePickerMarker = null;
+let placeDraft = null;
 
 function setTheme(choice) {
   themeChoice = ["light", "dark"].includes(choice) ? choice : "system";
@@ -694,6 +700,13 @@ function renderPlacesDialog() {
     const coordinates = document.createElement("small");
     coordinates.textContent = `${Number(place.lat).toFixed(5)}, ${Number(place.lon).toFixed(5)}`;
     label.append(name, coordinates);
+    const actions = document.createElement("div");
+    actions.className = "place-manage-actions";
+    const edit = document.createElement("button");
+    edit.type = "button";
+    edit.textContent = "✎";
+    edit.setAttribute("aria-label", `Edit ${place.name}`);
+    edit.addEventListener("click", () => openPlaceEditor(place));
     const remove = document.createElement("button");
     remove.type = "button";
     remove.className = "danger";
@@ -713,9 +726,61 @@ function renderPlacesDialog() {
         remove.disabled = false;
       }
     });
-    row.append(label, remove);
+    actions.append(edit, remove);
+    row.append(label, actions);
     return row;
   }));
+}
+
+function setPlacePin(lat, lon, { recenter = true } = {}) {
+  const point = [Number(lat), Number(lon)];
+  if (!point.every(Number.isFinite)) return;
+  placeDraft = { ...(placeDraft ?? {}), lat: point[0], lon: point[1] };
+  if (!placePickerMarker) {
+    placePickerMarker = L.marker(point, { draggable: true }).addTo(placePickerMap);
+    placePickerMarker.on("dragend", () => {
+      const moved = placePickerMarker.getLatLng();
+      setPlacePin(moved.lat, moved.lng, { recenter: false });
+    });
+  } else {
+    placePickerMarker.setLatLng(point);
+  }
+  if (recenter) placePickerMap.setView(point, 17);
+  placePicked.textContent = `Pin: ${point[0].toFixed(5)}, ${point[1].toFixed(5)}`;
+}
+
+function ensurePlacePicker() {
+  if (!placePickerMap) {
+    placePickerMap = L.map("place-picker-map", { zoomControl: true, attributionControl: true });
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 }).addTo(placePickerMap);
+    placePickerMap.on("click", ({ latlng }) => setPlacePin(latlng.lat, latlng.lng, { recenter: false }));
+  }
+  requestAnimationFrame(() => {
+    placePickerMap.invalidateSize();
+    const initial = placeDraft?.lat != null
+      ? [placeDraft.lat, placeDraft.lon]
+      : myLocation ?? [40.4168, -3.7038];
+    setPlacePin(initial[0], initial[1]);
+  });
+}
+
+function closePlaceEditor() {
+  placeEditor.hidden = true;
+  document.getElementById("place-editor-open").hidden = false;
+  placeSearchResults.replaceChildren();
+  placeDraft = null;
+}
+
+function openPlaceEditor(place = null) {
+  placeDraft = place ? { ...place } : null;
+  document.getElementById("place-name").value = place?.name ?? "";
+  document.getElementById("place-address").value = place?.address ?? "";
+  document.getElementById("place-add").textContent = place ? "Save changes" : "Save place";
+  placeSearchResults.replaceChildren();
+  placesMessage.textContent = "";
+  placeEditor.hidden = false;
+  document.getElementById("place-editor-open").hidden = true;
+  ensurePlacePicker();
 }
 
 document.getElementById("manage-places").addEventListener("click", () => {
@@ -724,29 +789,72 @@ document.getElementById("manage-places").addEventListener("click", () => {
   renderPlacesDialog();
   placesDialog.showModal();
 });
-document.getElementById("places-close").addEventListener("click", () => placesDialog.close());
+document.getElementById("places-close").addEventListener("click", () => {
+  closePlaceEditor();
+  placesDialog.close();
+});
+document.getElementById("place-editor-open").addEventListener("click", () => openPlaceEditor());
+document.getElementById("place-editor-cancel").addEventListener("click", closePlaceEditor);
+document.getElementById("place-gps").addEventListener("click", () => {
+  if (myLocation) setPlacePin(myLocation[0], myLocation[1]);
+  else placesMessage.textContent = "GPS has not returned a location yet.";
+});
+document.getElementById("place-search").addEventListener("click", async () => {
+  const input = document.getElementById("place-address");
+  const query = input.value.trim();
+  if (query.length < 3) return;
+  const button = document.getElementById("place-search");
+  button.disabled = true;
+  placesMessage.textContent = "Searching Madrid…";
+  try {
+    const results = await api(`/places/geocode?q=${encodeURIComponent(query)}`);
+    placeSearchResults.replaceChildren(...results.map((result) => {
+      const choice = document.createElement("button");
+      choice.type = "button";
+      choice.textContent = result.displayName;
+      choice.addEventListener("click", () => {
+        input.value = result.displayName;
+        placeDraft = { ...(placeDraft ?? {}), address: result.displayName };
+        setPlacePin(result.lat, result.lon);
+        placeSearchResults.replaceChildren();
+      });
+      return choice;
+    }));
+    placesMessage.textContent = results.length ? "Choose a result, then confirm its pin." : "No Madrid address found.";
+  } catch (err) {
+    placesMessage.textContent = `Could not search addresses: ${err.message}`;
+  } finally {
+    button.disabled = false;
+  }
+});
 placesForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const name = document.getElementById("place-name").value.trim();
   if (!name) return;
-  if (!myLocation) {
-    placesMessage.textContent = "Waiting for a GPS location — tap the location button if needed.";
+  if (!placeDraft || !Number.isFinite(placeDraft.lat) || !Number.isFinite(placeDraft.lon)) {
+    placesMessage.textContent = "Choose and confirm a pin first.";
     return;
   }
   const add = document.getElementById("place-add");
   add.disabled = true;
   try {
-    const place = await api("/places", {
-      method: "POST",
-      body: JSON.stringify({ name, lat: myLocation[0], lon: myLocation[1] }),
+    const editingId = placeDraft.id;
+    const place = await api(editingId ? `/places/${encodeURIComponent(editingId)}` : "/places", {
+      method: editingId ? "PATCH" : "POST",
+      body: JSON.stringify({
+        name, address: document.getElementById("place-address").value.trim() || null,
+        lat: placeDraft.lat, lon: placeDraft.lon,
+      }),
     });
-    places.push(place);
+    if (editingId) places = places.map((item) => item.id === editingId ? place : item);
+    else places.push(place);
     document.getElementById("place-name").value = "";
     journeyPayload = null;
     placesMessage.textContent = `${place.name} saved.`;
     renderPlacesDialog();
     renderPlaces();
     scheduleJourneys({ force: true });
+    closePlaceEditor();
   } catch (err) {
     placesMessage.textContent = `Could not save place: ${err.message}`;
   } finally {

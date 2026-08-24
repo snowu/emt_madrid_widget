@@ -114,7 +114,7 @@ describe("places", () => {
   it("lists only the user's place fields", async () => {
     const spy = mockFetch([{ id: "p1", name: "Work", lat: 40.4, lon: -3.7 }]);
     await expect(listPlaces(env, token)).resolves.toHaveLength(1);
-    expect(spy.mock.calls[0][0]).toContain("places?select=id,name,lat,lon");
+    expect(spy.mock.calls[0][0]).toContain("places?select=id,name,address,lat,lon");
   });
 
   it("creates an actual location with sensible default radii", async () => {
@@ -140,5 +140,13 @@ describe("places", () => {
     expect(body.name).toBe("Office");
     expect(body).not.toHaveProperty("lat");
     expect(body.updated_at).toBeTruthy();
+  });
+
+  it("stores a confirmed address as optional metadata", async () => {
+    const spy = mockFetch([{ id: "p1", name: "Work", address: "Calle de Orense, 1" }]);
+    await addPlace(env, token, {
+      name: "Work", address: "Calle de Orense, 1", lat: 40.45, lon: -3.69,
+    });
+    expect(JSON.parse(spy.mock.calls[0][1].body).address).toBe("Calle de Orense, 1");
   });
 });

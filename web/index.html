@@ -123,10 +123,24 @@
           <h2 id="places-title">Places</h2>
           <button type="button" id="places-close" aria-label="Close">×</button>
         </div>
-        <p class="muted">Save the location you are currently standing at. Routes will use nearby stops, not pretend the place itself is a stop.</p>
+        <p class="muted">Search a Madrid address, use GPS, or place the pin yourself. The pin is the location that will be saved.</p>
         <div id="places-list"></div>
-        <label class="field"><span>Name</span><input id="place-name" maxlength="80" placeholder="Home, Work, favorite park…" autocomplete="off" /></label>
-        <button id="place-add" type="submit">＋ Save current location</button>
+        <section id="place-editor" class="place-editor" hidden>
+          <label class="field"><span>Name</span><input id="place-name" maxlength="80" placeholder="Home, Work, favorite park…" autocomplete="off" /></label>
+          <div class="place-address-row">
+            <input id="place-address" maxlength="120" placeholder="Address in Madrid" autocomplete="street-address" aria-label="Address in Madrid" />
+            <button id="place-search" type="button">Search</button>
+          </div>
+          <div id="place-search-results" class="place-search-results"></div>
+          <div id="place-picker-map" aria-label="Choose place on map"></div>
+          <p id="place-picked" class="muted">Choose a point on the map.</p>
+          <div class="place-editor-actions">
+            <button id="place-gps" type="button">◎ Use GPS</button>
+            <button id="place-editor-cancel" type="button">Cancel</button>
+            <button id="place-add" type="submit">Save place</button>
+          </div>
+        </section>
+        <button id="place-editor-open" type="button">＋ Add place</button>
         <p id="places-message" class="muted" role="status"></p>
       </form>
     </dialog>
