@@ -465,7 +465,7 @@ body.map-is-fullscreen { overflow: hidden; }
 .place-card-heading h2 { margin: 0; overflow-wrap: anywhere; font-size: 1rem; }
 .place-card-heading > span { font-size: 0.72rem; white-space: nowrap; }
 .place-directions { width: 38px; min-height: 38px; padding: 0; color: var(--accent); font-size: 1.05rem; background: var(--active); }
-.place-transit-directions svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.place-directions svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .place-route { display: grid; grid-template-columns: 3rem minmax(0, 1fr) auto; align-items: center; gap: 0.55rem; margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid var(--separator); color: var(--muted); font-size: 0.75rem; }
 .place-route p { margin: 0; }
 .place-route p b { color: var(--fg); }

@@ -394,7 +394,7 @@ function placeCard(place) {
   stopDirections.type = "button";
   stopDirections.title = option ? `Walk to stop ${option.originStop.stopId}` : "No boarding stop available";
   stopDirections.setAttribute("aria-label", stopDirections.title);
-  stopDirections.textContent = "➤";
+  stopDirections.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="13" cy="4" r="1.8"></circle><path d="m10.5 8 2.5-1 2.5 2.5 2.5 1"></path><path d="m13 7-2 5 3 2 1.5 5"></path><path d="m11 12-3 3-2 4"></path></svg>';
   stopDirections.disabled = !option?.originStop?.coordinates;
   stopDirections.addEventListener("click", () => openWalkingDirections(option?.originStop?.coordinates));
 
