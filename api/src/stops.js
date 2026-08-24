@@ -27,10 +27,29 @@ async function call(env, accessToken, path, init = {}) {
     throw new EmtError("upstream", `Supabase unreachable: ${cause.message}`);
   }
   if (!res.ok) {
+    let upstream = null;
+    try {
+      upstream = await res.json();
+    } catch {
+      // PostgREST normally returns JSON, but diagnostics must not hide the
+      // original status when an intermediary sends an empty/non-JSON body.
+    }
+    const diagnostic = {
+      event: "supabase_error",
+      method: init.method ?? "GET",
+      resource: path.split("?", 1)[0],
+      status: res.status,
+      code: upstream?.code ?? null,
+      message: upstream?.message ?? null,
+      details: upstream?.details ?? null,
+      hint: upstream?.hint ?? null,
+    };
+    console.error(JSON.stringify(diagnostic));
     if (res.status === 401 || res.status === 403) {
       throw new EmtError("user_auth", "session expired or access denied");
     }
-    throw new EmtError("upstream", `Supabase HTTP ${res.status}`);
+    const reason = [upstream?.code, upstream?.message].filter(Boolean).join(": ");
+    throw new EmtError("upstream", `Supabase HTTP ${res.status}${reason ? ` — ${reason}` : ""}`);
   }
   if (res.status === 204) return null;
   return res.json();

@@ -46,8 +46,19 @@ describe("listStops", () => {
   });
 
   it("raises upstream when Supabase errors", async () => {
-    mockFetch({ message: "boom" }, { status: 500 });
-    await expect(listStops(env, token)).rejects.toMatchObject({ kind: "upstream" });
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    mockFetch({ code: "PGRST100", message: "boom" }, { status: 500 });
+    await expect(listStops(env, token)).rejects.toMatchObject({
+      kind: "upstream",
+      message: "Supabase HTTP 500 — PGRST100: boom",
+    });
+    expect(JSON.parse(log.mock.calls[0][0])).toMatchObject({
+      event: "supabase_error",
+      resource: "bus_stops",
+      status: 500,
+      code: "PGRST100",
+      message: "boom",
+    });
   });
 });
 
