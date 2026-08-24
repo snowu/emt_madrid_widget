@@ -18,6 +18,23 @@ function lineCode(entry) {
   return String(entry?.line ?? entry?.label ?? "").trim();
 }
 
+export function stopsWithLiveLines(stops, boards) {
+  return (stops ?? []).map((stop) => {
+    const arrivals = boards.get(String(stop.stopId))?.arrivals ?? [];
+    const listed = new Map((stop.lines ?? []).map((line) => [lineCode(line).toUpperCase(), line]));
+    const live = new Map();
+    for (const arrival of arrivals) {
+      const code = lineCode(arrival);
+      if (!code || live.has(code.toUpperCase())) continue;
+      live.set(code.toUpperCase(), listed.get(code.toUpperCase()) ?? { line: code, label: code });
+    }
+    return {
+      ...stop,
+      lines: [...live.values()],
+    };
+  }).filter((stop) => stop.lines.length > 0);
+}
+
 export function nearbyAccess(stops, location, maxStops = 6) {
   return (stops ?? [])
     .map((stop) => ({ ...stop, distanceM: Math.round(distanceMetres(location, point(stop))) }))
