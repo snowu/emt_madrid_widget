@@ -1622,6 +1622,10 @@ function setBusListMode(mode) {
   localStorage.setItem("emt:bus-list-mode", busListMode);
   busModePlaces.setAttribute("aria-selected", String(busListMode === "places"));
   busModeStops.setAttribute("aria-selected", String(busListMode === "stops"));
+  const button = document.getElementById("fab");
+  const purpose = busListMode === "places" ? "Add place" : "Add bus stop";
+  button.title = purpose;
+  button.setAttribute("aria-label", purpose);
   render();
 }
 busModePlaces.addEventListener("click", () => setBusListMode("places"));
@@ -1951,6 +1955,13 @@ async function addStopById(stopId, label, seed = null) {
 
 fab.addEventListener("click", () => {
   statusEl.textContent = "";
+  if (busListMode === "places") {
+    placesMessage.textContent = "";
+    renderPlacesDialog();
+    placesDialog.showModal();
+    openPlaceEditor();
+    return;
+  }
   addDialog.showModal();
   document.getElementById("stop-id").focus();
 });
