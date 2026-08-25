@@ -27,6 +27,9 @@ import {
 
 const API = "https://emt-arrivals.zancato-t.workers.dev";
 const THEME_KEY = "emt:theme";
+const HUB_CARD_LIMIT = 5;
+const NEAREST_BIKE_STATION_LIMIT = 3;
+const JOURNEY_BATCH_SIZE = 3;
 const savedTheme = localStorage.getItem(THEME_KEY);
 let themeChoice = ["light", "dark"].includes(savedTheme) ? savedTheme : "system";
 if (themeChoice === "system") document.documentElement.removeAttribute("data-theme");
@@ -368,7 +371,7 @@ function activeDestinations() {
   return places.filter((place) => place.enabled !== false &&
     (placeDistance(place) == null || placeDistance(place) > place.geofence_radius_m))
     .sort((a, b) => proximity(placeDistance(a)) - proximity(placeDistance(b)))
-    .slice(0, 3);
+    .slice(0, HUB_CARD_LIMIT);
 }
 
 function journeyFor(placeId) {
@@ -469,14 +472,17 @@ function renderPlaces() {
     empty.textContent = places.length ? "No other hubs" : "No hubs saved";
     blocks.push(empty);
   }
-  const nearestBike = (bikeNear.stations ?? [])
+  const nearestBikes = (bikeNear.stations ?? [])
     .filter((station) => Array.isArray(station.coordinates))
-    .sort((a, b) => proximity(distanceToStation(a)) - proximity(distanceToStation(b)))[0];
-  if (nearestBike) {
+    .sort((a, b) => proximity(distanceToStation(a)) - proximity(distanceToStation(b)))
+    .slice(0, NEAREST_BIKE_STATION_LIMIT);
+  if (nearestBikes.length) {
     blocks.push(sectionHeading("Nearest BiciMAD"));
-    const bike = bikeCard(nearestBike, bikeSaved.find((row) => row.station_id === nearestBike.id) ?? null);
-    bike.classList.add("place-nearest-bike");
-    blocks.push(bike);
+    for (const station of nearestBikes) {
+      const bike = bikeCard(station, bikeSaved.find((row) => row.station_id === station.id) ?? null);
+      bike.classList.add("place-nearest-bike");
+      blocks.push(bike);
+    }
   }
   listEl.replaceChildren(...blocks);
 }
@@ -708,17 +714,32 @@ async function loadJourneys({ force = false } = {}) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 25_000);
   const operation = (async () => { try {
-    journeyPayload = await api("/journeys", {
+    const batches = [];
+    for (let index = 0; index < destinations.length; index += JOURNEY_BATCH_SIZE) {
+      batches.push(destinations.slice(index, index + JOURNEY_BATCH_SIZE));
+    }
+    const payloads = await Promise.all(batches.map((batch) => api("/journeys", {
       method: "POST",
       signal: controller.signal,
       body: JSON.stringify({
         origin: { lat: myLocation[0], lon: myLocation[1] },
-        destinations: destinations.map((place) => ({
+        destinations: batch.map((place) => ({
           id: place.id, name: place.name, lat: place.lat, lon: place.lon,
           destinationRadiusM: place.destination_radius_m,
         })),
       }),
-    });
+    })));
+    journeyPayload = {
+      origin: payloads[0]?.origin,
+      destinations: payloads.flatMap((payload) => payload.destinations ?? []),
+      generatedAt: Math.max(...payloads.map((payload) => payload.generatedAt ?? 0)),
+      calls: payloads.reduce((total, payload) => {
+        for (const [key, value] of Object.entries(payload.calls ?? {})) {
+          total[key] = (total[key] ?? 0) + Number(value ?? 0);
+        }
+        return total;
+      }, {}),
+    };
     journeyCell = cell;
     journeyLoadedAt = Date.now();
     render();
