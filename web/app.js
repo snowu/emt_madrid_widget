@@ -1237,8 +1237,10 @@ async function refreshMapArrivals() {
   // A stop's arrivals only ever describe buses still heading for it, so the
   // stop a route was opened from is exactly "what is coming to me". Probing
   // further down the line would surface buses that have already gone past.
-  for (const [code, shown] of shownRoutes) {
-    const probe = routeProbeStop(code, shown);
+  // One probe per drawn direction, so a line shown both ways discovers the
+  // buses coming each way.
+  for (const shown of shownRoutes.values()) {
+    const probe = routeProbeStop(shown);
     if (probe) stopIds.add(probe);
   }
   for (const marker of liveBusMarkers.values()) {
@@ -1262,8 +1264,8 @@ async function refreshMapArrivals() {
 /** The one stop worth polling for a displayed direction: the stop the route
  *  was opened from, or — when the direction was cycled and that stop belongs
  *  to the other side of the street — its nearest counterpart on this one. */
-function routeProbeStop(code, shown) {
-  const route = routeCache.get(code);
+function routeProbeStop(shown) {
+  const route = routeCache.get(shown.code);
   const candidates = route?.stops?.[shown.direction] ?? [];
   if (!candidates.length) return null;
   const anchor = shown.anchorStopId == null ? null : String(shown.anchorStopId);
@@ -1524,7 +1526,11 @@ function nearbyStop(stopId) {
 /* ---- Line routes on the map -------------------------------------------- */
 
 let routeLayer = null;
-const shownRoutes = new Map(); // line code → { layer, label }
+// Keyed per direction, not per line. A stop only ever means one direction, so
+// a chip tapped in its popup draws that one — but nothing stops someone asking
+// for the other as well, and a line running both ways is a reasonable thing to
+// want to see. Only the same direction of the same line is deduplicated.
+const shownRoutes = new Map(); // "code:direction" → { layer, label, code, direction }
 const routeCache = new Map(); // line code → route payload
 const routeLoads = new Map();
 const routeTrackCache = new Map(); // line + direction → compiled animation track
@@ -1534,38 +1540,34 @@ const routeTrackCache = new Map(); // line + direction → compiled animation tr
  * Route geometry is ~25KB a line and never changes during a session, so it is
  * fetched once and kept; the worker holds it for a week.
  */
+function routeKey(code, direction) {
+  return `${lineIdentity(code)}:${direction}`;
+}
+
+/** Every drawn direction of one line, whichever code spelling drew it. */
+function shownRoutesFor(code) {
+  return [...shownRoutes.values()]
+    .filter((shown) => lineIdentity(shown.code) === lineIdentity(code));
+}
+
+/** What a chip in `stopId`'s popup refers to: that stop's own direction if the
+ *  route is known, otherwise whatever direction of the line is drawn. */
+function shownRouteFor(code, stopId) {
+  const route = routeCache.get(code);
+  const direction = route && stopId != null ? routeStopDirection(route, stopId) : null;
+  const drawn = shownRoutesFor(code);
+  return (direction ? drawn.find((shown) => shown.direction === direction) : drawn[0]) ?? null;
+}
+
 async function toggleRoute(code, label, requestedDirection = null, anchorStopId = null) {
   if (!leafletMap) return;
 
-  // EMT mixes padded and signed codes (070/70). They are one route and must
-  // never survive as two overlapping layer groups.
-  for (const [shownCode, shown] of shownRoutes) {
-    if (shownCode === code || lineIdentity(shownCode) !== lineIdentity(code)) continue;
-    routeLayer.removeLayer(shown.layer);
-    shownRoutes.delete(shownCode);
-  }
-
-  // One direction at a time. Drawn together the two run along the same
-  // streets, so whichever is on top hides the other and the arrows point both
-  // ways a few pixels apart.
-  const current = shownRoutes.get(code);
-  const anchor = anchorStopId ?? current?.anchorStopId ?? null;
-  if (current) {
-    routeLayer.removeLayer(current.layer);
-    shownRoutes.delete(code);
-    // Already drawn means a tap is "off". There is no other side to cycle to:
-    // a stop serves one direction of a line, so its chip has only ever meant
-    // that one, and the legend chip is labelled with a ×.
-    if (!requestedDirection || current.direction === requestedDirection) {
-      renderRouteLegend();
-      rebuildLiveBusMarkers();
-      return;
-    }
-  }
-
-  statusEl.textContent = `Loading route ${label}…`;
+  // The direction has to be known before anything can be toggled, and it comes
+  // out of the route. After the first draw this is a cache read, so turning a
+  // route off never costs a request.
   let route = routeCache.get(code);
   if (!route) {
+    statusEl.textContent = `Loading route ${label}…`;
     try {
       route = await api(`/lines/${encodeURIComponent(code)}/route`);
       routeCache.set(code, route);
@@ -1573,14 +1575,25 @@ async function toggleRoute(code, label, requestedDirection = null, anchorStopId 
       statusEl.textContent = `Could not load route ${label}: ${err.message}`;
       return;
     }
+    statusEl.textContent = "";
   }
-  statusEl.textContent = "";
-  if (shownRoutes.has(code)) return; // toggled again while loading
 
   // The stop a chip was tapped in serves exactly one direction of that line,
-  // so it names the direction outright rather than being guessed at and
-  // corrected by a second tap.
-  const next = requestedDirection ?? routeStopDirection(route, anchor) ?? "toA";
+  // so it names the direction outright rather than being guessed at.
+  const next = requestedDirection ?? routeStopDirection(route, anchorStopId) ?? "toA";
+  const key = routeKey(code, next);
+  const current = shownRoutes.get(key);
+  const anchor = anchorStopId ?? current?.anchorStopId ?? null;
+  if (current) {
+    // This direction is already drawn, so the tap means "off". The opposite
+    // direction, if it is also drawn, is left exactly where it is.
+    routeLayer.removeLayer(current.layer);
+    shownRoutes.delete(key);
+    renderRouteLegend();
+    rebuildLiveBusMarkers();
+    return;
+  }
+
   const color = lineColor(label);
   const segments = route.paths?.[next] ?? [];
   // featureGroup, not layerGroup: only this one can report its own bounds.
@@ -1600,9 +1613,10 @@ async function toggleRoute(code, label, requestedDirection = null, anchorStopId 
   }
   addRouteStops(group, route.stops?.[next] ?? [], color);
   group.addTo(routeLayer);
-  shownRoutes.set(code, {
+  shownRoutes.set(key, {
     layer: group,
     label,
+    code,
     direction: next,
     towards: next === "toA" ? route.nameA : route.nameB,
     anchorStopId: anchor,
@@ -1716,16 +1730,21 @@ function renderRouteLegend() {
   legend.hidden = shownRoutes.size === 0 || mapEl.hidden;
   legend.replaceChildren(
     ...(shownRoutes.size > 1 ? [clearRoutesChip()] : []),
-    ...[...shownRoutes].map(([code, { label, towards }]) => {
+    ...[...shownRoutes.values()].map((shown) => {
+      const { label, towards } = shown;
       const chip = document.createElement("button");
       chip.type = "button";
       chip.className = "route-chip";
-      // Where this direction ends up — the point of showing one at a time.
+      // Where this direction ends up — with both drawn, the only thing telling
+      // one chip from the other.
       chip.textContent = towards ? `${label} → ${towards} ×` : `${label} ×`;
       chip.style.borderColor = lineColor(label);
       chip.style.color = lineColor(label);
       chip.title = `Hide this route`;
-      chip.addEventListener("click", () => toggleRoute(code, label));
+      // Its own direction, explicitly: re-deriving one here would toggle
+      // whichever direction the anchor stop happens to name.
+      chip.addEventListener("click",
+        () => toggleRoute(shown.code, label, shown.direction, shown.anchorStopId));
       return chip;
     })
   );
@@ -1750,7 +1769,7 @@ function lineChips(lines, anchorStopId = null) {
     chip.type = "button";
     // Drawn-or-not is read from the map, never held on the chip: popups are
     // rebuilt every second by the countdown tick, which would lose it.
-    const drawn = shownRoutes.get(l.line);
+    const drawn = shownRouteFor(l.line, anchorStopId);
     chip.className = drawn ? "line-chip on" : "line-chip";
     chip.textContent = drawn?.towards ? `${l.label} → ${drawn.towards}` : l.label;
     chip.style.color = lineColor(l.label);
@@ -2002,14 +2021,21 @@ function loadBusRoute(bus) {
  */
 function busShownRoute(bus) {
   const line = busLineCode(bus);
-  const shown = [...shownRoutes].find(([code]) => lineIdentity(code) === lineIdentity(line.line));
-  if (!shown) return null;
-  const [shownCode, shownRoute] = shown;
-  const route = routeCache.get(line.line) ?? routeCache.get(shownCode);
+  const drawn = shownRoutesFor(line.line);
+  if (drawn.length === 0) return null;
+  const route = routeCache.get(line.line) ?? routeCache.get(drawn[0].code);
   if (!route) return null;
   const direction = busRouteDirection(bus, line, route);
-  if (direction && direction !== shownRoute.direction) return null;
-  return { code: shownCode, route, direction: shownRoute.direction, snapped: Boolean(direction) };
+  if (direction) {
+    const shown = drawn.find((candidate) => candidate.direction === direction);
+    return shown ? { code: shown.code, route, direction, snapped: true } : null;
+  }
+  // Without a resolved direction a bus can only be placed when there is one
+  // drawn direction to place it on. With both up, guessing would be a coin
+  // flip between two lines of traffic going opposite ways.
+  return drawn.length === 1
+    ? { code: drawn[0].code, route, direction: drawn[0].direction, snapped: false }
+    : null;
 }
 
 function busRouteTrack(bus) {
@@ -2018,7 +2044,7 @@ function busRouteTrack(bus) {
   // snapping it to the drawn path would invent a position.
   if (!shown?.snapped) return null;
   const { code: shownCode, route, direction } = shown;
-  const cacheKey = `${shownCode}:${direction}`;
+  const cacheKey = routeKey(shownCode, direction);
   if (routeTrackCache.has(cacheKey)) return routeTrackCache.get(cacheKey);
   const components = [];
   for (const segment of route.paths?.[direction] ?? []) {
@@ -2198,6 +2224,9 @@ async function showBusRoute(bus) {
     }
   }
   const direction = busRouteDirection(bus, line, route);
+  // A bus is only ever visible because its direction is already drawn, so
+  // toggling here would hide the very route this offers to show.
+  if (direction && shownRoutes.has(routeKey(line.line, direction))) return;
   await toggleRoute(line.line, line.label, direction, bus.sourceStopId);
   rebuildLiveBusMarkers();
 }

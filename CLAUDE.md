@@ -588,14 +588,22 @@ is most stale), and manually per-card or all at once.
    place and fills in the blind ones — stops cluster, so a Plaza Castilla bay
    is healed by the bay next to it. Results are cached in the worker for a day,
    so this costs close to nothing.
-8. **Line routes on the map, one direction at a time.** Every line in a map
-   popup is a chip; tapping cycles out → back → off, and the legend chip names
-   where that direction ends up ("70 → ALSACIA"). Both directions drawn at once
-   was unreadable: they run along the same streets, so one hides the other.
+8. **Line routes on the map, one direction per tap.** Every line in a map
+   popup is a chip; tapping draws the direction *that stop* serves and tapping
+   again removes it. The legend chip names where the direction ends up
+   ("70 → ALSACIA"), which is what tells two chips of one line apart.
+   `shownRoutes` is keyed `lineIdentity:direction`, so asking for the other
+   direction as well is allowed — it just is never what a single tap does.
+   Only the same direction of the same line is deduplicated, which is what
+   keeps EMT's two spellings (070/70) from drawing one route twice. Nothing
+   *automatically* draws both: they run along the same streets, so an
+   unrequested second direction only hides the first.
    Arrowheads along the path give the heading — solid versus dashed is not
    legible at the zoom a phone map sits at. The polylines are
    `interactive: false`: a route running through a stop must not swallow taps
-   meant for the pin.
+   meant for the pin. With both directions up, a bus whose own direction cannot
+   be resolved is not drawn at all: there would be two opposite paths to guess
+   between.
 9. **Stops en route come free.** The route answer already carries every stop
    the line calls at, so drawing them costs no extra request. They are drawn as
    dots in the line's colour for the direction on screen, skipping saved stops,
