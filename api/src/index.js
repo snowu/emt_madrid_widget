@@ -34,6 +34,7 @@ import { authenticatedUser, bearerToken } from "./auth.js";
 import { getBikeTripDiagnostics, monitorBikeTrips } from "./trip-monitor.js";
 import {
   boardHasLine,
+  linesMatch,
   nearbyAccess,
   planJourney,
   stopsWithLiveLines,
@@ -344,8 +345,7 @@ async function journeys(request, body, env, ctx) {
     for (const option of item.options) {
       const board = live.get(String(option.originStop.stopId));
       const arrivals = board?.arrivals ?? [];
-      const matching = arrivals.filter((arrival) =>
-        arrival.line === option.firstLeg.label || arrival.line === option.firstLeg.line);
+      const matching = arrivals.filter((arrival) => linesMatch(arrival, option.firstLeg));
       option.firstLeg.arrivals = matching.slice(0, 2).map(({ seconds }) => seconds);
       option.firstLeg.fetchedAt = board?.fetchedAt ?? null;
     }

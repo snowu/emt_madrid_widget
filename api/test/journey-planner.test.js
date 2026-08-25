@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   boardHasLine,
+  linesMatch,
   nearbyAccess,
   planJourney,
   stopsWithLiveLines,
@@ -30,6 +31,14 @@ describe("journey planner", () => {
     const board = { arrivals: [{ line: "N1" }, { line: "N2" }] };
     expect(boardHasLine(board, { line: "N2" })).toBe(true);
     expect(boardHasLine(board, { label: "29" })).toBe(false);
+  });
+
+  it("matches EMT's padded static codes to live arrival labels", () => {
+    const stops = [{ stopId: "213", lines: [{ line: "070", label: "070" }] }];
+    const boards = new Map([["213", { arrivals: [{ line: "70", seconds: 300 }] }]]);
+    expect(stopsWithLiveLines(stops, boards)[0].lines).toEqual([{ line: "070", label: "070" }]);
+    expect(boardHasLine(boards.get("213"), { line: "070" })).toBe(true);
+    expect(linesMatch({ line: "005" }, { label: "5" })).toBe(true);
   });
 
   it("sorts nearby access stops by walking distance", () => {

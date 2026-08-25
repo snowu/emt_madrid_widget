@@ -18,21 +18,36 @@ function lineCode(entry) {
   return String(entry?.line ?? entry?.label ?? "").trim();
 }
 
+function lineIdentity(entry) {
+  const code = lineCode(entry).toUpperCase();
+  return /^\d+$/.test(code) ? code.replace(/^0+(?=\d)/, "") : code;
+}
+
+export function linesMatch(a, b) {
+  const left = lineIdentity(a);
+  return Boolean(left) && left === lineIdentity(b);
+}
+
 export function boardHasLine(board, line) {
-  const wanted = lineCode(line).toUpperCase();
+  const wanted = lineIdentity(line);
   return Boolean(wanted) && (board?.arrivals ?? [])
-    .some((arrival) => lineCode(arrival).toUpperCase() === wanted);
+    .some((arrival) => lineIdentity(arrival) === wanted);
 }
 
 export function stopsWithLiveLines(stops, boards) {
   return (stops ?? []).map((stop) => {
     const arrivals = boards.get(String(stop.stopId))?.arrivals ?? [];
-    const listed = new Map((stop.lines ?? []).map((line) => [lineCode(line).toUpperCase(), line]));
+    const listed = new Map();
+    for (const line of stop.lines ?? []) {
+      listed.set(lineIdentity(line), line);
+      if (line?.label != null) listed.set(lineIdentity({ line: line.label }), line);
+    }
     const live = new Map();
     for (const arrival of arrivals) {
       const code = lineCode(arrival);
-      if (!code || live.has(code.toUpperCase())) continue;
-      live.set(code.toUpperCase(), listed.get(code.toUpperCase()) ?? { line: code, label: code });
+      const identity = lineIdentity(arrival);
+      if (!code || live.has(identity)) continue;
+      live.set(identity, listed.get(identity) ?? { line: code, label: code });
     }
     return { ...stop, lines: [...live.values()] };
   }).filter((stop) => stop.lines.length > 0);
@@ -84,10 +99,10 @@ function routeFor(routes, code) {
 }
 
 function bestDirect(originLines, destinationLines, routes) {
-  const destinationByCode = new Map(destinationLines.map((item) => [item.code, item]));
+  const destinationByCode = new Map(destinationLines.map((item) => [lineIdentity(item), item]));
   const candidates = [];
   for (const origin of originLines) {
-    const destination = destinationByCode.get(origin.code);
+    const destination = destinationByCode.get(lineIdentity(origin));
     if (!destination) continue;
     const route = routeFor(routes, origin.code);
     const sections = directedSections(route,
@@ -112,7 +127,7 @@ function bestTransfers(originLines, destinationLines, routes, thresholdM) {
     const firstRoute = routeFor(routes, first.code);
     if (!firstRoute) continue;
     for (const second of destinationLines) {
-      if (first.code === second.code) continue;
+      if (linesMatch(first, second)) continue;
       const secondRoute = routeFor(routes, second.code);
       if (!secondRoute) continue;
       for (const firstDirection of ["toA", "toB"]) {
