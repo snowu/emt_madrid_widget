@@ -2,6 +2,8 @@ import {
   readCache,
   writeCache,
   writeArrivalCache,
+  readNearbyCell,
+  writeNearbyCell,
   readStops,
   writeStops,
   readDetails,
@@ -1277,7 +1279,7 @@ function routeProbeStop(code, shown) {
 
 function anchorCoordinates(route, stopId) {
   const known = details[stopId]?.coordinates
-    ?? nearbyStops.find((stop) => String(stop.stopId) === stopId)?.coordinates;
+    ?? nearbyStop(stopId)?.coordinates;
   if (Array.isArray(known)) return known;
   for (const direction of ["toA", "toB"]) {
     const match = (route?.stops?.[direction] ?? [])
@@ -1372,19 +1374,19 @@ async function healStubs() {
   for (const stop of stops) {
     const coords = details[stop.stop_id]?.coordinates;
     if (!coords) continue;
-    // One 500m search covers a whole stop cluster. The old 110m grid could
-    // issue several heavily-overlapping queries around the same interchange.
+    // Origins inside one cell resolve to the same fetch, so cluster them here
+    // rather than asking the cell loader to dedupe a hundred interchange bays.
     if (origins.some((origin) => metresBetweenCoordinates(origin, coords) < 350)) continue;
     origins.push(coords);
   }
   if (origins.length === 0) return;
 
-  const results = await Promise.all(
-    origins.map(([lon, lat]) =>
-      api(`/stops/nearby?lat=${lat}&lon=${lon}&radius=${NEARBY_RADIUS}`).catch(() => [])
-    )
-  );
-  if (mergeNearbyDetails(results.flat())) {
+  const cells = new Map();
+  for (const [lon, lat] of origins) {
+    for (const cell of cellsAround(lat, lon)) cells.set(cellKey(cell), cell);
+  }
+  await loadNearbyCells([...cells.values()]);
+  if (mergeNearbyDetails(nearbyStops)) {
     render();
     rebuildMarkers();
   }
@@ -1399,13 +1401,121 @@ let liveBusLayer = null; // L.LayerGroup — vehicles reported by live arrivals
 const liveBusMarkers = new Map();
 let busMapRefreshAt = 0;
 let busUserMarker = null;
-let nearbyCell = null;
 let nearbyStops = [];
-let nearbySeq = 0;
 let closestWalking = new Map();
 let closestWalkingOrigin = null;
 
-const NEARBY_RADIUS = 700;
+// Nearby stops are fetched by fixed grid cell rather than as a disc around
+// wherever the map happens to be centred. A disc covers a shrinking slice of
+// the viewport as you zoom out, and re-centring replaced the whole set — which
+// is why pins appeared to jump and disappear while panning.
+//
+// 0.02° is 2226m of latitude and 1694m of longitude in Madrid, so a cell's
+// half-diagonal is 1398m and one call at radius 1400 covers it exactly.
+const NEARBY_CELL = 0.02;
+const NEARBY_CELL_RADIUS = 1400;
+const NEARBY_CELL_TTL = 24 * 60 * 60 * 1000; // stops do not move during a day
+const NEARBY_MIN_ZOOM = 14;                  // below this the map is a smear of dots
+const NEARBY_CELLS_PER_LOAD = 8;             // one pan must not fan out unboundedly
+const nearbyCells = new Map(); // "latIndex:lonIndex" → { stops, fetchedAt }
+const nearbyById = new Map();  // stopId → stop, for the by-id lookups
+
+function cellIndex(value) {
+  return Math.floor(value / NEARBY_CELL);
+}
+
+function cellKey([latIndex, lonIndex]) {
+  return `${latIndex}:${lonIndex}`;
+}
+
+function cellCentre([latIndex, lonIndex]) {
+  return [(lonIndex + 0.5) * NEARBY_CELL, (latIndex + 0.5) * NEARBY_CELL];
+}
+
+/** The cells a point could draw stops from, allowing for one sitting just
+ *  over a boundary. One cell normally, up to four near a corner. */
+function cellsAround(lat, lon, margin = 400) {
+  const dLat = margin / 111_320;
+  const dLon = margin / (111_320 * Math.cos((lat * Math.PI) / 180));
+  const seen = new Map();
+  for (const la of [lat - dLat, lat + dLat]) {
+    for (const lo of [lon - dLon, lon + dLon]) {
+      const cell = [cellIndex(la), cellIndex(lo)];
+      seen.set(cellKey(cell), cell);
+    }
+  }
+  return [...seen.values()];
+}
+
+function viewportCells(bounds) {
+  const cells = [];
+  for (let la = cellIndex(bounds.getSouth()); la <= cellIndex(bounds.getNorth()); la += 1) {
+    for (let lo = cellIndex(bounds.getWest()); lo <= cellIndex(bounds.getEast()); lo += 1) {
+      cells.push([la, lo]);
+    }
+  }
+  return cells;
+}
+
+/** Fetch whichever of these cells is not already known, and fold the results
+ *  into the shared index. Returns true when anything new arrived. */
+async function loadNearbyCells(cells, { force = false } = {}) {
+  const missing = [];
+  for (const cell of cells) {
+    const key = cellKey(cell);
+    if (!force && nearbyCells.has(key)) continue;
+    const stored = force ? null : readNearbyCell(key);
+    if (stored && Date.now() - stored.fetchedAt < NEARBY_CELL_TTL) {
+      nearbyCells.set(key, stored);
+      continue;
+    }
+    missing.push(cell);
+  }
+  if (missing.length === 0) {
+    indexNearbyCells();
+    return false;
+  }
+  // Nearest the middle of the request first, so a capped fan-out spends its
+  // budget on what the user is actually looking at.
+  const focus = leafletMap && !mapEl.hidden
+    ? [leafletMap.getCenter().lng, leafletMap.getCenter().lat] : cellCentre(missing[0]);
+  missing.sort((a, b) =>
+    metresBetweenCoordinates(focus, cellCentre(a)) - metresBetweenCoordinates(focus, cellCentre(b)));
+
+  const fetched = await Promise.all(missing.slice(0, NEARBY_CELLS_PER_LOAD).map(async (cell) => {
+    const [lon, lat] = cellCentre(cell);
+    try {
+      const stops = await api(
+        `/stops/nearby?lat=${lat}&lon=${lon}&radius=${NEARBY_CELL_RADIUS}`
+      );
+      // Keep only what belongs to this cell. Cells tile exactly, so their
+      // union is the whole area with nothing counted twice.
+      const own = stops.filter((stop) => Array.isArray(stop.coordinates)
+        && cellIndex(stop.coordinates[1]) === cell[0]
+        && cellIndex(stop.coordinates[0]) === cell[1]);
+      const record = { stops: own, fetchedAt: Date.now() };
+      nearbyCells.set(cellKey(cell), record);
+      writeNearbyCell(cellKey(cell), record);
+      return own;
+    } catch {
+      return null; // the map stays usable without its halo of pins
+    }
+  }));
+  indexNearbyCells();
+  return fetched.some(Boolean);
+}
+
+function indexNearbyCells() {
+  nearbyById.clear();
+  for (const { stops } of nearbyCells.values()) {
+    for (const stop of stops) nearbyById.set(String(stop.stopId), stop);
+  }
+  nearbyStops = [...nearbyById.values()];
+}
+
+function nearbyStop(stopId) {
+  return nearbyById.get(String(stopId));
+}
 
 /* ---- Line routes on the map -------------------------------------------- */
 
@@ -1734,9 +1844,10 @@ function ensureMap() {
 
 /** Which stop's popup is open, so a rebuild can put it back.
  *
- * Pins are rebuilt whenever nearby detail lands, and clearing the layer
+ * Saved pins are rebuilt whenever nearby detail lands, and clearing the layer
  * destroys the marker the popup belongs to. Reopening keeps a tap on a line
- * chip from dismissing the popup that chip lives in.
+ * chip from dismissing the popup that chip lives in. Nearby pins no longer
+ * need this: they are added and removed one at a time.
  */
 function openPopupStopId(layer, key) {
   let open = null;
@@ -2060,7 +2171,7 @@ function animateBusMarker(marker, from, to, duration = BUS_MAP_REFRESH_MS - 500)
 function busLineCode(bus) {
   const wanted = lineIdentity(bus.line);
   const candidates = [
-    ...(nearbyStops.find((stop) => String(stop.stopId) === String(bus.sourceStopId))?.lines ?? []),
+    ...(nearbyStop(bus.sourceStopId)?.lines ?? []),
     ...stopLines(bus.sourceStopId),
   ];
   const known = candidates.find((entry) => {
@@ -2329,51 +2440,62 @@ function nearbyPopupHtml(s) {
   return wrap;
 }
 
+const nearbyPins = new Map(); // stopId → circleMarker
+
+/** Add and remove only what changed.
+ *
+ * Clearing the layer on every pan is what made stops blink out and back: the
+ * marker under an open popup was destroyed along with the rest, and every pin
+ * that was already correct got rebuilt for nothing.
+ */
 function renderNearbyPins() {
-  if (!nearbyLayer) return;
+  if (!nearbyLayer || !leafletMap) return;
+  const visible = !mapEl.hidden && leafletMap.getZoom() >= NEARBY_MIN_ZOOM;
+  const bounds = visible ? leafletMap.getBounds().pad(0.2) : null;
   const saved = savedIds();
-  const reopen = openPopupStopId(nearbyLayer, "nearbyStop")?.stopId;
-  nearbyLayer.clearLayers();
-  for (const s of nearbyStops) {
-    if (saved.has(s.stopId) || !s.coordinates) continue;
-    // GeoJSON order is [lon, lat]; Leaflet wants [lat, lon].
-    const pin = L.circleMarker([s.coordinates[1], s.coordinates[0]], {
-      radius: 7,
-      color: "#8b93a7",
-      weight: 2,
-      fillColor: "#3a4150",
-      fillOpacity: 0.9,
-    })
-      .bindPopup(() => nearbyPopupHtml(s))
-      .addTo(nearbyLayer);
-    pin.nearbyStop = s; // for popup refresh ticks
-    if (s.stopId === reopen) pin.openPopup({ autoPan: false });
+  const wanted = new Set();
+  if (visible) {
+    for (const s of nearbyStops) {
+      if (saved.has(s.stopId) || !Array.isArray(s.coordinates)) continue;
+      // GeoJSON order is [lon, lat]; Leaflet wants [lat, lon].
+      const at = [s.coordinates[1], s.coordinates[0]];
+      if (!bounds.contains(at)) continue;
+      wanted.add(s.stopId);
+      const existing = nearbyPins.get(s.stopId);
+      if (existing) {
+        existing.nearbyStop = s;
+        continue;
+      }
+      const pin = L.circleMarker(at, {
+        radius: 7,
+        color: "#8b93a7",
+        weight: 2,
+        fillColor: "#3a4150",
+        fillOpacity: 0.9,
+      })
+        .bindPopup(() => nearbyPopupHtml(s))
+        .addTo(nearbyLayer);
+      pin.nearbyStop = s; // for popup refresh ticks
+      nearbyPins.set(s.stopId, pin);
+    }
+  }
+  for (const [stopId, pin] of nearbyPins) {
+    if (wanted.has(stopId)) continue;
+    nearbyLayer.removeLayer(pin);
+    nearbyPins.delete(stopId);
   }
 }
 
 /** Load stops around an explicit point so location can update the bus data
  * even while the bike section (or list view) is on screen. */
 async function loadNearbyAt(lat, lon, { force = false } = {}) {
-  const cell = `${lat.toFixed(3)},${lon.toFixed(3)}`;
-  if (!force && cell === nearbyCell) return;
-  const seq = ++nearbySeq;
-  try {
-    const found = await api(
-      `/stops/nearby?lat=${lat}&lon=${lon}&radius=${NEARBY_RADIUS}`
-    );
-    if (seq !== nearbySeq) return; // a newer pan superseded this request
-    nearbyStops = found.sort((a, b) =>
-      proximity(metresFromCurrent(a.coordinates)) - proximity(metresFromCurrent(b.coordinates)));
-    nearbyCell = cell;
-    // A pan over a saved-but-detail-less stop is a free chance to learn it.
-    if (mergeNearbyDetails(found)) {
-      render();
-      rebuildMarkers();
-    }
-    renderNearbyPins();
-  } catch {
-    // Map stays usable without the halo of nearby pins.
+  await loadNearbyCells(cellsAround(lat, lon), { force });
+  // A pass over a saved-but-detail-less stop is a free chance to learn it.
+  if (mergeNearbyDetails(nearbyStops)) {
+    render();
+    rebuildMarkers();
   }
+  renderNearbyPins();
 }
 
 function closestStops() {
@@ -2511,10 +2633,24 @@ document.getElementById("nearby-stops-open").addEventListener("click", () => {
 document.getElementById("nearby-stops-close").addEventListener("click", () => nearbyStopsDialog.close());
 
 /** Load stops within 500m of the map centre; one fetch per ~110m cell. */
+/** Keep the visible area covered, rather than a disc around the centre.
+ *
+ * Below NEARBY_MIN_ZOOM nothing is fetched or drawn: the viewport is then
+ * several cells across and thousands of dots wide, which is neither useful
+ * nor cheap. Saved stops and drawn routes are unaffected.
+ */
 async function loadNearby() {
   if (!leafletMap || mapEl.hidden) return;
-  const centre = leafletMap.getCenter();
-  return loadNearbyAt(centre.lat, centre.lng);
+  if (leafletMap.getZoom() < NEARBY_MIN_ZOOM) {
+    renderNearbyPins();
+    return;
+  }
+  await loadNearbyCells(viewportCells(leafletMap.getBounds().pad(0.2)));
+  if (mergeNearbyDetails(nearbyStops)) {
+    render();
+    rebuildMarkers();
+  }
+  renderNearbyPins();
 }
 
 viewListBtn.addEventListener("click", () => showView("list"));

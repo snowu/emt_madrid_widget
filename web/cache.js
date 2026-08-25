@@ -96,3 +96,55 @@ export function readBikeTrips() {
 export function writeBikeTrips(payload) {
   localStorage.setItem(userKey(BIKE_TRIPS_KEY), JSON.stringify(payload));
 }
+
+/* ---- Nearby stop cells ------------------------------------------------ */
+
+// One localStorage entry per grid cell rather than one blob for all of them:
+// a pan writes the ~14KB cell it just fetched, not the whole cache.
+const NEARBY_PREFIX = "emt:nearby:v1:";
+// A dense central cell is ~124 stops at ~238 bytes each, so ~29KB. Forty of
+// them is ~1.2MB against localStorage's ~5MB, which this shares with stop
+// details, arrivals and trip history — and forty cells is already 150km².
+const NEARBY_CELL_LIMIT = 40;
+
+export function readNearbyCell(key) {
+  return read(NEARBY_PREFIX + key, null);
+}
+
+/** Stops are public and do not move, so these are shared across users and
+ *  kept for a day. Oldest cells go first once the cap is reached — panning
+ *  across a city should not be able to fill the origin's storage. */
+export function writeNearbyCell(key, cell) {
+  try {
+    localStorage.setItem(NEARBY_PREFIX + key, JSON.stringify(cell));
+  } catch {
+    // Storage full: drop everything cached and let it refill from the map.
+    clearNearbyCells();
+    return;
+  }
+  pruneNearbyCells();
+}
+
+function nearbyCellKeys() {
+  const keys = [];
+  for (let i = 0; i < localStorage.length; i += 1) {
+    const key = localStorage.key(i);
+    if (key?.startsWith(NEARBY_PREFIX)) keys.push(key);
+  }
+  return keys;
+}
+
+function pruneNearbyCells() {
+  const keys = nearbyCellKeys();
+  if (keys.length <= NEARBY_CELL_LIMIT) return;
+  const aged = keys
+    .map((key) => ({ key, at: read(key, null)?.fetchedAt ?? 0 }))
+    .sort((a, b) => a.at - b.at);
+  for (const { key } of aged.slice(0, keys.length - NEARBY_CELL_LIMIT)) {
+    localStorage.removeItem(key);
+  }
+}
+
+export function clearNearbyCells() {
+  for (const key of nearbyCellKeys()) localStorage.removeItem(key);
+}

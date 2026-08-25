@@ -51,7 +51,7 @@ import {
 const ARRIVALS_CACHE_TTL = 4;
 // Bump when a cached payload's *shape* changes: old entries would otherwise
 // keep serving the old shape until their TTL runs out (a week, for detail).
-const CACHE_VERSION = "v4";
+const CACHE_VERSION = "v5";
 // Stop names/locations never move. A week of cache is quota-free.
 const DETAIL_CACHE_TTL = 7 * 24 * 3600;
 // Nearby searches are keyed on a ~110m grid so panning the map reuses cells.

@@ -357,13 +357,11 @@ describe("getNearbyStops", () => {
         stopId: "30",
         name: "Plaza Castilla",
         // Area search sends bare codes: no label, no service hours to be had.
+        // Only the fields it can actually fill are serialised — the null hours
+        // stop-detail entries carry were 130KB of padding in a 3km answer.
         lines: ["107", "129", "005", "070"].map((code) => ({
           line: code,
           label: code,
-          from: null,
-          to: null,
-          dayType: null,
-          headers: [],
         })),
         coordinates: [-3.68967, 40.46737],
       },
@@ -373,10 +371,6 @@ describe("getNearbyStops", () => {
         lines: ["107", "129", "174"].map((code) => ({
           line: code,
           label: code,
-          from: null,
-          to: null,
-          dayType: null,
-          headers: [],
         })),
         coordinates: [-3.6891, 40.4676],
       },

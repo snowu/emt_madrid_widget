@@ -101,10 +101,10 @@ TTLs are declared at the top of `src/index.js`:
 | `bike-info` | Cache API | 24h | station names and coordinates are nearly static |
 | `detail/` | Cache API | 7 days | stops do not move |
 | `route/` | Cache API | 7 days | geometry changes when EMT redraws a line |
-| `nearby/` | Cache API | 24h | keyed on a ~110m grid (`grid3`) |
+| `nearby/` | Cache API | 24h | keyed on a ~110m grid (`grid3`); the page asks on a fixed 0.02° grid so every device shares the same keys |
 | `timetable/` | Cache API | 24h | changes with the season, not the hour |
 
-`CACHE_VERSION` is currently **v4**. Bump it when a parsed public payload shape
+`CACHE_VERSION` is currently **v5**. Bump it when a parsed public payload shape
 changes so old Cache API objects cannot serve an incompatible response.
 
 ## Development
@@ -279,6 +279,15 @@ Other line endpoints, verified 2026-08-23 but not used yet:
 `lines/{line}/stops/{1|2}/` (ordered stop list + frequency bands),
 `lines/info/{yyyymmdd}/` on v1 (index of all 239 lines).
 `lines/{line}/` and `lines/{line}/grouproute/` are 404.
+
+**Area search's line records carry only `line`, `label` and `direction`.**
+`lineEntry()` is shaped for stop detail, where the service hours are real;
+arroundxy has none of them, so serialising its entries through that shape put
+`"from":null,"to":null,"dayType":null,"headers":[]` on all 2,673 line entries
+of a 3km answer — 130KB of nulls out of 334KB. `areaLine()` drops them and
+`roundPair()` cuts the 15-decimal coordinates to 6, taking a 3km answer from
+334KB to 189KB. The page caches these by the thousand, so the padding was not
+free. Stop *detail* keeps the full shape: there the hours are the point.
 
 **Detail's line list is `dataLine[]`, not the `lines[]` the docs show.** A v2
 detail answer has no `lines` key at all, so reading it yields an empty list for
@@ -607,7 +616,20 @@ is most stale), and manually per-card or all at once.
    polls along the compiled path — see the arrivals notes above for why the fix
    is unusable. Heading comes from the path's own tangent, since two fixes
    minutes apart say nothing about which way a bus points.
-14. **One probe stop per displayed direction, every 5s.** A stop's arrivals
+14. **Nearby stops are cached by grid cell, not fetched as a disc.** A disc
+   around the map centre covers a shrinking slice of the viewport as you zoom
+   out, and re-centring replaced the whole set — so pins jumped and blinked
+   out while panning. The page instead tiles a fixed 0.02° grid (2226m of
+   latitude by 1694m of longitude in Madrid, so a 1398m half-diagonal that one
+   call at radius 1400 covers exactly), keeps only the stops belonging to each
+   cell so the union double-counts nothing, and caches each cell in its own
+   localStorage entry for 24h. A dense central cell is ~124 stops ≈ 29KB;
+   forty cells are kept, oldest evicted first. Pins are added and removed one
+   at a time rather than by clearing the layer.
+15. **Below zoom 14 there are no nearby pins at all.** The viewport is then
+   several cells across and thousands of dots wide, which is neither useful
+   nor cheap. Saved stops and drawn routes are unaffected.
+16. **One probe stop per displayed direction, every 5s.** A stop's arrivals
    only ever describe buses still heading *for* it, so polling the stop the
    route was opened from is exactly "what is coming to me" — buses already
    past it are somebody else's problem. Cycling to the other direction reuses

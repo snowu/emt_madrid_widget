@@ -453,9 +453,25 @@ export async function getNearbyStops(env, { lat, lon, radius = 500 }) {
     .map((s) => ({
       stopId: String(s.stopId),
       name: s.stopName ?? null,
-      lines: Array.isArray(s.lines) ? s.lines.map(lineEntry) : [],
-      coordinates: s.geometry?.coordinates ?? null,
+      lines: Array.isArray(s.lines) ? s.lines.map(areaLine) : [],
+      coordinates: Array.isArray(s.geometry?.coordinates)
+        ? roundPair(s.geometry.coordinates) : null,
     }));
+}
+
+/** Area search's line record, carrying only what area search actually knows.
+ *
+ * `lineEntry` is shaped for stop detail, where the hours are real. Area search
+ * has none of them, so every entry it produced carried
+ * `"from":null,"to":null,"dayType":null,"headers":[]` — 130KB of nulls in a
+ * 3km answer, against 102KB for everything the caller can use. The page caches
+ * these by the thousand, so the padding is not free.
+ */
+function areaLine(l) {
+  const entry = lineEntry(l);
+  const compact = { line: entry.line, label: entry.label };
+  if (entry.direction) compact.direction = entry.direction;
+  return compact;
 }
 
 async function requestLineIncidents(env, line, token) {
