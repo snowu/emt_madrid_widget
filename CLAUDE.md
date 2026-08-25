@@ -112,7 +112,8 @@ changes so old Cache API objects cannot serve an incompatible response.
 ```bash
 cd api
 npm install
-npm test          # vitest under workerd; 124 tests, no network, no quota burnt
+npm test          # web smoke check, then vitest under workerd; 124 tests, no network
+npm run check:web # just the browser-load check, on its own
 npm run dev       # wrangler dev, needs .dev.vars
 npm run deploy    # wrangler deploy
 ```
@@ -187,8 +188,26 @@ Conventions, worth matching:
   actual contract — not that the value came back.
 
 The Worker routes, auth boundaries, Cache API reuse, concurrent-miss
-coalescing, and underlying parsers are covered. The browser UI still relies on
-syntax checks and manual browser verification rather than DOM tests.
+coalescing, and underlying parsers are covered.
+
+**`tools/check-web.mjs` loads the real page and fails if it throws.** `node
+--check` only parses, and cannot see a top-level `const` used before its
+declaration, or a listener bound to an id that is not in `index.html` — both
+of which take the whole ES module down and leave a blank page. `ac20fe6`
+shipped exactly that: syntax-clean, dead on arrival. The check builds a DOM
+from `web/index.html` with jsdom, stubs only what a CDN would have supplied
+(Leaflet, the Supabase SDK, geolocation, `fetch`), imports `app.js`, and then
+asserts every `getElementById` in it resolves against the real HTML.
+
+It runs as `pretest`, so `npm test` covers it, and from `.githooks/pre-push`.
+Enable the hook once per clone with `git config core.hooksPath .githooks`;
+`--no-verify` skips it.
+
+Two things it does *not* do: it never runs a rendered frame, so layout and CSS
+still need a browser, and its jsdom shims (currently `meta.media`) paper over
+gaps in the environment only — never over a real fault in the page. The
+browser UI otherwise still relies on manual verification rather than DOM
+tests.
 
 ## Data source
 

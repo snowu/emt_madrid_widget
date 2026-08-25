@@ -6,10 +6,13 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "metrics": "node --env-file-if-exists=../.env.metrics ../tools/emt-metrics.mjs",
-    "test": "vitest run"
+    "test": "vitest run",
+    "check:web": "node ../tools/check-web.mjs",
+    "pretest": "node ../tools/check-web.mjs"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.5.0",
+    "jsdom": "^30.0.1",
     "vitest": "^2.0.0",
     "wrangler": "^4.125.0"
   },

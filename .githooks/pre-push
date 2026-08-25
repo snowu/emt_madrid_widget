@@ -1,0 +1,21 @@
+#!/bin/sh
+# The page has no build step, so nothing else would notice that app.js throws
+# on load until it is already on the phone. `node --check` cannot see it:
+# ac20fe6 was syntax-clean and shipped a blank page.
+#
+# Enable with:  git config core.hooksPath .githooks
+set -e
+
+root="$(git rev-parse --show-toplevel)"
+
+if [ ! -d "$root/api/node_modules/jsdom" ]; then
+  echo "pre-push: jsdom missing, skipping web smoke check (cd api && npm install)" >&2
+  exit 0
+fi
+
+node "$root/tools/check-web.mjs" || {
+  echo "" >&2
+  echo "pre-push blocked: web/ would not load in a browser." >&2
+  echo "Push anyway with --no-verify if you know better." >&2
+  exit 1
+}
