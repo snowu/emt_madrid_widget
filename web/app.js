@@ -132,6 +132,12 @@ function normaliseLine(l) {
     : l;
 }
 
+function lineIdentity(value) {
+  const raw = typeof value === "object" ? value?.line ?? value?.label : value;
+  const code = String(raw ?? "").trim().toUpperCase();
+  return /^\d+$/.test(code) ? code.replace(/^0+(?=\d)/, "") : code;
+}
+
 /** A stable colour per line, used for its label everywhere and for its route
  *  on the map — same line, same colour, on every surface.
  *
@@ -1276,6 +1282,14 @@ const routeCache = new Map(); // line code → route payload
 async function toggleRoute(code, label, requestedDirection = null) {
   if (!leafletMap) return;
 
+  // EMT mixes padded and signed codes (070/70). They are one route and must
+  // never survive as two overlapping layer groups.
+  for (const [shownCode, shown] of shownRoutes) {
+    if (shownCode === code || lineIdentity(shownCode) !== lineIdentity(code)) continue;
+    routeLayer.removeLayer(shown.layer);
+    shownRoutes.delete(shownCode);
+  }
+
   // One direction at a time, cycling out → back → off. Drawn together the two
   // run along the same streets, so whichever is on top hides the other and the
   // arrows point both ways a few pixels apart.
@@ -1659,18 +1673,14 @@ function animateBusMarker(marker, from, to, duration = BUS_MAP_REFRESH_MS - 500)
 }
 
 function busLineCode(bus) {
-  const identity = (value) => {
-    const code = String(value ?? "").trim().toUpperCase();
-    return /^\d+$/.test(code) ? code.replace(/^0+(?=\d)/, "") : code;
-  };
-  const wanted = identity(bus.line);
+  const wanted = lineIdentity(bus.line);
   const candidates = [
     ...(nearbyStops.find((stop) => String(stop.stopId) === String(bus.sourceStopId))?.lines ?? []),
     ...stopLines(bus.sourceStopId),
   ];
   const known = candidates.find((entry) => {
     const line = normaliseLine(entry);
-    return identity(line.line) === wanted || identity(line.label) === wanted;
+    return lineIdentity(line.line) === wanted || lineIdentity(line.label) === wanted;
   });
   return normaliseLine(known ?? bus.line);
 }
@@ -1695,6 +1705,7 @@ async function showBusRoute(bus) {
     ? "toA"
     : destination && destination === routeName(route.nameB)
       ? "toB" : null;
+  clearRoutes();
   await toggleRoute(line.line, line.label, direction);
 }
 
