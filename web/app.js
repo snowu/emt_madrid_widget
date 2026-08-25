@@ -112,7 +112,7 @@ for (const button of themeButtons) {
 setTheme(themeChoice);
 
 // One fetch feeds both: the card glances at the first two, the sheet shows
-// the board. The worker serves both from a single 20s-cached payload.
+// the board. The worker serves both from one shared cached payload.
 const CARD_ARRIVALS = 2;
 const BOARD_ARRIVALS = 8;
 
@@ -890,6 +890,14 @@ function renderMetrics(payload) {
   const requests = sum(edge, "events");
   const hits = sum(edge.filter((row) => row.cache_status === "hit"), "events");
   const errors = sum(rows.filter((row) => row.outcome !== "ok"), "events");
+  const firstSeen = Math.min(...rows.map((row) => Date.parse(row.first_seen)).filter(Number.isFinite));
+  const observedHours = Number.isFinite(firstSeen)
+    ? Math.min(payload.hours, Math.max(1 / 60, (payload.generatedAt - firstSeen) / 3_600_000))
+    : payload.hours;
+  const dailyPace = calls / observedHours * 24;
+  const observed = observedHours < 1
+    ? `${Math.max(1, Math.round(observedHours * 60))}m`
+    : `${observedHours.toFixed(1)}h`;
   const summary = document.createElement("div");
   summary.className = "metrics-summary";
   for (const [label, value] of [
@@ -897,7 +905,8 @@ function renderMetrics(payload) {
     ["Cache hits", Math.round(hits).toLocaleString()],
     ["Hit rate", requests ? `${(hits / requests * 100).toFixed(1)}%` : "—"],
     ["Errors", Math.round(errors).toLocaleString()],
-    ...(payload.hours === 24 ? [["20k quota", `${(calls / 20_000 * 100).toFixed(1)}%`]] : []),
+    ["Observed", observed],
+    ["Daily pace", `~${Math.round(dailyPace).toLocaleString()} · ${(dailyPace / 20_000 * 100).toFixed(1)}%`],
   ]) {
     const name = document.createElement("span");
     name.textContent = label;
@@ -1155,7 +1164,7 @@ authForm.addEventListener("submit", async (event) => {
 });
 
 const ARRIVALS_REFRESH_MS = 20_000;
-const BUS_MAP_REFRESH_MS = 10_000;
+const BUS_MAP_REFRESH_MS = 5_000;
 const stopRefreshes = new Map();
 
 async function refreshStop(stopId, { force = false, updateView = true, persist = true } = {}) {

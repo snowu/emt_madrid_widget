@@ -25,7 +25,8 @@ const query = `
     SUM(_sample_interval) AS events,
     SUM(_sample_interval * double1) AS upstream_calls,
     AVG(double2) AS avg_duration_ms,
-    MAX(double3) AS max_status
+    MAX(double3) AS max_status,
+    MIN(timestamp) AS first_seen
   FROM ${DATASET}
   WHERE timestamp > NOW() - INTERVAL '${hours}' HOUR
   GROUP BY kind, endpoint, cache_status, outcome, error_kind, caller
@@ -48,6 +49,13 @@ const upstreamCalls = sum(upstream, "upstream_calls");
 const served = sum(edge, "events");
 const hits = sum(edge.filter((row) => row.cache_status === "hit"), "events");
 const errors = sum(rows.filter((row) => row.outcome !== "ok"), "events");
+const firstSeen = Math.min(...rows.map((row) => Date.parse(row.first_seen)).filter(Number.isFinite));
+const observedHours = Number.isFinite(firstSeen)
+  ? Math.min(hours, Math.max(1 / 60, (Date.now() - firstSeen) / 3_600_000)) : hours;
+const dailyPace = upstreamCalls / observedHours * 24;
+const observed = observedHours < 1
+  ? `${Math.max(1, Math.round(observedHours * 60))}m`
+  : `${observedHours.toFixed(1)}h`;
 
 console.log(`EMT usage — last ${hours} hours\n`);
 console.log(`Upstream calls  ${Math.round(upstreamCalls).toLocaleString()}`);
@@ -55,7 +63,8 @@ console.log(`Cache-served    ${Math.round(hits).toLocaleString()}`);
 console.log(`Edge requests   ${Math.round(served).toLocaleString()}`);
 console.log(`Cache hit rate  ${served ? `${(hits / served * 100).toFixed(1)}%` : "n/a"}`);
 console.log(`Errors          ${Math.round(errors).toLocaleString()}`);
-if (hours === 24) console.log(`20k quota use   ${(upstreamCalls / 20_000 * 100).toFixed(1)}%`);
+console.log(`Observed        ${observed}`);
+console.log(`Daily pace      ~${Math.round(dailyPace).toLocaleString()} (${(dailyPace / 20_000 * 100).toFixed(1)}%)`);
 
 const endpoints = new Map();
 for (const row of upstream) {

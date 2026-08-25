@@ -48,7 +48,7 @@ import {
 
 // Short-lived, high-traffic data belongs in the Cache API, not KV. Cache API
 // operations do not consume the Workers KV daily operation allowance.
-const ARRIVALS_CACHE_TTL = 8;
+const ARRIVALS_CACHE_TTL = 4;
 // Bump when a cached payload's *shape* changes: old entries would otherwise
 // keep serving the old shape until their TTL runs out (a week, for detail).
 const CACHE_VERSION = "v4";

@@ -48,7 +48,8 @@ export async function queryMetrics(env, hours) {
       SUM(_sample_interval) AS events,
       SUM(_sample_interval * double1) AS upstream_calls,
       AVG(double2) AS avg_duration_ms,
-      MAX(double3) AS max_status
+      MAX(double3) AS max_status,
+      MIN(timestamp) AS first_seen
     FROM ${DATASET}
     WHERE timestamp > NOW() - INTERVAL '${hours}' HOUR
     GROUP BY kind, endpoint, cache_status, outcome, error_kind, caller

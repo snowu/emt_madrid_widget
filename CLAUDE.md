@@ -96,7 +96,7 @@ TTLs are declared at the top of `src/index.js`:
 | --- | --- | --- | --- |
 | `emt:token` | KV + isolate memory | login expiry − 60s | shared credential, not public data |
 | `bicimad:owner-session` | KV + isolate memory | login expiry − 60s | private MPass session, NIF and normalized account status |
-| `arrivals/` | Cache API | 20s | one full board serves card and detail views |
+| `arrivals/` | Cache API | 4s | supports 5s live-map polling; one full board still serves every view |
 | `bikes` | Cache API | 45s | one call serves the whole city, nearby and saved stations |
 | `bike-info` | Cache API | 24h | station names and coordinates are nearly static |
 | `detail/` | Cache API | 7 days | stops do not move |
