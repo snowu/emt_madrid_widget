@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   boardHasLine,
+  estimateJourneySeconds,
   linesMatch,
   nearbyAccess,
   planJourney,
@@ -69,6 +70,30 @@ describe("journey planner", () => {
     const destinations = [[{ stopId: "home", lines: [{ line: "107" }] }]];
     expect(prioritizeAccessStops(candidates, destinations, 2).map((item) => item.stopId))
       .toEqual(["outbound", "homebound"]);
+  });
+
+  it("ranks using catchable arrivals rather than a bus the user cannot reach", () => {
+    const option = {
+      type: "direct",
+      originStop: { walkSeconds: 240, distanceM: 200 },
+      destinationStop: { distanceM: 130 },
+      firstLeg: { stops: 4, arrivals: [120, 420] },
+    };
+    expect(estimateJourneySeconds(option)).toBe(880);
+    expect(option.firstLeg.selectedArrival).toBe(420);
+  });
+
+  it("includes live transfer timing in the door-to-door estimate", () => {
+    const option = {
+      type: "one_transfer",
+      originStop: { walkSeconds: 120 },
+      destinationStop: { distanceM: 130 },
+      firstLeg: { stops: 2, arrivals: [180] },
+      transfer: { walkM: 130 },
+      secondLeg: { stops: 3, arrivals: [300, 600] },
+    };
+    expect(estimateJourneySeconds(option)).toBe(970);
+    expect(option.secondLeg.selectedArrival).toBe(600);
   });
 
   it("accepts a direct line only in the direction that reaches the destination", () => {

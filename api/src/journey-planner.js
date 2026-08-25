@@ -1,4 +1,8 @@
 const EARTH_M = 6_371_000;
+const WALK_METRES_PER_SECOND = 1.3;
+const RIDE_SECONDS_PER_STOP = 90;
+const DEFAULT_HEADWAY_SECONDS = 10 * 60;
+const TRANSFER_BUFFER_SECONDS = 60;
 
 export function distanceMetres(a, b) {
   const rad = Math.PI / 180;
@@ -26,6 +30,37 @@ function lineIdentity(entry) {
 export function linesMatch(a, b) {
   const left = lineIdentity(a);
   return Boolean(left) && left === lineIdentity(b);
+}
+
+function nextDeparture(arrivals, readyAt) {
+  const times = (arrivals ?? []).map(Number).filter(Number.isFinite).sort((a, b) => a - b);
+  const live = times.find((seconds) => seconds >= readyAt);
+  if (live != null) return live;
+  if (times.length === 0) return null;
+  const observed = times.length > 1 ? times.at(-1) - times.at(-2) : DEFAULT_HEADWAY_SECONDS;
+  const headway = Math.min(30 * 60, Math.max(3 * 60, observed || DEFAULT_HEADWAY_SECONDS));
+  return times.at(-1) + Math.ceil((readyAt - times.at(-1)) / headway) * headway;
+}
+
+/** Estimate seconds from the user's current position to the Hub. */
+export function estimateJourneySeconds(option) {
+  const originWalk = Number.isFinite(option.originStop?.walkSeconds)
+    ? option.originStop.walkSeconds
+    : Number(option.originStop?.distanceM ?? 0) / WALK_METRES_PER_SECOND;
+  const firstDeparture = nextDeparture(option.firstLeg?.arrivals, originWalk);
+  if (firstDeparture == null) return null;
+  option.firstLeg.selectedArrival = Math.round(firstDeparture);
+  const firstRide = Number(option.firstLeg?.stops ?? 0) * RIDE_SECONDS_PER_STOP;
+  const destinationWalk = Number(option.destinationStop?.distanceM ?? 0) / WALK_METRES_PER_SECOND;
+  if (option.type === "direct") return Math.round(firstDeparture + firstRide + destinationWalk);
+
+  const transferWalk = Number(option.transfer?.walkM ?? 0) / WALK_METRES_PER_SECOND;
+  const readyForSecond = firstDeparture + firstRide + transferWalk + TRANSFER_BUFFER_SECONDS;
+  const secondDeparture = nextDeparture(option.secondLeg?.arrivals, readyForSecond);
+  if (secondDeparture == null) return null;
+  option.secondLeg.selectedArrival = Math.round(secondDeparture);
+  const secondRide = Number(option.secondLeg?.stops ?? 0) * RIDE_SECONDS_PER_STOP;
+  return Math.round(secondDeparture + secondRide + destinationWalk);
 }
 
 export function boardHasLine(board, line) {

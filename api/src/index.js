@@ -35,6 +35,7 @@ import { authenticatedUser, bearerToken } from "./auth.js";
 import { getBikeTripDiagnostics, monitorBikeTrips } from "./trip-monitor.js";
 import {
   boardHasLine,
+  estimateJourneySeconds,
   linesMatch,
   nearbyAccess,
   planJourney,
@@ -360,7 +361,7 @@ async function journeys(request, body, env, ctx) {
       const board = live.get(String(option.originStop.stopId));
       const arrivals = board?.arrivals ?? [];
       const matching = arrivals.filter((arrival) => linesMatch(arrival, option.firstLeg));
-      option.firstLeg.arrivals = matching.slice(0, 2).map(({ seconds }) => seconds);
+      option.firstLeg.arrivals = matching.map(({ seconds }) => seconds);
       option.firstLeg.fetchedAt = board?.fetchedAt ?? null;
     }
   }
@@ -379,10 +380,13 @@ async function journeys(request, body, env, ctx) {
       }
     })));
     for (const item of planned) {
-      item.options = item.options.filter((option) => option.type === "direct" || boardHasLine(
-        transferLive.get(String(option.transfer.toStop.stopId)),
-        option.secondLeg,
-      ));
+      item.options = item.options.filter((option) => {
+        if (option.type === "direct") return true;
+        const board = transferLive.get(String(option.transfer.toStop.stopId));
+        const matching = (board?.arrivals ?? []).filter((arrival) => linesMatch(arrival, option.secondLeg));
+        option.secondLeg.arrivals = matching.map(({ seconds }) => seconds);
+        return matching.length > 0;
+      });
     }
   }
   const incidentCodes = [...new Set(planned.flatMap((item) => item.options.flatMap((option) =>
@@ -402,8 +406,11 @@ async function journeys(request, body, env, ctx) {
         ...(incidentsByLine.get(option.firstLeg?.line) ?? []),
         ...(incidentsByLine.get(option.secondLeg?.line) ?? []),
       ].map((incident) => [incident.id, incident])).values()];
+      option.estimatedSeconds = estimateJourneySeconds(option);
     }
     item.options.sort((a, b) => Number(a.incidents.length > 0) - Number(b.incidents.length > 0)
+      || (a.estimatedSeconds ?? Number.POSITIVE_INFINITY)
+        - (b.estimatedSeconds ?? Number.POSITIVE_INFINITY)
       || a.score - b.score);
   }
   return {

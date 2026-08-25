@@ -435,7 +435,7 @@ function placeCard(place) {
     first.style.color = lineColor(option.firstLeg.label);
     first.textContent = option.firstLeg.label;
     const copy = document.createElement("p");
-    const wait = option.firstLeg.arrivals?.[0];
+    const wait = option.firstLeg.selectedArrival ?? option.firstLeg.arrivals?.[0];
     const connection = option.type === "direct"
       ? "direct"
       : `then ${option.secondLeg.label} · ${option.transfer.walkM} m transfer`;
