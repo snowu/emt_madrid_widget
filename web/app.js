@@ -1756,8 +1756,6 @@ function rebuildLiveBusMarkers() {
           (reported[1] - marker.busCoordinates[1]) / sampleSeconds,
         ];
         marker.busVelocityAt = bus.fetchedAt;
-      } else if (bus.fetchedAt - Number(marker.busVelocityAt ?? 0) > 20_000) {
-        marker.busVelocity = null;
       }
       bus.bearing = bearing ?? marker.busBearing;
       marker.busBearing = bus.bearing;
@@ -1766,7 +1764,10 @@ function rebuildLiveBusMarkers() {
       marker.busSourceStopId = bus.sourceStopId;
       marker.setIcon(liveBusIcon(bus));
       marker.unbindPopup().bindPopup(() => liveBusPopup(bus));
-      const projected = projectedBusPosition(bus, marker.busVelocity);
+      const projectionBase = bearing != null
+        ? bus
+        : { ...bus, coordinates: [previous.lng, previous.lat] };
+      const projected = projectedBusPosition(projectionBase, marker.busVelocity);
       if (bearing != null || marker.busVelocity) {
         animateBusMarker(marker, [previous.lat, previous.lng], projected);
       } else {
