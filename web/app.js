@@ -644,7 +644,6 @@ function renderSavedStops() {
       routes.innerHTML = LINES_ICON;
       routes.title = `Show the lines running at stop ${stop.stop_id}`;
       routes.setAttribute("aria-label", routes.title);
-      routes.disabled = stopLines(stop.stop_id).length === 0;
       routes.addEventListener("click", async (event) => {
         event.stopPropagation();
         routes.disabled = true;
@@ -1294,7 +1293,6 @@ async function refreshMapArrivals() {
     .filter((stop) => arrivals[stop.stop_id])
     .map((stop) => [stop.stop_id, arrivals[stop.stop_id]])));
   rebuildLiveBusMarkers();
-  renderRouteLegend();
 }
 
 /** The one stop worth polling for a displayed direction: the stop the route
@@ -1443,9 +1441,6 @@ let liveBusLayer = null; // L.LayerGroup — vehicles reported by live arrivals
 const liveBusMarkers = new Map();
 let busMapRefreshAt = 0;
 let busUserMarker = null;
-let selectedRouteKey = null;
-let routeBoardSort = "eta";
-let clearedRoutesUndo = [];
 let nearbyStops = [];
 let closestWalking = new Map();
 let closestWalkingOrigin = null;
@@ -1651,7 +1646,6 @@ async function applyRoute(code, label, requestedDirection, anchorStopId,
     // to do". Either way the opposite direction is left exactly where it is.
     if (!toggle) return current;
     removeShownRoute(current);
-    if (selectedRouteKey === key) selectedRouteKey = null;
     renderRouteLegend();
     rebuildLiveBusMarkers();
     return null;
@@ -1661,11 +1655,10 @@ async function applyRoute(code, label, requestedDirection, anchorStopId,
   const segments = route.paths?.[next] ?? [];
   // featureGroup, not layerGroup: only this one can report its own bounds.
   const group = L.featureGroup();
-  const pathLayers = [];
   if (segments.length) {
     // GeoJSON order is [lon, lat]; Leaflet wants [lat, lon].
     const latlngs = segments.map((seg) => seg.map(([lon, lat]) => [lat, lon]));
-    const path = L.polyline(latlngs, {
+    L.polyline(latlngs, {
       color,
       weight: 5,
       opacity: 0.9,
@@ -1673,7 +1666,6 @@ async function applyRoute(code, label, requestedDirection, anchorStopId,
       // for the stop pins it runs through.
       interactive: false,
     }).addTo(group);
-    pathLayers.push(path);
     addDirectionArrows(group, segments, color);
   }
   addRouteStops(group, route.stops?.[next] ?? [], color);
@@ -1685,10 +1677,8 @@ async function applyRoute(code, label, requestedDirection, anchorStopId,
     direction: next,
     towards: next === "toA" ? route.nameA : route.nameB,
     anchorStopId: anchor,
-    pathLayers,
   };
   shownRoutes.set(key, record);
-  clearedRoutesUndo = [];
   renderRouteLegend();
   rebuildLiveBusMarkers();
 
@@ -1917,183 +1907,49 @@ async function toggleNearestStopRoutes() {
   syncMapControls();
 }
 
-function clearRoutes({ keepUndo = true } = {}) {
-  if (keepUndo) clearedRoutesUndo = [...shownRoutes.values()];
+function clearRoutes() {
   routeLayer?.clearLayers();
   shownRoutes.clear();
-  selectedRouteKey = null;
   nearestStopRoutes = [];
   renderRouteLegend();
   rebuildLiveBusMarkers();
   syncMapControls();
 }
 
-function undoClearRoutes() {
-  if (!routeLayer || clearedRoutesUndo.length === 0) return;
-  for (const shown of clearedRoutesUndo) {
-    shown.layer.addTo(routeLayer);
-    shownRoutes.set(routeKey(shown.code, shown.direction), shown);
-  }
-  clearedRoutesUndo = [];
-  renderRouteLegend();
-  rebuildLiveBusMarkers();
-  syncMapControls();
-  void refreshMapArrivals();
-}
-
-function routeBoardArrival(shown) {
-  const stopId = routeProbeStop(shown) ?? shown.anchorStopId;
-  const payload = arrivals[String(stopId)] ?? previewArrivals.get(String(stopId));
-  const elapsed = payload ? Math.floor((Date.now() - Number(payload.fetchedAt)) / 1000) : 0;
-  const matches = (payload?.arrivals ?? []).filter((bus) =>
-    lineIdentity(bus.line) === lineIdentity(shown.label)
-      || lineIdentity(bus.line) === lineIdentity(shown.code));
-  const bus = matches.find((candidate) => Number(candidate.seconds) < SCHEDULED_SECONDS) ?? null;
-  const seconds = bus ? Math.max(0, Number(bus.seconds) - elapsed) : null;
-  return {
-    destination: bus?.destination || shown.towards || "Destination unavailable",
-    minutes: Number.isFinite(seconds) ? Math.max(0, Math.ceil(seconds / 60)) : null,
-  };
-}
-
-function setSelectedRoute(key) {
-  selectedRouteKey = selectedRouteKey === key ? null : key;
-  renderRouteLegend();
-  syncRouteSelectionStyles();
-}
-
-function syncRouteSelectionStyles() {
-  for (const [key, shown] of shownRoutes) {
-    const selected = selectedRouteKey === key;
-    const dimmed = Boolean(selectedRouteKey) && !selected;
-    for (const path of shown.pathLayers ?? []) {
-      path.setStyle({ weight: selected ? 3 : 2, opacity: dimmed ? 0.14 : 0.9 });
-      if (selected) path.bringToFront();
-    }
-  }
-  for (const marker of liveBusMarkers.values()) {
-    const selected = marker.busRouteKey === selectedRouteKey;
-    const dimmed = Boolean(selectedRouteKey) && !selected;
-    marker.setZIndexOffset(selected ? 1000 : 700);
-    marker.getElement()?.classList.toggle("is-selected", selected);
-    marker.getElement()?.classList.toggle("is-dimmed", dimmed);
-  }
-}
-
 /** Chips naming what is drawn — the only way to tell one route from another
  *  once several are up, and the way to take them down again. */
 function renderRouteLegend() {
   const legend = document.getElementById("route-legend");
-  legend.hidden = mapEl.hidden;
-  // Once a route is the subject, the city-wide halo of generic stop dots is
-  // visual noise. Route-specific stops stay in the route layer; nearby stops
-  // return as soon as the final followed route is removed.
-  renderNearbyPins();
-  legend.replaceChildren();
+  legend.hidden = shownRoutes.size === 0 || mapEl.hidden;
+  legend.replaceChildren(
+    ...(shownRoutes.size > 1 ? [clearRoutesChip()] : []),
+    ...[...shownRoutes.values()].map((shown) => {
+      const { label, towards } = shown;
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "route-chip";
+      // Where this direction ends up — with both drawn, the only thing telling
+      // one chip from the other.
+      chip.textContent = towards ? `${label} → ${towards} ×` : `${label} ×`;
+      chip.style.borderColor = lineColor(label);
+      chip.style.color = lineColor(label);
+      chip.title = `Hide this route`;
+      // Its own direction, explicitly: re-deriving one here would toggle
+      // whichever direction the anchor stop happens to name.
+      chip.addEventListener("click",
+        () => toggleRoute(shown.code, label, shown.direction, shown.anchorStopId));
+      return chip;
+    })
+  );
+}
 
-  const head = document.createElement("div");
-  head.className = "route-board-head";
-  const title = document.createElement("span");
-  title.className = "route-board-title";
-  title.textContent = "Following";
-  const count = document.createElement("span");
-  count.className = "route-board-count";
-  count.textContent = String(shownRoutes.size);
-  const sort = document.createElement("button");
-  sort.type = "button";
-  sort.className = "route-board-sort";
-  sort.textContent = `Sort · ${routeBoardSort === "eta" ? "soonest" : "line"}`;
-  sort.addEventListener("click", () => {
-    routeBoardSort = routeBoardSort === "eta" ? "line" : "eta";
-    renderRouteLegend();
-  });
-  const clear = document.createElement("button");
-  clear.type = "button";
-  clear.className = "route-board-clear";
-  clear.textContent = "Clear all";
-  clear.disabled = shownRoutes.size === 0;
-  clear.addEventListener("click", () => clearRoutes());
-  head.append(title, count, sort, clear);
-  legend.append(head);
-
-  const board = document.createElement("div");
-  board.className = "route-board";
-  const rows = [...shownRoutes.entries()].map(([key, shown]) => ({
-    key, shown, arrival: routeBoardArrival(shown),
-  }));
-  rows.sort(routeBoardSort === "eta"
-    ? (a, b) => (a.arrival.minutes ?? Infinity) - (b.arrival.minutes ?? Infinity)
-    : (a, b) => String(a.shown.label).localeCompare(String(b.shown.label), "es", { numeric: true }));
-  for (const { key, shown, arrival } of rows) {
-    const row = document.createElement("div");
-    row.className = "route-board-row";
-    row.tabIndex = 0;
-    row.setAttribute("role", "button");
-    row.setAttribute("aria-pressed", String(selectedRouteKey === key));
-    row.setAttribute("aria-label", `Select line ${shown.label} towards ${arrival.destination}`);
-    const select = () => setSelectedRoute(key);
-    row.addEventListener("click", select);
-    row.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" || event.key === " ") {
-        event.preventDefault();
-        select();
-      }
-    });
-    const color = lineColor(shown.label);
-    const spine = document.createElement("span");
-    spine.className = "route-board-spine";
-    spine.style.background = color;
-    const number = document.createElement("span");
-    number.className = "route-board-number";
-    number.style.color = color;
-    number.textContent = shown.label;
-    const destination = document.createElement("span");
-    destination.className = "route-board-destination";
-    destination.textContent = arrival.destination;
-    const eta = document.createElement("span");
-    eta.className = `route-board-eta${arrival.minutes != null && arrival.minutes <= 3 ? " soon" : ""}`;
-    eta.textContent = arrival.minutes == null ? "—" : String(arrival.minutes);
-    if (arrival.minutes != null) {
-      const unit = document.createElement("small");
-      unit.textContent = "min";
-      eta.append(unit);
-    }
-    const remove = document.createElement("button");
-    remove.type = "button";
-    remove.className = "route-board-remove";
-    remove.textContent = "×";
-    remove.setAttribute("aria-label", `Stop following ${shown.label}`);
-    remove.addEventListener("click", (event) => {
-      event.stopPropagation();
-      removeShownRoute(shown);
-      if (selectedRouteKey === key) selectedRouteKey = null;
-      renderRouteLegend();
-      rebuildLiveBusMarkers();
-      syncMapControls();
-    });
-    row.append(spine, number, destination, eta, remove);
-    board.append(row);
-  }
-  if (rows.length === 0) {
-    const empty = document.createElement("p");
-    empty.className = "route-board-empty";
-    empty.textContent = "Nothing followed yet. Tap a bus on the map to follow its line.";
-    board.append(empty);
-  }
-  legend.append(board);
-  if (clearedRoutesUndo.length) {
-    const undo = document.createElement("div");
-    undo.className = "route-board-undo";
-    const message = document.createElement("span");
-    message.textContent = `Cleared ${clearedRoutesUndo.length} route${clearedRoutesUndo.length === 1 ? "" : "s"}`;
-    const action = document.createElement("button");
-    action.type = "button";
-    action.textContent = "Undo";
-    action.addEventListener("click", undoClearRoutes);
-    undo.append(message, action);
-    legend.append(undo);
-  }
-  syncRouteSelectionStyles();
+function clearRoutesChip() {
+  const chip = document.createElement("button");
+  chip.type = "button";
+  chip.className = "route-chip clear";
+  chip.textContent = "Clear all";
+  chip.addEventListener("click", clearRoutes);
+  return chip;
 }
 
 /** The line list inside a popup, each line a button that draws its route. */
@@ -2173,10 +2029,9 @@ function popupHtml(stop) {
 function ensureMap() {
   if (leafletMap) return;
   leafletMap = L.map(mapEl, { tap: false });
-  L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png", {
-    maxZoom: 20,
-    subdomains: "abcd",
-    attribution: "&copy; OpenStreetMap contributors &copy; CARTO",
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19,
+    attribution: "&copy; OpenStreetMap contributors",
   }).addTo(leafletMap);
 
   // Routes go down first so pins stay clickable on top of them.
@@ -2366,25 +2221,13 @@ function busShownRoute(bus) {
   const direction = busRouteDirection(bus, line, route);
   if (direction) {
     const shown = drawn.find((candidate) => candidate.direction === direction);
-    return shown ? {
-      code: shown.code,
-      route,
-      direction,
-      snapped: true,
-      key: routeKey(shown.code, shown.direction),
-    } : null;
+    return shown ? { code: shown.code, route, direction, snapped: true } : null;
   }
   // Without a resolved direction a bus can only be placed when there is one
   // drawn direction to place it on. With both up, guessing would be a coin
   // flip between two lines of traffic going opposite ways.
   return drawn.length === 1
-    ? {
-      code: drawn[0].code,
-      route,
-      direction: drawn[0].direction,
-      snapped: false,
-      key: routeKey(drawn[0].code, drawn[0].direction),
-    }
+    ? { code: drawn[0].code, route, direction: drawn[0].direction, snapped: false }
     : null;
 }
 
@@ -2718,10 +2561,8 @@ function rebuildLiveBusMarkers() {
       marker.busCoordinates = bus.coordinates;
       marker.busFetchedAt = bus.fetchedAt;
       marker.busSourceStopId = bus.sourceStopId;
-      marker.busRouteKey = shown?.key ?? null;
       marker.setIcon(liveBusIcon(bus));
       marker.unbindPopup().bindPopup(() => liveBusPopup(bus));
-      syncRouteSelectionStyles();
       continue;
     }
 
@@ -2735,15 +2576,10 @@ function rebuildLiveBusMarkers() {
     created.busCoordinates = bus.coordinates;
     created.busFetchedAt = bus.fetchedAt;
     created.busSourceStopId = bus.sourceStopId;
-    created.busRouteKey = shown?.key ?? null;
     created.bindPopup(() => liveBusPopup(bus));
-    created.on("click", () => {
-      if (created.busRouteKey) setSelectedRoute(created.busRouteKey);
-    });
     created.addTo(liveBusLayer);
     liveBusMarkers.set(key, created);
   }
-  syncRouteSelectionStyles();
 }
 
 /** Re-render any open popup so its countdown ticks like the list. */
@@ -2893,8 +2729,7 @@ const nearbyPins = new Map(); // stopId → circleMarker
  */
 function renderNearbyPins() {
   if (!nearbyLayer || !leafletMap) return;
-  const visible = !mapEl.hidden && shownRoutes.size === 0
-    && leafletMap.getZoom() >= NEARBY_MIN_ZOOM;
+  const visible = !mapEl.hidden && leafletMap.getZoom() >= NEARBY_MIN_ZOOM;
   const bounds = visible ? leafletMap.getBounds().pad(0.2) : null;
   const saved = savedIds();
   const wanted = new Set();
@@ -3207,10 +3042,7 @@ function showSheetMap() {
         touchZoom: false,
         keyboard: false,
       });
-      L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png", {
-        maxZoom: 20,
-        subdomains: "abcd",
-      })
+      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 })
         .addTo(sheetMap);
       sheetMarker = L.marker(latlng).addTo(sheetMap);
     } else {
