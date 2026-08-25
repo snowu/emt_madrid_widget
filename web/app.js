@@ -1705,7 +1705,6 @@ async function showBusRoute(bus) {
     ? "toA"
     : destination && destination === routeName(route.nameB)
       ? "toB" : null;
-  clearRoutes();
   await toggleRoute(line.line, line.label, direction);
 }
 
