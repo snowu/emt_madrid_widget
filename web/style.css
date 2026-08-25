@@ -795,7 +795,8 @@ body.map-is-fullscreen { overflow: hidden; }
   padding: 0;
   border: none;
   background: transparent;
-  color: var(--accent);
+  /* Neutral: the star is the coloured action here, not this one. */
+  color: var(--muted);
   line-height: 1;
 }
 

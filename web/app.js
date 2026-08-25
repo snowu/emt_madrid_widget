@@ -2151,6 +2151,34 @@ function paintLineChip(node, l, drawn) {
 
 /** The star the stop cards use, doing the same job in a popup for a row less
  *  than a full-width "Add this stop" button. */
+/** Saving moves a stop from the nearby layer to the saved one, and unsaving
+ *  moves it back. Either way the marker holding the open popup is destroyed
+ *  and the popup goes with it, which makes the star read as "dismiss" rather
+ *  than as a toggle. Reopen it on whichever layer now owns the stop. */
+function reopenStopPopup(stopId) {
+  const id = String(stopId);
+  for (const layer of [markers, nearbyLayer]) {
+    let found = null;
+    layer?.eachLayer((child) => {
+      if (String(child.stopId ?? child.nearbyStop?.stopId) === id) found = child;
+    });
+    if (found) {
+      found.openPopup({ autoPan: false });
+      return;
+    }
+  }
+}
+
+/** What a stop popup lets you do to it. The star is always offered; the sheet
+ *  is only worth opening for a saved stop, since that is where its name is
+ *  edited and its full board lives. */
+function stopPopupActions(seed) {
+  const saved = stops.find((row) => row.stop_id === String(seed.stopId));
+  const actions = [savedStopStar(seed)];
+  if (saved) actions.push(stopInfoButton(saved));
+  return actions;
+}
+
 function savedStopStar(s) {
   const saved = stops.find((row) => row.stop_id === String(s.stopId));
   const star = document.createElement("button");
@@ -2164,8 +2192,13 @@ function savedStopStar(s) {
     star.disabled = true;
     try {
       if (saved) await deleteStop(saved.id);
-      else await addStopById(String(s.stopId), null, s);
+      else {
+        await addStopById(String(s.stopId), null, s);
+        renderNearbyPins(); // the saved stop drops out of the nearby halo
+      }
       statusEl.textContent = "";
+      // The popup now belongs to the other layer, and its star has flipped.
+      reopenStopPopup(s.stopId);
     } catch {
       star.disabled = false;
     }
@@ -2182,8 +2215,7 @@ function popupHtml(stop) {
   num.textContent = `Nº ${stop.stop_id}`;
   wrap.append(
     popupHead(stopTitle(stop),
-      savedStopStar({ stopId: stop.stop_id, name: stopTitle(stop) }),
-      stopInfoButton(stop)),
+      ...stopPopupActions({ stopId: stop.stop_id, name: stopTitle(stop) })),
     num,
   );
 
@@ -2999,7 +3031,7 @@ function nearbyPopupHtml(s) {
   const num = document.createElement("p");
   num.className = "stop-num";
   num.textContent = `Nº ${s.stopId}`;
-  wrap.append(popupHead(s.name || `Stop ${s.stopId}`, savedStopStar(s)), num);
+  wrap.append(popupHead(s.name || `Stop ${s.stopId}`, ...stopPopupActions(s)), num);
 
   const preview = previewArrivals.get(s.stopId);
   if (preview === undefined) loadPreviewArrivals(s.stopId);
