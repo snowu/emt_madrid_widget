@@ -27,8 +27,8 @@ import {
 
 const API = "https://emt-arrivals.zancato-t.workers.dev";
 const THEME_KEY = "emt:theme";
-const HUB_CARD_LIMIT = 5;
-const NEAREST_BIKE_STATION_LIMIT = 3;
+const HUB_CARD_LIMIT = 3;
+const NEAREST_BIKE_STATION_LIMIT = 2;
 const JOURNEY_BATCH_SIZE = 3;
 const savedTheme = localStorage.getItem(THEME_KEY);
 let themeChoice = ["light", "dark"].includes(savedTheme) ? savedTheme : "system";
