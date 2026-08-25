@@ -483,6 +483,7 @@ body.map-is-fullscreen { overflow: hidden; }
 .place-route-status { grid-column: 1 / -1; white-space: nowrap; }
 .place-route p { margin: 0; }
 .place-route p b { color: var(--fg); }
+.route-incident { color: var(--warning); font-weight: 700; }
 .place-route time { color: var(--success); font-size: 1.15rem; font-weight: 800; font-variant-numeric: tabular-nums; }
 .place-line { display: grid; place-items: center; min-height: 32px; border-radius: 10px; background: var(--active); font-size: 1.1rem; }
 .place-card > .age { margin: 0.4rem 0 0; }

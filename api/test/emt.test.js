@@ -1,6 +1,7 @@
 import { env } from "cloudflare:test";
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { getToken, getArrivals, getStopDetail, getNearbyStops, clearTokenMemoryForTest,
+  getLineIncidents,
   getLineTimetable,
   getLineRoute } from "../src/emt.js";
 import { EmtError } from "../src/errors.js";
@@ -409,6 +410,40 @@ describe("getNearbyStops", () => {
     });
     const stops = await getNearbyStops(env, { lat: 40.4674, lon: -3.6897, radius: 500 });
     expect(stops[0].lines.map((l) => l.label)).toEqual(["107"]);
+  });
+});
+
+describe("getLineIncidents", () => {
+  beforeEach(async () => {
+    await env.KV.put("emt:token", "cached-token");
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-25T13:00:00Z")); // 15:00 in Madrid
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("uses v1 and returns only incidents active in Madrid local time", async () => {
+    const spy = mockFetch({
+      code: "00",
+      data: [{ item: [
+        {
+          guid: "active", title: "Active diversion",
+          rssAfectaDesde: "25/08/2026 14:00:00", rssAfectaHasta: "25/08/2026 16:00:00",
+          GoogleTransitCause: "08 - Obras", GoogleTransitEffect: "05 - Desvío programado",
+          link: "https://example.test/active",
+        },
+        {
+          guid: "stale", title: "Old diversion",
+          rssAfectaDesde: "22/08/2026 0:00:00", rssAfectaHasta: "24/08/2026 6:00:00",
+        },
+      ] }],
+    });
+    const result = await getLineIncidents(env, "125");
+    expect(spy.mock.calls[0][0]).toContain("v1/transport/busemtmad/lines/incidents/125/");
+    expect(result.incidents).toHaveLength(1);
+    expect(result.incidents[0]).toMatchObject({ id: "active", title: "Active diversion" });
   });
 });
 

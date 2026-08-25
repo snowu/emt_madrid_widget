@@ -60,6 +60,17 @@ describe("journey planner", () => {
       .toEqual(["airport", "near-1"]);
   });
 
+  it("preserves two matching platforms for a destination", () => {
+    const candidates = [
+      { stopId: "unrelated", distanceM: 20, lines: [{ line: "29" }] },
+      { stopId: "outbound", distanceM: 300, lines: [{ line: "107" }] },
+      { stopId: "homebound", distanceM: 350, lines: [{ line: "107" }] },
+    ];
+    const destinations = [[{ stopId: "home", lines: [{ line: "107" }] }]];
+    expect(prioritizeAccessStops(candidates, destinations, 2).map((item) => item.stopId))
+      .toEqual(["outbound", "homebound"]);
+  });
+
   it("accepts a direct line only in the direction that reaches the destination", () => {
     const a = { ...stop("a", -3.70, 40.40, ["107"]), distanceM: 80 };
     const z = { ...stop("z", -3.68, 40.46, ["107"]), distanceM: 120 };

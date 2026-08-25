@@ -79,8 +79,10 @@ export function prioritizeAccessStops(candidates, destinationGroups, maxStops = 
   };
   for (const destinations of destinationGroups ?? []) {
     const destinationLines = (destinations ?? []).flatMap((stop) => stop.lines ?? []);
-    add((candidates ?? []).find((candidate) => (candidate.lines ?? [])
-      .some((line) => destinationLines.some((destinationLine) => linesMatch(line, destinationLine)))));
+    (candidates ?? []).filter((candidate) => (candidate.lines ?? [])
+      .some((line) => destinationLines.some((destinationLine) => linesMatch(line, destinationLine))))
+      .slice(0, 2)
+      .forEach(add);
   }
   for (const candidate of candidates ?? []) add(candidate);
   return selected;

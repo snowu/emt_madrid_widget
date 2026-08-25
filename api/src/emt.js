@@ -434,3 +434,60 @@ export async function getNearbyStops(env, { lat, lon, radius = 500 }) {
       coordinates: s.geometry?.coordinates ?? null,
     }));
 }
+
+async function requestLineIncidents(env, line, token) {
+  // This documented family exists only on v1; v2 responds with an HTML 404.
+  const res = await emtFetch(
+    `${BASE}v1/transport/busemtmad/lines/incidents/${encodeURIComponent(line)}/`,
+    { method: "GET", headers: { accessToken: token } },
+  );
+  if (!res.ok) throw new EmtError("upstream", `EMT line incidents HTTP ${res.status}`);
+  return res.json();
+}
+
+function incidentClock(value) {
+  const match = /^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})/.exec(String(value ?? ""));
+  if (!match) return null;
+  const [, day, month, year, hour, minute] = match;
+  return Number(`${year}${month.padStart(2, "0")}${day.padStart(2, "0")}${hour.padStart(2, "0")}${minute}`);
+}
+
+function madridClock(now = new Date()) {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/Madrid", year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+  }).formatToParts(now).filter((part) => part.type !== "literal")
+    .map((part) => [part.type, part.value]));
+  return Number(`${parts.year}${parts.month}${parts.day}${parts.hour}${parts.minute}`);
+}
+
+/** Currently active published diversions and service incidents for a line. */
+export async function getLineIncidents(env, line) {
+  let token = await getToken(env);
+  let body = await requestLineIncidents(env, line, token);
+  if (body.code === "80") {
+    token = await getToken(env, { force: true });
+    body = await requestLineIncidents(env, line, token);
+  }
+  if (body.code !== "00" && body.code !== "01") raiseForCode(body.code);
+
+  const now = madridClock();
+  const raw = body.data?.flatMap((feed) => Array.isArray(feed.item)
+    ? feed.item : feed.item ? [feed.item] : []) ?? [];
+  return {
+    line: String(line),
+    incidents: raw.filter((item) => {
+      const from = incidentClock(item.rssAfectaDesde);
+      const to = incidentClock(item.rssAfectaHasta);
+      return from != null && to != null && from <= now && now <= to;
+    }).map((item) => ({
+      id: String(item.guid ?? ""),
+      title: item.title ?? null,
+      cause: item.GoogleTransitCause ?? null,
+      effect: item.GoogleTransitEffect ?? null,
+      from: item.rssAfectaDesde ?? null,
+      to: item.rssAfectaHasta ?? null,
+      link: item.link ?? null,
+    })),
+  };
+}

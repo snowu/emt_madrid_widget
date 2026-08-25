@@ -2,6 +2,7 @@ import {
   getArrivals,
   getStopDetail,
   getNearbyStops,
+  getLineIncidents,
   getLineTimetable,
   getLineRoute,
 } from "./emt.js";
@@ -56,13 +57,15 @@ const NEARBY_CACHE_TTL = 24 * 3600;
 const TIMETABLE_CACHE_TTL = 24 * 3600;
 // Route geometry changes when EMT redraws a line — a week is generous.
 const ROUTE_CACHE_TTL = 7 * 24 * 3600;
+const INCIDENT_CACHE_TTL = 120;
 const GEOCODE_CACHE_TTL = 30 * 24 * 3600;
 const WALKING_CACHE_TTL = 7 * 24 * 3600;
 // One operator-feed read serves the whole city and every area for 45 seconds.
 const BIKES_CACHE_TTL = 45;
 // Names and positions only change when a station is built or moved.
 const BIKE_INFO_CACHE_TTL = 24 * 3600;
-const JOURNEY_ORIGIN_STOP_LIMIT = 12;
+const JOURNEY_ORIGIN_STOP_LIMIT = 8;
+const JOURNEY_INCIDENT_LINE_LIMIT = 4;
 // Cards want the next bus and the one after it; the stop sheet wants the board.
 const DEFAULT_ARRIVALS = 2;
 const MAX_ARRIVALS = 20;
@@ -140,6 +143,11 @@ async function cachedTimetable(requestUrl, env, line, ctx) {
 async function cachedRoute(requestUrl, env, line, ctx) {
   return edgeCachedJson(requestUrl, `route/${encodeURIComponent(line)}`, ROUTE_CACHE_TTL,
     () => getLineRoute(env, line), ctx);
+}
+
+async function cachedIncidents(requestUrl, env, line, ctx) {
+  return edgeCachedJson(requestUrl, `incidents/${encodeURIComponent(line)}`, INCIDENT_CACHE_TTL,
+    () => getLineIncidents(env, line), ctx);
 }
 
 async function cachedBikeInfo(requestUrl, ctx) {
@@ -377,6 +385,27 @@ async function journeys(request, body, env, ctx) {
       ));
     }
   }
+  const incidentCodes = [...new Set(planned.flatMap((item) => item.options.flatMap((option) =>
+    [option.firstLeg?.line, option.secondLeg?.line].filter(Boolean))))]
+    .slice(0, JOURNEY_INCIDENT_LINE_LIMIT);
+  const incidentsByLine = new Map(await Promise.all(incidentCodes.map(async (code) => {
+    try {
+      return [code, (await cachedIncidents(request.url, env, code, ctx)).incidents ?? []];
+    } catch {
+      // Incident data improves ranking, but must never make live journeys fail.
+      return [code, []];
+    }
+  })));
+  for (const item of planned) {
+    for (const option of item.options) {
+      option.incidents = [...new Map([
+        ...(incidentsByLine.get(option.firstLeg?.line) ?? []),
+        ...(incidentsByLine.get(option.secondLeg?.line) ?? []),
+      ].map((incident) => [incident.id, incident])).values()];
+    }
+    item.options.sort((a, b) => Number(a.incidents.length > 0) - Number(b.incidents.length > 0)
+      || a.score - b.score);
+  }
   return {
     origin,
     destinations: planned,
@@ -386,6 +415,7 @@ async function journeys(request, body, env, ctx) {
       walking: walkingRouted ? 1 : 0,
       routes: routeCodes.length,
       arrivals: liveStopIds.length + transferStopIds.length,
+      incidents: incidentCodes.length,
     },
   };
 }

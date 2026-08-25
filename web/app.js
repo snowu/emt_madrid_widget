@@ -444,6 +444,13 @@ function placeCard(place) {
     origin.textContent = `Stop ${option.originStop.stopId} · ${Math.round(walkMetres)} m walk`;
     const detail = document.createElement("small");
     detail.textContent = connection;
+    if (option.incidents?.length) {
+      const warning = document.createElement("span");
+      warning.className = "route-incident";
+      warning.textContent = " · ⚠ Detour";
+      warning.title = option.incidents.map((incident) => incident.title).filter(Boolean).join("\n");
+      detail.append(warning);
+    }
     copy.append(origin, document.createElement("br"), detail);
     const eta = document.createElement("time");
     const fetchedAt = option.firstLeg.fetchedAt ?? journeyPayload.generatedAt;
