@@ -41,6 +41,7 @@ let isOwner = false;
 let myLocation = null;
 let places = [];
 let journeyPayload = null;
+let journeyInitialPending = true;
 let journeyCell = null;
 let journeyLoadedAt = 0;
 let journeyTimer = null;
@@ -511,6 +512,18 @@ function placeCard(place) {
 
 function renderPlaces() {
   const destinations = activeDestinations();
+  if (destinations.length && !journeyPayload) {
+    if (journeyInitialPending) {
+      const loader = document.createElement("div");
+      loader.className = "hubwise-loader";
+      loader.setAttribute("role", "status");
+      loader.setAttribute("aria-label", "Loading Hubwise");
+      listEl.replaceChildren(loader);
+    } else {
+      listEl.replaceChildren();
+    }
+    return;
+  }
   const blocks = [];
   blocks.push(...destinations.map(placeCard));
   if (destinations.length === 0) {
@@ -693,6 +706,7 @@ function showSignedOut(message = "") {
   stops = [];
   places = [];
   journeyPayload = null;
+  journeyInitialPending = true;
   bikeSaved = [];
   resetBikePrivateState();
   authButton.textContent = "Sign in";
@@ -758,6 +772,10 @@ async function loadJourneys({ force = false } = {}) {
   if (destinations.length === 0) return;
   const cell = `${myLocation[0].toFixed(3)},${myLocation[1].toFixed(3)}`;
   if (!force && cell === journeyCell && Date.now() - journeyLoadedAt < 60_000) return;
+  if (!journeyPayload) {
+    journeyInitialPending = true;
+    render();
+  }
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 25_000);
   const operation = (async () => { try {
@@ -787,13 +805,16 @@ async function loadJourneys({ force = false } = {}) {
         return total;
       }, {}),
     };
+    journeyInitialPending = false;
     journeyCell = cell;
     journeyLoadedAt = Date.now();
     render();
   } catch (err) {
+    journeyInitialPending = false;
     statusEl.textContent = err.name === "AbortError"
       ? "Journey request timed out"
       : `Could not plan journeys: ${err.message}`;
+    render();
   } finally {
     clearTimeout(timeout);
   } })();
@@ -874,6 +895,7 @@ function renderPlacesDialog() {
         await api(`/places/${encodeURIComponent(place.id)}`, { method: "DELETE" });
         places = places.filter((item) => item.id !== place.id);
         journeyPayload = null;
+        journeyInitialPending = true;
         renderPlacesDialog();
         render();
         scheduleJourneys({ force: true });
@@ -1006,6 +1028,7 @@ placesForm.addEventListener("submit", async (event) => {
     else places.push(place);
     document.getElementById("place-name").value = "";
     journeyPayload = null;
+    journeyInitialPending = true;
     placesMessage.textContent = `${place.name} saved.`;
     renderPlacesDialog();
     render();
@@ -1565,7 +1588,9 @@ function movementBearing([oldLon, oldLat], [newLon, newLat]) {
   return (Math.atan2(dx, dy) * 180) / Math.PI;
 }
 
-function animateBusMarker(marker, from, to, duration = 1400) {
+function animateBusMarker(marker, from, to, duration = ARRIVALS_REFRESH_MS - 1000) {
+  const animationId = (marker.busAnimationId ?? 0) + 1;
+  marker.busAnimationId = animationId;
   const started = performance.now();
   const frame = (now) => {
     const progress = Math.min(1, (now - started) / duration);
@@ -1574,7 +1599,8 @@ function animateBusMarker(marker, from, to, duration = 1400) {
       from[0] + (to[0] - from[0]) * eased,
       from[1] + (to[1] - from[1]) * eased,
     ]);
-    if (progress < 1 && liveBusMarkers.get(marker.busKey) === marker) requestAnimationFrame(frame);
+    if (progress < 1 && liveBusMarkers.get(marker.busKey) === marker
+      && marker.busAnimationId === animationId) requestAnimationFrame(frame);
   };
   requestAnimationFrame(frame);
 }
@@ -1665,10 +1691,13 @@ function rebuildLiveBusMarkers() {
     const next = [bus.coordinates[1], bus.coordinates[0]];
     const marker = liveBusMarkers.get(key);
     if (marker) {
+      if (Number(bus.fetchedAt) <= Number(marker.busFetchedAt)) continue;
       const previous = marker.getLatLng();
-      const bearing = movementBearing([previous.lng, previous.lat], bus.coordinates);
+      const bearing = movementBearing(marker.busCoordinates, bus.coordinates);
       bus.bearing = bearing ?? marker.busBearing;
       marker.busBearing = bus.bearing;
+      marker.busCoordinates = bus.coordinates;
+      marker.busFetchedAt = bus.fetchedAt;
       marker.setIcon(liveBusIcon(bus));
       marker.unbindPopup().bindPopup(() => liveBusPopup(bus));
       if (bearing != null) animateBusMarker(marker, [previous.lat, previous.lng], next);
@@ -1677,6 +1706,8 @@ function rebuildLiveBusMarkers() {
     const created = L.marker(next, { icon: liveBusIcon(bus), zIndexOffset: 700 });
     created.busKey = key;
     created.busBearing = null;
+    created.busCoordinates = bus.coordinates;
+    created.busFetchedAt = bus.fetchedAt;
     created.bindPopup(() => liveBusPopup(bus));
     created.on("click", () => showBusRoute(bus));
     created.addTo(liveBusLayer);

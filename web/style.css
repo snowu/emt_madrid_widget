@@ -470,6 +470,16 @@ body.map-is-fullscreen { overflow: hidden; }
 
 .place-context { display: flex; align-items: center; gap: 0.45rem; margin: 0.8rem 0.15rem 0.35rem; color: var(--muted); font-size: 0.75rem; }
 .place-context::before { content: ""; width: 0.42rem; height: 0.42rem; flex: none; border-radius: 50%; background: var(--success); }
+.hubwise-loader {
+  width: 34px;
+  height: 34px;
+  margin: 22vh auto 0;
+  border: 3px solid var(--line);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: hubwise-spin 0.75s linear infinite;
+}
+@keyframes hubwise-spin { to { transform: rotate(360deg); } }
 .place-card { margin-top: 0.55rem; padding: 0.7rem 0.75rem 0.6rem; border: 1px solid var(--line); border-radius: 17px; background: var(--card); overflow: hidden; }
 .place-card.reachability-comfortable { border-color: color-mix(in srgb, var(--success) 58%, var(--line)); background: color-mix(in srgb, var(--card) 92%, var(--success)); }
 .place-card.reachability-tight { border-color: color-mix(in srgb, var(--warning) 65%, var(--line)); background: color-mix(in srgb, var(--card) 92%, var(--warning)); }
