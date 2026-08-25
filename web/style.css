@@ -846,6 +846,16 @@ dialog::backdrop { background: rgb(0 0 0 / 0.55); }
 
 #account-menu-email { overflow-wrap: anywhere; }
 
+#metrics-dialog { width: min(92vw, 28rem); }
+.metrics-range { margin: 0.75rem 0; }
+.metrics-content { min-height: 8rem; }
+.metrics-summary { display: grid; grid-template-columns: 1fr auto; gap: 0.5rem 1rem; }
+.metrics-summary strong { text-align: right; }
+.metrics-table { width: 100%; margin-top: 1rem; border-collapse: collapse; }
+.metrics-table th, .metrics-table td { padding: 0.45rem 0; border-top: 1px solid var(--line); }
+.metrics-table th { text-align: left; color: var(--muted); font-weight: 500; }
+.metrics-table td:last-child, .metrics-table th:last-child { text-align: right; }
+
 .theme-settings h3 { margin: 0 0 0.45rem; font-size: 0.85rem; color: var(--muted); }
 #theme-selector { width: 100%; }
 #theme-selector button { flex: 1; min-width: 0; padding-inline: 0.35rem; font-size: 0.85rem; }

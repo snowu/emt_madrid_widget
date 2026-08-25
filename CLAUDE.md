@@ -143,6 +143,25 @@ breaking the section.
 Deploys: pushing to `main` with changes under `web/**` runs the Pages workflow.
 The worker is **not** deployed by CI — `npm run deploy` by hand.
 
+## Metrics
+
+Before changing polling intervals, cache TTLs, or journey fan-out, consult the
+real EMT usage report:
+
+```bash
+cd api
+npm run metrics                 # last 24 hours
+npm run metrics -- --days 7
+```
+
+The command reads the ignored root `.env.metrics`; it needs only a Cloudflare
+token scoped to **Account Analytics: Read**. The `hubwise_emt_metrics`
+Analytics Engine dataset records two event kinds: `upstream` is every actual
+EMT HTTP attempt (retries included), while `edge` records cache hit, miss, and
+coalesced application reads. No PII, coordinates, credentials, or response
+bodies are recorded. The owner can view the same aggregates under **Metrics**
+in the account menu. Data retention is three months.
+
 `wrangler.toml`'s `compatibility_date` is ahead of the installed runtime, so
 tests print a "falling back to 2024-12-30" warning per worker. Expected noise.
 

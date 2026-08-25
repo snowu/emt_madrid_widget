@@ -113,9 +113,23 @@
           </div>
         </section>
         <button id="manage-places" type="button">Manage hubs</button>
+        <button id="metrics-open" type="button" hidden>Metrics</button>
         <button id="account-signout" class="danger" type="button">Sign out</button>
         <p class="account-attribution">Data from <a href="https://mobilitylabs.emtmadrid.es">EMT MobilityLabs</a>.</p>
       </form>
+    </dialog>
+
+    <dialog id="metrics-dialog" aria-labelledby="metrics-title">
+      <div class="account-menu-heading">
+        <h2 id="metrics-title">EMT metrics</h2>
+        <button id="metrics-close" type="button" aria-label="Close">×</button>
+      </div>
+      <div class="segmented metrics-range" role="group" aria-label="Metrics range">
+        <button type="button" data-metrics-hours="24" aria-pressed="true">24h</button>
+        <button type="button" data-metrics-hours="168" aria-pressed="false">7d</button>
+        <button type="button" data-metrics-hours="720" aria-pressed="false">30d</button>
+      </div>
+      <div id="metrics-content" class="metrics-content"><span class="spinner" aria-label="Loading"></span></div>
     </dialog>
 
     <dialog id="places-dialog" aria-labelledby="places-title">

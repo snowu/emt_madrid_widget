@@ -33,6 +33,7 @@ import { EmtError, errorResponse } from "./errors.js";
 import { getBikeAccountStatus, getBikeTrips } from "./bicimad-account.js";
 import { authenticatedUser, bearerToken } from "./auth.js";
 import { getBikeTripDiagnostics, monitorBikeTrips } from "./trip-monitor.js";
+import { queryMetrics, recordEdgeMetric } from "./metrics.js";
 import {
   boardHasLine,
   deduplicateJourneyOptions,
@@ -88,22 +89,49 @@ function json(body, env, status = 200, extraHeaders = {}) {
   });
 }
 
-async function edgeCachedJson(requestUrl, key, ttl, load, ctx) {
+function metricCaller(requestUrl) {
+  const pathname = new URL(requestUrl).pathname;
+  if (pathname === "/journeys") return "journey";
+  if (pathname === "/arrivals") return "arrivals";
+  if (pathname.includes("nearby")) return "nearby";
+  return "direct";
+}
+
+async function edgeCachedJson(requestUrl, key, ttl, load, ctx, env, endpoint = "") {
+  const started = Date.now();
+  const target = key.includes("/") ? key.slice(key.indexOf("/") + 1) : "";
+  const metric = (cache, outcome = "ok", error = "") => recordEdgeMetric(env, {
+    endpoint, cache, target, outcome, error, caller: metricCaller(requestUrl),
+    duration: Date.now() - started,
+  });
   const cache = caches.default;
   const cacheUrl = new URL(requestUrl);
   cacheUrl.pathname = `/__edge_cache/${CACHE_VERSION}/${key}`;
   cacheUrl.search = "";
   const cacheKey = new Request(cacheUrl.toString(), { method: "GET" });
   const hit = await cache.match(cacheKey);
-  if (hit) return hit.json();
+  if (hit) {
+    metric("hit");
+    return hit.json();
+  }
 
   // Cache API writes happen after the response. Without an in-flight map, two
   // requests landing on the same warm isolate during that gap both call EMT.
   // Share the loader promise; the map contains public data only.
   const loadKey = cacheKey.url;
-  if (edgeLoads.has(loadKey)) return edgeLoads.get(loadKey);
+  if (edgeLoads.has(loadKey)) {
+    metric("coalesced");
+    return edgeLoads.get(loadKey);
+  }
   const operation = (async () => {
-    const fresh = await load();
+    let fresh;
+    try {
+      fresh = await load();
+      metric("miss");
+    } catch (error) {
+      metric("miss", "error", error.kind ?? error.name ?? "error");
+      throw error;
+    }
     const write = cache.put(
       cacheKey,
       new Response(JSON.stringify(fresh), {
@@ -129,27 +157,27 @@ async function edgeCachedJson(requestUrl, key, ttl, load, ctx) {
 
 async function cachedArrivals(requestUrl, env, stopId, ctx) {
   return edgeCachedJson(requestUrl, `arrivals/${encodeURIComponent(stopId)}`, ARRIVALS_CACHE_TTL,
-    () => getArrivals(env, stopId), ctx);
+    () => getArrivals(env, stopId), ctx, env, "arrivals");
 }
 
 async function cachedStopDetail(requestUrl, env, stopId, ctx) {
   return edgeCachedJson(requestUrl, `detail-v2/${encodeURIComponent(stopId)}`, DETAIL_CACHE_TTL,
-    () => getStopDetail(env, stopId), ctx);
+    () => getStopDetail(env, stopId), ctx, env, "detail");
 }
 
 async function cachedTimetable(requestUrl, env, line, ctx) {
   return edgeCachedJson(requestUrl, `timetable/${encodeURIComponent(line)}`, TIMETABLE_CACHE_TTL,
-    () => getLineTimetable(env, line), ctx);
+    () => getLineTimetable(env, line), ctx, env, "timetable");
 }
 
 async function cachedRoute(requestUrl, env, line, ctx) {
   return edgeCachedJson(requestUrl, `route/${encodeURIComponent(line)}`, ROUTE_CACHE_TTL,
-    () => getLineRoute(env, line), ctx);
+    () => getLineRoute(env, line), ctx, env, "route");
 }
 
 async function cachedIncidents(requestUrl, env, line, ctx) {
   return edgeCachedJson(requestUrl, `incidents/${encodeURIComponent(line)}`, INCIDENT_CACHE_TTL,
-    () => getLineIncidents(env, line), ctx);
+    () => getLineIncidents(env, line), ctx, env, "incidents");
 }
 
 async function cachedBikeInfo(requestUrl, ctx) {
@@ -183,7 +211,7 @@ function grid3(n) {
 async function cachedNearby(requestUrl, env, lat, lon, radius, ctx) {
   const key = `nearby-v2/${grid3(lon)}/${grid3(lat)}/${radius}`;
   return edgeCachedJson(requestUrl, key, NEARBY_CACHE_TTL,
-    () => getNearbyStops(env, { lat, lon, radius }), ctx);
+    () => getNearbyStops(env, { lat, lon, radius }), ctx, env, "nearby");
 }
 
 async function geocodeMadrid(requestUrl, query, ctx) {
@@ -451,7 +479,22 @@ export default {
 
       if (pathname === "/auth/me" && method === "GET") {
         const user = await authenticatedUser(env, request);
-        return json({ id: user.id, email: user.email ?? null, owner: user.id === env.OWNER_USER_ID }, env);
+        return json({
+          id: user.id,
+          email: user.email ?? null,
+          owner: user.id === env.OWNER_USER_ID,
+          metricsAvailable: Boolean(env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_ANALYTICS_TOKEN),
+        }, env);
+      }
+
+      if (pathname === "/admin/metrics" && method === "GET") {
+        const user = await authenticatedUser(env, request);
+        if (!env.OWNER_USER_ID || user.id !== env.OWNER_USER_ID) {
+          throw new EmtError("forbidden", "metrics are owner-only");
+        }
+        const hours = Math.min(720, Math.max(1,
+          Number.parseInt(url.searchParams.get("hours") || "24", 10) || 24));
+        return json(await queryMetrics(env, hours), env, 200, { "cache-control": "no-store" });
       }
 
       if (pathname === "/arrivals" && method === "GET") {

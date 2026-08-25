@@ -64,6 +64,10 @@ const authMessage = document.getElementById("auth-message");
 const accountMenu = document.getElementById("account-menu");
 const accountMenuEmail = document.getElementById("account-menu-email");
 const accountSignout = document.getElementById("account-signout");
+const metricsOpen = document.getElementById("metrics-open");
+const metricsDialog = document.getElementById("metrics-dialog");
+const metricsContent = document.getElementById("metrics-content");
+const metricsRangeButtons = [...document.querySelectorAll("[data-metrics-hours]")];
 const themeButtons = [...document.querySelectorAll("[data-theme-choice]")];
 const placesDialog = document.getElementById("places-dialog");
 const placesForm = document.getElementById("places-form");
@@ -708,6 +712,7 @@ function showSignedOut(message = "") {
   authSession = null;
   authUser = null;
   isOwner = false;
+  metricsOpen.hidden = true;
   setUserCacheScope(null);
   stops = [];
   places = [];
@@ -743,13 +748,16 @@ async function applySession(session) {
   render();
   renderBikes();
 
+  let metricsAvailable = false;
   try {
     const me = await api("/auth/me");
     isOwner = me.owner === true;
+    metricsAvailable = me.metricsAvailable === true;
   } catch {
     isOwner = false;
   }
   bikeAccountEl.hidden = section !== "bikes" || !isOwner;
+  metricsOpen.hidden = !isOwner || !metricsAvailable;
   if (isOwner) showCachedBikeAccount();
   await Promise.all([loadStops(), loadBikeSaved(), loadPlaces()]);
 }
@@ -872,6 +880,82 @@ accountSignout.addEventListener("click", async () => {
     if (accountMenu.open) accountMenu.close();
   }
 });
+
+function renderMetrics(payload) {
+  const rows = payload.rows ?? [];
+  const upstream = rows.filter((row) => row.kind === "upstream");
+  const edge = rows.filter((row) => row.kind === "edge");
+  const sum = (items, field) => items.reduce((total, row) => total + Number(row[field] || 0), 0);
+  const calls = sum(upstream, "upstream_calls");
+  const requests = sum(edge, "events");
+  const hits = sum(edge.filter((row) => row.cache_status === "hit"), "events");
+  const errors = sum(rows.filter((row) => row.outcome !== "ok"), "events");
+  const summary = document.createElement("div");
+  summary.className = "metrics-summary";
+  for (const [label, value] of [
+    ["Upstream", Math.round(calls).toLocaleString()],
+    ["Cache hits", Math.round(hits).toLocaleString()],
+    ["Hit rate", requests ? `${(hits / requests * 100).toFixed(1)}%` : "—"],
+    ["Errors", Math.round(errors).toLocaleString()],
+    ...(payload.hours === 24 ? [["20k quota", `${(calls / 20_000 * 100).toFixed(1)}%`]] : []),
+  ]) {
+    const name = document.createElement("span");
+    name.textContent = label;
+    const amount = document.createElement("strong");
+    amount.textContent = value;
+    summary.append(name, amount);
+  }
+  const byEndpoint = new Map();
+  for (const row of upstream) {
+    byEndpoint.set(row.endpoint, (byEndpoint.get(row.endpoint) || 0) + Number(row.upstream_calls || 0));
+  }
+  const table = document.createElement("table");
+  table.className = "metrics-table";
+  const head = document.createElement("tr");
+  for (const value of ["Endpoint", "Calls"]) {
+    const th = document.createElement("th");
+    th.textContent = value;
+    head.append(th);
+  }
+  table.append(head);
+  for (const [endpoint, count] of [...byEndpoint].sort((a, b) => b[1] - a[1])) {
+    const row = document.createElement("tr");
+    const name = document.createElement("td");
+    name.textContent = endpoint;
+    const amount = document.createElement("td");
+    amount.textContent = Math.round(count).toLocaleString();
+    row.append(name, amount);
+    table.append(row);
+  }
+  metricsContent.replaceChildren(summary, table);
+}
+
+async function loadMetrics(hours = 24) {
+  metricsContent.replaceChildren(Object.assign(document.createElement("span"), {
+    className: "spinner",
+  }));
+  try {
+    renderMetrics(await api(`/admin/metrics?hours=${hours}`));
+  } catch (error) {
+    metricsContent.textContent = `Metrics unavailable: ${error.message}`;
+  }
+}
+
+metricsOpen.addEventListener("click", () => {
+  accountMenu.close();
+  metricsDialog.showModal();
+  void loadMetrics(Number(metricsRangeButtons.find((button) =>
+    button.getAttribute("aria-pressed") === "true")?.dataset.metricsHours || 24));
+});
+document.getElementById("metrics-close").addEventListener("click", () => metricsDialog.close());
+for (const button of metricsRangeButtons) {
+  button.addEventListener("click", () => {
+    for (const candidate of metricsRangeButtons) {
+      candidate.setAttribute("aria-pressed", String(candidate === button));
+    }
+    void loadMetrics(Number(button.dataset.metricsHours));
+  });
+}
 
 function renderPlacesDialog() {
   placesList.replaceChildren(...places.map((place) => {

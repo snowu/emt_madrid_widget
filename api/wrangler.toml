@@ -8,11 +8,16 @@ kv_namespaces = [
   { binding = "KV", id = "cb1456cfd7644e5cbbcee852d3eed51e" }
 ]
 
+[[analytics_engine_datasets]]
+binding = "METRICS"
+dataset = "hubwise_emt_metrics"
+
 [vars]
 # Secrets are NOT here. Set them with `wrangler secret put <NAME>`,
 # or locally in .dev.vars (gitignored). Test fakes live in vitest.config.js,
 # NOT here — a [vars] name collides with its secret at creation time.
 ALLOWED_ORIGIN = "https://snowu.github.io"
+CLOUDFLARE_ACCOUNT_ID = "3dab85270c19e7a426145878daacaad7"
 
 [triggers]
 crons = ["*/30 * * * *"]

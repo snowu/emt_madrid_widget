@@ -1,4 +1,5 @@
 import { EmtError } from "./errors.js";
+import { emtEndpoint, recordUpstreamMetric } from "./metrics.js";
 
 const BASE = "https://openapi.emtmadrid.es/";
 const TOKEN_KEY = "emt:token";
@@ -36,12 +37,28 @@ function raiseForCode(code) {
  * openapi.emtmadrid.es with an HTTP 5xx (525-class, workerd#776); a single
  * retry gets through. A 4xx is an answer, not a blip — pass it through.
  */
-export async function emtFetch(url, init = {}) {
+export async function emtFetch(url, init = {}, env = null) {
   const fetchWithDeadline = async () => {
+    const started = Date.now();
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 8_000);
     try {
-      return await fetch(url, { ...init, signal: controller.signal });
+      const response = await fetch(url, { ...init, signal: controller.signal });
+      recordUpstreamMetric(env, {
+        endpoint: emtEndpoint(url),
+        outcome: response.ok ? "ok" : "http_error",
+        duration: Date.now() - started,
+        status: response.status,
+      });
+      return response;
+    } catch (error) {
+      recordUpstreamMetric(env, {
+        endpoint: emtEndpoint(url),
+        outcome: error.name === "AbortError" ? "timeout" : "network_error",
+        error: error.name ?? "error",
+        duration: Date.now() - started,
+      });
+      throw error;
     } finally {
       clearTimeout(timeout);
     }
@@ -63,7 +80,7 @@ async function login(env) {
   const res = await emtFetch(`${BASE}v1/mobilitylabs/user/login/`, {
     method: "GET",
     headers: { email: env.EMT_EMAIL, password: env.EMT_PASSWORD },
-  });
+  }, env);
 
   if (!res.ok) {
     throw new EmtError("upstream", `EMT login HTTP ${res.status}`);
@@ -124,7 +141,7 @@ async function requestArrivals(env, stopId, token) {
       stopId: String(stopId),
       Text_EstimationsRequired_YN: "Y",
     }),
-  });
+  }, env);
   if (!res.ok) throw new EmtError("upstream", `EMT arrivals HTTP ${res.status}`);
   return res.json();
 }
@@ -174,7 +191,7 @@ async function requestDetail(env, stopId, token) {
   const res = await emtFetch(`${BASE}v2/transport/busemtmad/stops/${stopId}/detail/`, {
     method: "GET",
     headers: { accessToken: token },
-  });
+  }, env);
   if (!res.ok) throw new EmtError("upstream", `EMT stop detail HTTP ${res.status}`);
   return res.json();
 }
@@ -311,7 +328,7 @@ async function requestTimetable(env, line, token) {
   const res = await emtFetch(`${BASE}v2/transport/busemtmad/lines/${line}/timetable/`, {
     method: "GET",
     headers: { accessToken: token },
-  });
+  }, env);
   if (!res.ok) throw new EmtError("upstream", `EMT line timetable HTTP ${res.status}`);
   return res.json();
 }
@@ -320,7 +337,7 @@ async function requestRoute(env, line, token) {
   const res = await emtFetch(`${BASE}v2/transport/busemtmad/lines/${line}/route/`, {
     method: "GET",
     headers: { accessToken: token },
-  });
+  }, env);
   if (!res.ok) throw new EmtError("upstream", `EMT line route HTTP ${res.status}`);
   return res.json();
 }
@@ -409,7 +426,8 @@ async function requestNearby(env, lat, lon, radius, token) {
   const res = await emtFetch(
     `${BASE}v2/transport/busemtmad/stops/arroundxy/${lon}/${lat}/${radius}/`,
     // v2 only: v1 answers "no records" for this family regardless of input.
-    { method: "GET", headers: { accessToken: token } }
+    { method: "GET", headers: { accessToken: token } },
+    env,
   );
   if (!res.ok) throw new EmtError("upstream", `EMT area search HTTP ${res.status}`);
   return res.json();
@@ -445,6 +463,7 @@ async function requestLineIncidents(env, line, token) {
   const res = await emtFetch(
     `${BASE}v1/transport/busemtmad/lines/incidents/${encodeURIComponent(line)}/`,
     { method: "GET", headers: { accessToken: token } },
+    env,
   );
   if (!res.ok) throw new EmtError("upstream", `EMT line incidents HTTP ${res.status}`);
   return res.json();

@@ -43,6 +43,26 @@ secrets and are used only to renew the owner's short-lived token on demand.
 The legacy `SUPABASE_SERVICE_KEY` and public `APP_KEY` are no longer used for
 normal application traffic and can be removed after the migration is verified.
 
+## EMT usage metrics
+
+The Worker records exact EMT HTTP attempts plus edge-cache hits/misses in the
+`hubwise_emt_metrics` Analytics Engine dataset. It never records tokens, email,
+coordinates, or response bodies.
+
+Create one Cloudflare API token with only **Account Analytics: Read**, then:
+
+```bash
+cd api
+npx wrangler secret put CLOUDFLARE_ANALYTICS_TOKEN
+cp ../.env.metrics.example ../.env.metrics
+# Put the same read-only token in .env.metrics for local reports.
+npm run metrics
+npm run metrics -- --days 7
+```
+
+The Hubwise account menu also exposes the same report to the owner. Analytics
+Engine retains three months; no KV operations are consumed.
+
 Design: `docs/superpowers/specs/2026-08-18-emt-madrid-web-design.md`
 
 Bus data from [EMT MobilityLabs](https://mobilitylabs.emtmadrid.es).
