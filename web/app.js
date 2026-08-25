@@ -1367,11 +1367,6 @@ let routeLayer = null;
 const shownRoutes = new Map(); // line code → { layer, label }
 const routeCache = new Map(); // line code → route payload
 const routeLoads = new Map();
-const busRouteQueue = [];
-const queuedBusRoutes = new Set();
-let activeBusRouteLoads = 0;
-const MAX_BUS_ROUTE_LOADS = 2;
-const MAX_QUEUED_BUS_ROUTES = 12;
 
 /** Draw or erase one line's route, in that line's colour.
  *
@@ -1750,38 +1745,6 @@ function loadBusRoute(bus) {
   return routeLoads.get(line.line).then((route) => ({ route, line }));
 }
 
-function pumpBusRouteQueue() {
-  if (!leafletMap || mapEl.hidden) return;
-  while (activeBusRouteLoads < MAX_BUS_ROUTE_LOADS && busRouteQueue.length) {
-    const { bus, code } = busRouteQueue.shift();
-    if (routeCache.has(code)) {
-      queuedBusRoutes.delete(code);
-      continue;
-    }
-    activeBusRouteLoads += 1;
-    loadBusRoute(bus)
-      .catch(() => {})
-      .finally(() => {
-        activeBusRouteLoads -= 1;
-        queuedBusRoutes.delete(code);
-        rebuildLiveBusMarkers();
-        pumpBusRouteQueue();
-      });
-  }
-}
-
-function queueBusRoute(bus) {
-  if (!leafletMap || mapEl.hidden || busRouteQueue.length >= MAX_QUEUED_BUS_ROUTES) return;
-  const line = busLineCode(bus);
-  if (routeCache.has(line.line) || routeLoads.has(line.line) || queuedBusRoutes.has(line.line)) return;
-  const [lon, lat] = bus.coordinates ?? [];
-  if (!Number.isFinite(lon) || !Number.isFinite(lat)
-      || !leafletMap.getBounds().pad(0.2).contains([lat, lon])) return;
-  queuedBusRoutes.add(line.line);
-  busRouteQueue.push({ bus, code: line.line });
-  pumpBusRouteQueue();
-}
-
 function busRouteTrack(bus) {
   const line = busLineCode(bus);
   const route = routeCache.get(line.line);
@@ -1957,8 +1920,6 @@ function rebuildLiveBusMarkers() {
   for (const [key, bus] of buses) {
     const reported = bus.coordinates;
     const track = busRouteTrack(bus);
-    const routeLine = busLineCode(bus);
-    if (!track && !routeCache.has(routeLine.line)) queueBusRoute(bus);
     const marker = liveBusMarkers.get(key);
     if (marker) {
       if (Number(bus.fetchedAt) <= Number(marker.busFetchedAt)) continue;
