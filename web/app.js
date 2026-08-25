@@ -1985,6 +1985,10 @@ function syncRouteSelectionStyles() {
 function renderRouteLegend() {
   const legend = document.getElementById("route-legend");
   legend.hidden = mapEl.hidden;
+  // Once a route is the subject, the city-wide halo of generic stop dots is
+  // visual noise. Route-specific stops stay in the route layer; nearby stops
+  // return as soon as the final followed route is removed.
+  renderNearbyPins();
   legend.replaceChildren();
 
   const head = document.createElement("div");
@@ -2936,7 +2940,8 @@ const nearbyPins = new Map(); // stopId → circleMarker
  */
 function renderNearbyPins() {
   if (!nearbyLayer || !leafletMap) return;
-  const visible = !mapEl.hidden && leafletMap.getZoom() >= NEARBY_MIN_ZOOM;
+  const visible = !mapEl.hidden && shownRoutes.size === 0
+    && leafletMap.getZoom() >= NEARBY_MIN_ZOOM;
   const bounds = visible ? leafletMap.getBounds().pad(0.2) : null;
   const saved = savedIds();
   const wanted = new Set();
