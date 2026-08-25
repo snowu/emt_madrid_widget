@@ -370,7 +370,13 @@ function fmtCountdown(seconds) {
   if (seconds <= 0) return "due";
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
-  return m > 0 ? `${m}m ${String(s).padStart(2, "0")}s` : `${s}s`;
+  // Bare m:ss. A stop is never an hour out in practice, and dropping the unit
+  // letters makes every countdown the same shape — which, with tabular
+  // figures, means the column stops twitching as the seconds tick.
+  if (m < 60) return `${m}:${String(s).padStart(2, "0")}`;
+  // A stop is never really an hour out. If EMT says otherwise, the exact
+  // figure is not the point and "72:05" would read as a broken clock.
+  return ">1h";
 }
 
 function fmtAge(ms) {
@@ -663,6 +669,7 @@ function renderSavedStops() {
       routes.innerHTML = LINES_ICON;
       routes.title = `Show the lines running at stop ${stop.stop_id}`;
       routes.setAttribute("aria-label", routes.title);
+      routes.disabled = stopLines(stop.stop_id).length === 0;
       routes.addEventListener("click", async (event) => {
         event.stopPropagation();
         routes.disabled = true;
@@ -1312,6 +1319,7 @@ async function refreshMapArrivals() {
     .filter((stop) => arrivals[stop.stop_id])
     .map((stop) => [stop.stop_id, arrivals[stop.stop_id]])));
   rebuildLiveBusMarkers();
+  renderRouteLegend();
 }
 
 /** The one stop worth polling for a displayed direction: the stop the route
@@ -1460,6 +1468,9 @@ let liveBusLayer = null; // L.LayerGroup — vehicles reported by live arrivals
 const liveBusMarkers = new Map();
 let busMapRefreshAt = 0;
 let busUserMarker = null;
+let selectedRouteKey = null;
+let routeBoardSort = "eta";
+let clearedRoutesUndo = [];
 let nearbyStops = [];
 let closestWalking = new Map();
 let closestWalkingOrigin = null;
@@ -1668,6 +1679,7 @@ async function applyRoute(code, label, requestedDirection, anchorStopId,
     // to do". Either way the opposite direction is left exactly where it is.
     if (!toggle) return current;
     removeShownRoute(current);
+    if (selectedRouteKey === key) selectedRouteKey = null;
     renderRouteLegend();
     rebuildLiveBusMarkers();
     return null;
@@ -1677,10 +1689,11 @@ async function applyRoute(code, label, requestedDirection, anchorStopId,
   const segments = route.paths?.[next] ?? [];
   // featureGroup, not layerGroup: only this one can report its own bounds.
   const group = L.featureGroup();
+  const pathLayers = [];
   if (segments.length) {
     // GeoJSON order is [lon, lat]; Leaflet wants [lat, lon].
     const latlngs = segments.map((seg) => seg.map(([lon, lat]) => [lat, lon]));
-    L.polyline(latlngs, {
+    const path = L.polyline(latlngs, {
       color,
       weight: 5,
       opacity: 0.9,
@@ -1688,6 +1701,7 @@ async function applyRoute(code, label, requestedDirection, anchorStopId,
       // for the stop pins it runs through.
       interactive: false,
     }).addTo(group);
+    pathLayers.push(path);
     addDirectionArrows(group, segments, color);
   }
   addRouteStops(group, route.stops?.[next] ?? [], color);
@@ -1699,8 +1713,10 @@ async function applyRoute(code, label, requestedDirection, anchorStopId,
     direction: next,
     towards: next === "toA" ? route.nameA : route.nameB,
     anchorStopId: anchor,
+    pathLayers,
   };
   shownRoutes.set(key, record);
+  clearedRoutesUndo = [];
   renderRouteLegend();
   rebuildLiveBusMarkers();
 
@@ -1933,52 +1949,219 @@ async function toggleNearestStopRoutes() {
   syncMapControls();
 }
 
-function clearRoutes() {
+function clearRoutes({ keepUndo = true } = {}) {
+  if (keepUndo) clearedRoutesUndo = [...shownRoutes.values()];
   routeLayer?.clearLayers();
   shownRoutes.clear();
+  selectedRouteKey = null;
   nearestStopRoutes = [];
   renderRouteLegend();
   rebuildLiveBusMarkers();
   syncMapControls();
 }
 
+function undoClearRoutes() {
+  if (!routeLayer || clearedRoutesUndo.length === 0) return;
+  for (const shown of clearedRoutesUndo) {
+    shown.layer.addTo(routeLayer);
+    shownRoutes.set(routeKey(shown.code, shown.direction), shown);
+  }
+  clearedRoutesUndo = [];
+  renderRouteLegend();
+  rebuildLiveBusMarkers();
+  syncMapControls();
+  void refreshMapArrivals();
+}
+
+function routeBoardArrival(shown) {
+  const stopId = routeProbeStop(shown) ?? shown.anchorStopId;
+  const payload = arrivals[String(stopId)] ?? previewArrivals.get(String(stopId));
+  const elapsed = payload ? Math.floor((Date.now() - Number(payload.fetchedAt)) / 1000) : 0;
+  const matches = (payload?.arrivals ?? []).filter((bus) =>
+    lineIdentity(bus.line) === lineIdentity(shown.label)
+      || lineIdentity(bus.line) === lineIdentity(shown.code));
+  const bus = matches.find((candidate) => Number(candidate.seconds) < SCHEDULED_SECONDS) ?? null;
+  const seconds = bus ? Math.max(0, Number(bus.seconds) - elapsed) : null;
+  return {
+    destination: bus?.destination || shown.towards || "Destination unavailable",
+    minutes: Number.isFinite(seconds) ? Math.max(0, Math.ceil(seconds / 60)) : null,
+  };
+}
+
+function setSelectedRoute(key) {
+  selectedRouteKey = selectedRouteKey === key ? null : key;
+  renderRouteLegend();
+  syncRouteSelectionStyles();
+}
+
+function syncRouteSelectionStyles() {
+  for (const [key, shown] of shownRoutes) {
+    const selected = selectedRouteKey === key;
+    const dimmed = Boolean(selectedRouteKey) && !selected;
+    for (const path of shown.pathLayers ?? []) {
+      path.setStyle({ weight: selected ? 3 : 2, opacity: dimmed ? 0.14 : 0.9 });
+      if (selected) path.bringToFront();
+    }
+  }
+  for (const marker of liveBusMarkers.values()) {
+    const selected = marker.busRouteKey === selectedRouteKey;
+    const dimmed = Boolean(selectedRouteKey) && !selected;
+    marker.setZIndexOffset(selected ? 1000 : 700);
+    marker.getElement()?.classList.toggle("is-selected", selected);
+    marker.getElement()?.classList.toggle("is-dimmed", dimmed);
+  }
+}
+
 /** Chips naming what is drawn — the only way to tell one route from another
  *  once several are up, and the way to take them down again. */
 function renderRouteLegend() {
   const legend = document.getElementById("route-legend");
-  legend.hidden = shownRoutes.size === 0 || mapEl.hidden;
-  legend.replaceChildren(
-    ...(shownRoutes.size > 1 ? [clearRoutesChip()] : []),
-    ...[...shownRoutes.values()].map((shown) => {
-      const { label, towards } = shown;
-      const chip = document.createElement("button");
-      chip.type = "button";
-      chip.className = "route-chip";
-      // Where this direction ends up — with both drawn, the only thing telling
-      // one chip from the other.
-      chip.textContent = towards ? `${label} → ${towards} ×` : `${label} ×`;
-      chip.style.borderColor = lineColor(label);
-      chip.style.color = lineColor(label);
-      chip.title = `Hide this route`;
-      // Its own direction, explicitly: re-deriving one here would toggle
-      // whichever direction the anchor stop happens to name.
-      chip.addEventListener("click",
-        () => toggleRoute(shown.code, label, shown.direction, shown.anchorStopId));
-      return chip;
-    })
-  );
-}
+  legend.hidden = mapEl.hidden;
+  // Once a route is the subject, the city-wide halo of generic stop dots is
+  // visual noise. Route-specific stops stay in the route layer; nearby stops
+  // return as soon as the final followed route is removed.
+  renderNearbyPins();
+  legend.replaceChildren();
 
-function clearRoutesChip() {
-  const chip = document.createElement("button");
-  chip.type = "button";
-  chip.className = "route-chip clear";
-  chip.textContent = "Clear all";
-  chip.addEventListener("click", clearRoutes);
-  return chip;
+  const head = document.createElement("div");
+  head.className = "route-board-head";
+  const title = document.createElement("span");
+  title.className = "route-board-title";
+  title.textContent = "Following";
+  const count = document.createElement("span");
+  count.className = "route-board-count";
+  count.textContent = String(shownRoutes.size);
+  const sort = document.createElement("button");
+  sort.type = "button";
+  sort.className = "route-board-sort";
+  sort.textContent = `Sort · ${routeBoardSort === "eta" ? "soonest" : "line"}`;
+  sort.addEventListener("click", () => {
+    routeBoardSort = routeBoardSort === "eta" ? "line" : "eta";
+    renderRouteLegend();
+  });
+  const clear = document.createElement("button");
+  clear.type = "button";
+  clear.className = "route-board-clear";
+  clear.textContent = "Clear all";
+  clear.disabled = shownRoutes.size === 0;
+  clear.addEventListener("click", () => clearRoutes());
+  head.append(title, count, sort, clear);
+  legend.append(head);
+
+  const board = document.createElement("div");
+  board.className = "route-board";
+  const rows = [...shownRoutes.entries()].map(([key, shown]) => ({
+    key, shown, arrival: routeBoardArrival(shown),
+  }));
+  rows.sort(routeBoardSort === "eta"
+    ? (a, b) => (a.arrival.minutes ?? Infinity) - (b.arrival.minutes ?? Infinity)
+    : (a, b) => String(a.shown.label).localeCompare(String(b.shown.label), "es", { numeric: true }));
+  for (const { key, shown, arrival } of rows) {
+    const row = document.createElement("div");
+    row.className = "route-board-row";
+    row.tabIndex = 0;
+    row.setAttribute("role", "button");
+    row.setAttribute("aria-pressed", String(selectedRouteKey === key));
+    row.setAttribute("aria-label", `Select line ${shown.label} towards ${arrival.destination}`);
+    const select = () => setSelectedRoute(key);
+    row.addEventListener("click", select);
+    row.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        select();
+      }
+    });
+    const color = lineColor(shown.label);
+    const spine = document.createElement("span");
+    spine.className = "route-board-spine";
+    spine.style.background = color;
+    const number = document.createElement("span");
+    number.className = "route-board-number";
+    number.style.color = color;
+    number.textContent = shown.label;
+    const destination = document.createElement("span");
+    destination.className = "route-board-destination";
+    destination.textContent = arrival.destination;
+    const eta = document.createElement("span");
+    eta.className = `route-board-eta${arrival.minutes != null && arrival.minutes <= 3 ? " soon" : ""}`;
+    eta.textContent = arrival.minutes == null ? "—" : String(arrival.minutes);
+    if (arrival.minutes != null) {
+      const unit = document.createElement("small");
+      unit.textContent = "min";
+      eta.append(unit);
+    }
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "route-board-remove";
+    remove.textContent = "×";
+    remove.setAttribute("aria-label", `Stop following ${shown.label}`);
+    remove.addEventListener("click", (event) => {
+      event.stopPropagation();
+      removeShownRoute(shown);
+      if (selectedRouteKey === key) selectedRouteKey = null;
+      renderRouteLegend();
+      rebuildLiveBusMarkers();
+      syncMapControls();
+    });
+    row.append(spine, number, destination, eta, remove);
+    board.append(row);
+  }
+  if (rows.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "route-board-empty";
+    empty.textContent = "Nothing followed yet. Tap a bus on the map to follow its line.";
+    board.append(empty);
+  }
+  legend.append(board);
+  if (clearedRoutesUndo.length) {
+    const undo = document.createElement("div");
+    undo.className = "route-board-undo";
+    const message = document.createElement("span");
+    message.textContent = `Cleared ${clearedRoutesUndo.length} route${clearedRoutesUndo.length === 1 ? "" : "s"}`;
+    const action = document.createElement("button");
+    action.type = "button";
+    action.textContent = "Undo";
+    action.addEventListener("click", undoClearRoutes);
+    undo.append(message, action);
+    legend.append(undo);
+  }
+  syncRouteSelectionStyles();
 }
 
 /** The line list inside a popup, each line a button that draws its route. */
+/** How a line chip looks, wherever it is drawn. Shared so a tappable row and
+ *  a standalone chip cannot drift apart. */
+function paintLineChip(node, l, drawn) {
+  node.className = drawn ? "line-chip on" : "line-chip";
+  node.textContent = drawn?.towards ? `${l.label} → ${drawn.towards}` : l.label;
+  node.style.color = lineColor(l.label);
+  node.style.borderColor = lineColor(l.label);
+}
+
+/** The star the stop cards use, doing the same job in a popup for a row less
+ *  than a full-width "Add this stop" button. */
+function savedStopStar(s) {
+  const saved = stops.find((row) => row.stop_id === String(s.stopId));
+  const star = document.createElement("button");
+  star.type = "button";
+  star.className = "pop-star";
+  star.textContent = saved ? "★" : "☆";
+  star.title = saved ? `Remove stop ${s.stopId} from saved` : `Save stop ${s.stopId}`;
+  star.setAttribute("aria-label", star.title);
+  star.addEventListener("click", async (event) => {
+    event.stopPropagation();
+    star.disabled = true;
+    try {
+      if (saved) await deleteStop(saved.id);
+      else await addStopById(String(s.stopId), null, s);
+      statusEl.textContent = "";
+    } catch {
+      star.disabled = false;
+    }
+  });
+  return star;
+}
+
 function lineChips(lines, anchorStopId = null) {
   const wrap = document.createElement("p");
   wrap.className = "chips";
@@ -1989,10 +2172,7 @@ function lineChips(lines, anchorStopId = null) {
     // Drawn-or-not is read from the map, never held on the chip: popups are
     // rebuilt every second by the countdown tick, which would lose it.
     const drawn = shownRouteFor(l.line, anchorStopId);
-    chip.className = drawn ? "line-chip on" : "line-chip";
-    chip.textContent = drawn?.towards ? `${l.label} → ${drawn.towards}` : l.label;
-    chip.style.color = lineColor(l.label);
-    chip.style.borderColor = lineColor(l.label);
+    paintLineChip(chip, l, drawn);
     chip.title = drawn ? `Hide route ${l.label}` : `Show route ${l.label}`;
     chip.addEventListener("click", (event) => {
       event.stopPropagation();
@@ -2055,9 +2235,10 @@ function popupHtml(stop) {
 function ensureMap() {
   if (leafletMap) return;
   leafletMap = L.map(mapEl, { tap: false });
-  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    maxZoom: 19,
-    attribution: "&copy; OpenStreetMap contributors",
+  L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png", {
+    maxZoom: 20,
+    subdomains: "abcd",
+    attribution: "&copy; OpenStreetMap contributors &copy; CARTO",
   }).addTo(leafletMap);
 
   // Routes go down first so pins stay clickable on top of them.
@@ -2247,13 +2428,25 @@ function busShownRoute(bus) {
   const direction = busRouteDirection(bus, line, route);
   if (direction) {
     const shown = drawn.find((candidate) => candidate.direction === direction);
-    return shown ? { code: shown.code, route, direction, snapped: true } : null;
+    return shown ? {
+      code: shown.code,
+      route,
+      direction,
+      snapped: true,
+      key: routeKey(shown.code, shown.direction),
+    } : null;
   }
   // Without a resolved direction a bus can only be placed when there is one
   // drawn direction to place it on. With both up, guessing would be a coin
   // flip between two lines of traffic going opposite ways.
   return drawn.length === 1
-    ? { code: drawn[0].code, route, direction: drawn[0].direction, snapped: false }
+    ? {
+      code: drawn[0].code,
+      route,
+      direction: drawn[0].direction,
+      snapped: false,
+      key: routeKey(drawn[0].code, drawn[0].direction),
+    }
     : null;
 }
 
@@ -2346,33 +2539,41 @@ function trackCoordinateAt(track, progress) {
 
 /** Where a bus is along the drawn path, in metres from its start.
  *
- * EMT publishes two positions per arrival and only one of them is usable for
- * motion. `geometry.coordinates` is a GPS fix that can sit unchanged for
- * minutes and then jump a kilometre. `DistanceBus` is the distance along the
- * route from the bus to the stop being estimated, and it moves on every
- * single poll.
+ * EMT publishes two positions per arrival. `geometry.coordinates` is a GPS
+ * fix that can sit unchanged for minutes; `DistanceBus` moves on every poll,
+ * but night routes have shown it disagreeing with an on-route GPS fix by more
+ * than a kilometre. Neither feed is unconditionally authoritative.
  *
  * Measured on line 27, 2026-08-25: across 48 seconds the fix did not change
  * for 43 of them and then jumped 1.1km, while DistanceBus counted 3137 →
  * 2957m smoothly. Once the fix caught up, the along-track distance from it to
  * the stop was 2873m against a reported 2957m — agreement to within 85m.
  *
- * So the stop anchors the bus and DistanceBus places it. Animating the fix
- * instead is what made buses sprint to a point and then sit still.
+ * Use the smooth stop distance while both sources broadly agree. If a GPS fix
+ * is itself close to the selected route and they differ implausibly, prefer
+ * that fix rather than teleporting the marker out of view.
  */
 function busTrackProgress(bus, track, route) {
   const metres = Number(bus.metres);
   const source = anchorCoordinates(route, String(bus.sourceStopId));
   const stopOnTrack = source && nearestTrackPosition(track, source);
+  const fix = Array.isArray(bus.coordinates) && nearestTrackPosition(track, bus.coordinates);
+  const usableFix = fix && fix.distance <= 120 ? fix : null;
   if (Number.isFinite(metres) && stopOnTrack && stopOnTrack.distance <= 120) {
     const progress = stopOnTrack.progress - metres;
     // Before the start of the path the bus has not joined this leg yet — it is
     // still finishing the other one, which is not the line drawn on screen.
-    return progress >= 0 ? progress : null;
+    if (progress < 0) return null;
+    // N1 at 00:57 on 2026-08-26: GPS sat 7m from the route while DistanceBus
+    // put the same vehicle 1.46km further along it. The first refresh looked
+    // like the marker vanished because it jumped beyond the viewport.
+    if (usableFix && Math.abs(usableFix.progress - progress) > 800) {
+      return usableFix.progress;
+    }
+    return progress;
   }
   // No distance reported: fall back to the fix, stale as it may be.
-  const fix = Array.isArray(bus.coordinates) && nearestTrackPosition(track, bus.coordinates);
-  return fix && fix.distance <= 120 ? fix.progress : null;
+  return usableFix?.progress ?? null;
 }
 
 /** Heading from the path itself rather than from two GPS fixes minutes
@@ -2587,8 +2788,10 @@ function rebuildLiveBusMarkers() {
       marker.busCoordinates = bus.coordinates;
       marker.busFetchedAt = bus.fetchedAt;
       marker.busSourceStopId = bus.sourceStopId;
+      marker.busRouteKey = shown?.key ?? null;
       marker.setIcon(liveBusIcon(bus));
       marker.unbindPopup().bindPopup(() => liveBusPopup(bus));
+      syncRouteSelectionStyles();
       continue;
     }
 
@@ -2602,10 +2805,15 @@ function rebuildLiveBusMarkers() {
     created.busCoordinates = bus.coordinates;
     created.busFetchedAt = bus.fetchedAt;
     created.busSourceStopId = bus.sourceStopId;
+    created.busRouteKey = shown?.key ?? null;
     created.bindPopup(() => liveBusPopup(bus));
+    created.on("click", () => {
+      if (created.busRouteKey) setSelectedRoute(created.busRouteKey);
+    });
     created.addTo(liveBusLayer);
     liveBusMarkers.set(key, created);
   }
+  syncRouteSelectionStyles();
 }
 
 /** Re-render any open popup so its countdown ticks like the list. */
@@ -2688,60 +2896,98 @@ async function loadPreviewArrivals(stopId, { force = false } = {}) {
   tickPopups();
 }
 
+/** A nearby stop, said in as little space as it honestly can be.
+ *
+ * One row per line: its chip and its countdown, or a dash when nothing of that
+ * line is coming. A chip row plus a separate arrivals list named the same
+ * lines twice and cost twice the height. Saving is the star the stop cards
+ * already use, which is a row cheaper than a full-width button.
+ *
+ * The whole row is the target, not just the chip — it does exactly what the
+ * chip does, and a 22px chip is a poor thing to ask a thumb to hit.
+ */
 function nearbyPopupHtml(s) {
   const wrap = document.createElement("div");
+  const head = document.createElement("div");
+  head.className = "pop-head";
   const title = document.createElement("h3");
   title.textContent = s.name || `Stop ${s.stopId}`;
+  head.append(title, savedStopStar(s));
   const num = document.createElement("p");
   num.className = "stop-num";
   num.textContent = `Nº ${s.stopId}`;
-  wrap.append(title, num);
-  if (s.lines?.length) wrap.append(lineChips(s.lines, s.stopId));
+  wrap.append(head, num);
 
-  // What you actually want to know before saving a stop: is a bus coming.
-  const ul = document.createElement("ul");
   const preview = previewArrivals.get(s.stopId);
-  if (preview === undefined) {
-    ul.innerHTML = `<li class="muted">Checking arrivals…</li>`;
-    loadPreviewArrivals(s.stopId);
-  } else if (preview === null) {
-    ul.innerHTML = `<li class="muted">Could not reach EMT</li>`;
-  } else if (preview.arrivals.length === 0) {
-    const li = document.createElement("li");
-    li.className = "muted";
-    li.textContent = emptyBoardText(s.stopId);
-    ul.replaceChildren(li);
-  } else {
+  if (preview === undefined) loadPreviewArrivals(s.stopId);
+
+  // Soonest countdown per line. Keyed by identity so a board naming "N19"
+  // still answers for a stop list carrying 519.
+  const due = new Map();
+  if (preview) {
     const elapsed = Math.floor((Date.now() - preview.fetchedAt) / 1000);
-    for (const bus of preview.arrivals.slice(0, CARD_ARRIVALS)) {
-      const li = document.createElement("li");
-      const line = document.createElement("span");
-      line.className = "line";
-      line.textContent = bus.line;
-      line.style.color = lineColor(bus.line);
-      const eta = document.createElement("span");
-      eta.className = "eta";
-      eta.textContent = fmtCountdown(bus.seconds - elapsed);
-      li.append(line, eta);
-      ul.append(li);
+    for (const bus of preview.arrivals) {
+      if (Number(bus.seconds) >= SCHEDULED_SECONDS) continue;
+      const id = lineIdentity(bus.line);
+      const seconds = bus.seconds - elapsed;
+      if (!due.has(id) || seconds < due.get(id)) due.set(id, seconds);
     }
   }
-  wrap.append(ul);
+  const secondsFor = (l) => due.get(lineIdentity(l.label)) ?? due.get(lineIdentity(l.line));
 
-  const add = document.createElement("button");
-  add.type = "button";
-  add.textContent = "Add this stop";
-  add.addEventListener("click", async () => {
-    add.disabled = true;
-    try {
-      await addStopById(s.stopId, null, s);
-      leafletMap.closePopup();
-      statusEl.textContent = "";
-    } catch {
-      add.disabled = false;
-    }
-  });
-  wrap.append(add);
+  const lines = [];
+  const seen = new Set();
+  for (const raw of s.lines ?? []) {
+    const l = normaliseLine(raw);
+    const id = lineIdentity(l.line);
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    seen.add(lineIdentity(l.label));
+    lines.push(l);
+  }
+  // A board can name a line the stop record never listed.
+  for (const bus of preview?.arrivals ?? []) {
+    const id = lineIdentity(bus.line);
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    lines.push(normaliseLine(bus.line));
+  }
+  lines.sort((a, b) => (secondsFor(a) ?? Infinity) - (secondsFor(b) ?? Infinity));
+
+  if (lines.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "muted pop-empty";
+    empty.textContent = preview === null ? "Could not reach EMT" : "No lines known";
+    wrap.append(empty);
+    return wrap;
+  }
+
+  const list = document.createElement("div");
+  list.className = "pop-lines";
+  for (const l of lines) {
+    const drawn = shownRouteFor(l.line, s.stopId);
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "pop-line";
+    row.title = drawn ? `Hide route ${l.label}` : `Show route ${l.label}`;
+    const chip = document.createElement("span");
+    paintLineChip(chip, l, drawn);
+    const eta = document.createElement("span");
+    eta.className = "eta";
+    const seconds = secondsFor(l);
+    if (preview === null) eta.textContent = "?";
+    else if (preview === undefined) eta.textContent = "…";
+    else if (seconds == null) eta.textContent = "—";
+    else eta.textContent = fmtCountdown(seconds);
+    if (seconds == null) eta.classList.add("muted");
+    row.append(chip, eta);
+    row.addEventListener("click", (event) => {
+      event.stopPropagation();
+      toggleRoute(l.line, l.label, null, s.stopId);
+    });
+    list.append(row);
+  }
+  wrap.append(list);
   return wrap;
 }
 
@@ -2755,7 +3001,8 @@ const nearbyPins = new Map(); // stopId → circleMarker
  */
 function renderNearbyPins() {
   if (!nearbyLayer || !leafletMap) return;
-  const visible = !mapEl.hidden && leafletMap.getZoom() >= NEARBY_MIN_ZOOM;
+  const visible = !mapEl.hidden && shownRoutes.size === 0
+    && leafletMap.getZoom() >= NEARBY_MIN_ZOOM;
   const bounds = visible ? leafletMap.getBounds().pad(0.2) : null;
   const saved = savedIds();
   const wanted = new Set();
@@ -3068,7 +3315,10 @@ function showSheetMap() {
         touchZoom: false,
         keyboard: false,
       });
-      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 })
+      L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png", {
+        maxZoom: 20,
+        subdomains: "abcd",
+      })
         .addTo(sheetMap);
       sheetMarker = L.marker(latlng).addTo(sheetMap);
     } else {
@@ -3098,8 +3348,7 @@ function renderSheetArrivals() {
         const li = document.createElement("li");
         // A row with no countdown is a later run, not something you are about
         // to catch. It says so in a quieter, shorter row.
-        const scheduled = Number(bus.seconds) >= SCHEDULED_SECONDS;
-        if (scheduled) li.className = "is-scheduled";
+        if (Number(bus.seconds) >= SCHEDULED_SECONDS) li.className = "is-scheduled";
         const line = document.createElement("span");
         line.className = "line";
         line.textContent = bus.line;
