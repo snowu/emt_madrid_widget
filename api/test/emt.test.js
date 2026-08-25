@@ -396,6 +396,12 @@ describe("getNearbyStops", () => {
     expect(stops).toEqual([]);
   });
 
+  it("treats code 01 as an empty nearby result", async () => {
+    mockFetch({ code: "01", description: "No records", data: [] });
+    const stops = await getNearbyStops(env, { lat: 40.0, lon: -3.0, radius: 700 });
+    expect(stops).toEqual([]);
+  });
+
   it("tolerates EMT sending lines as objects", async () => {
     mockFetch({
       code: "00",

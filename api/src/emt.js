@@ -414,9 +414,16 @@ async function requestNearby(env, lat, lon, radius, token) {
 export async function getNearbyStops(env, { lat, lon, radius = 500 }) {
   const r = Math.min(3000, Math.max(50, Number(radius) || 500));
   let token = await getToken(env);
-  const body = await requestNearby(env, lat, lon, r, token);
+  let body = await requestNearby(env, lat, lon, r, token);
 
-  if (body.code !== "00") raiseForCode(body.code);
+  if (body.code === "80") {
+    token = await getToken(env, { force: true });
+    body = await requestNearby(env, lat, lon, r, token);
+  }
+
+  // Like arrivals, area search uses 01 for a valid empty result. This is
+  // common for Hubs whose 700 m search area contains no EMT stops.
+  if (body.code !== "00" && body.code !== "01") raiseForCode(body.code);
 
   return (body.data ?? [])
     .filter((s) => s.stopId != null)
