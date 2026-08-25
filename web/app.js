@@ -2238,65 +2238,35 @@ function rebuildMarkers() {
 function liveBusIcon(bus) {
   const ns = "http://www.w3.org/2000/svg";
   const svg = document.createElementNS(ns, "svg");
-  svg.setAttribute("viewBox", "0 0 44 52");
+  svg.setAttribute("viewBox", "0 0 44 44");
   svg.setAttribute("aria-hidden", "true");
-  const color = lineColor(bus.line);
-  const rotor = document.createElementNS(ns, "g");
-  rotor.setAttribute("class", "live-bus-rotor");
-  rotor.setAttribute("transform", `rotate(${Number(bus.bearing ?? 0)} 22 26)`);
-  rotor.innerHTML = `
-    <rect x="10.5" y="4.5" width="23" height="43" rx="8" fill="#0B0E13" opacity=".55"/>
-    <path d="M13 8 q9 -5 18 0 v33 q-9 4 -18 0 z" fill="${color}" stroke="#0B0E13" stroke-width="1.6"/>
-    <path d="M14.6 9.6 q7.4 -3.6 14.8 0 v4.6 q-7.4 -2.6 -14.8 0 z" fill="#0B0E13" opacity=".55"/>
-    <rect x="13.4" y="19" width="2.6" height="16" rx="1.2" fill="#0B0E13" opacity=".45"/>
-    <rect x="28" y="19" width="2.6" height="16" rx="1.2" fill="#0B0E13" opacity=".45"/>
-    <rect x="11.4" y="16" width="2" height="6" rx="1" fill="#0B0E13"/>
-    <rect x="30.6" y="16" width="2" height="6" rx="1" fill="#0B0E13"/>
-    <rect x="11.4" y="33" width="2" height="6" rx="1" fill="#0B0E13"/>
-    <rect x="30.6" y="33" width="2" height="6" rx="1" fill="#0B0E13"/>`;
-  const plate = document.createElementNS(ns, "g");
-  plate.setAttribute("class", "live-bus-plate");
-  const long = String(bus.line).length >= 4;
-  const background = document.createElementNS(ns, "rect");
-  background.setAttribute("x", String(22 - (long ? 17 : 13)));
-  background.setAttribute("y", "18");
-  background.setAttribute("width", long ? "34" : "26");
-  background.setAttribute("height", "16");
-  background.setAttribute("rx", "5");
-  background.setAttribute("fill", "#0B0E13");
-  background.setAttribute("stroke", color);
-  background.setAttribute("stroke-width", "1.6");
+  const arrow = document.createElementNS(ns, "path");
+  arrow.setAttribute("class", "live-bus-direction");
+  arrow.setAttribute("d", "M22 1 28 9H16Z");
+  arrow.setAttribute("transform", `rotate(${Number(bus.bearing ?? 0)} 22 22)`);
+  if (!Number.isFinite(bus.bearing)) arrow.setAttribute("opacity", "0");
+  const body = document.createElementNS(ns, "rect");
+  body.setAttribute("class", "live-bus-body");
+  body.setAttribute("x", "7"); body.setAttribute("y", "11");
+  body.setAttribute("width", "30"); body.setAttribute("height", "25"); body.setAttribute("rx", "6");
+  body.setAttribute("fill", lineColor(bus.line));
   const number = document.createElementNS(ns, "text");
-  number.setAttribute("x", "22"); number.setAttribute("y", "30.6");
+  number.setAttribute("x", "22"); number.setAttribute("y", "27");
   number.setAttribute("class", "live-bus-number");
-  number.setAttribute("fill", color);
-  number.setAttribute("font-size", long ? "11" : "13");
   number.textContent = bus.line;
-  plate.append(background, number);
-  svg.append(rotor, plate);
+  for (const x of [12, 32]) {
+    const wheel = document.createElementNS(ns, "circle");
+    wheel.setAttribute("class", "live-bus-wheel");
+    wheel.setAttribute("cx", String(x)); wheel.setAttribute("cy", "36"); wheel.setAttribute("r", "3");
+    svg.append(wheel);
+  }
+  svg.append(body, number, arrow);
   return L.divIcon({
-    className: "bus-marker",
-    // Give Leaflet markup rather than a namespaced SVG node to adopt. Some
-    // browsers silently lose descendants when an SVGElement is moved between
-    // documents; the rendered node is still retained and mutated after this.
-    html: svg.outerHTML,
-    iconSize: [44, 52],
-    iconAnchor: [22, 26],
+    className: "live-bus-icon",
+    html: svg,
+    iconSize: [44, 44],
+    iconAnchor: [22, 22],
   });
-}
-
-function shortTurnBearing(previous, next) {
-  if (!Number.isFinite(next)) return previous;
-  if (!Number.isFinite(previous)) return ((next % 360) + 360) % 360;
-  return previous + ((next - previous + 540) % 360) - 180;
-}
-
-function setBusMarkerBearing(marker, next) {
-  const bearing = shortTurnBearing(marker.busBearing, next);
-  if (!Number.isFinite(bearing)) return;
-  marker.busBearing = bearing;
-  marker._rotor ??= marker.getElement()?.querySelector(".live-bus-rotor") ?? null;
-  marker._rotor?.setAttribute("transform", `rotate(${bearing} 22 26)`);
 }
 
 function movementBearing([oldLon, oldLat], [newLon, newLat]) {
@@ -2546,12 +2516,6 @@ function trackBearingAt(track, progress) {
 }
 
 function animateBusOnTrack(marker, track, fromProgress, toProgress) {
-  if (matchMedia("(prefers-reduced-motion: reduce)").matches || fromProgress === toProgress) {
-    const coordinate = trackCoordinateAt(track, toProgress);
-    marker.setLatLng([coordinate[1], coordinate[0]]);
-    setBusMarkerBearing(marker, trackBearingAt(track, toProgress));
-    return;
-  }
   const animationId = (marker.busAnimationId ?? 0) + 1;
   marker.busAnimationId = animationId;
   const started = performance.now();
@@ -2562,8 +2526,6 @@ function animateBusOnTrack(marker, track, fromProgress, toProgress) {
       track, fromProgress + (toProgress - fromProgress) * ratio,
     );
     marker.setLatLng([coordinate[1], coordinate[0]]);
-    setBusMarkerBearing(marker, trackBearingAt(track,
-      fromProgress + (toProgress - fromProgress) * ratio));
     if (ratio < 1 && liveBusMarkers.get(marker.busKey) === marker
       && marker.busAnimationId === animationId) requestAnimationFrame(frame);
   };
@@ -2571,11 +2533,6 @@ function animateBusOnTrack(marker, track, fromProgress, toProgress) {
 }
 
 function animateBusMarker(marker, from, to, duration = BUS_MAP_REFRESH_MS - 500) {
-  const moved = metresBetweenCoordinates([from[1], from[0]], [to[1], to[0]]);
-  if (matchMedia("(prefers-reduced-motion: reduce)").matches || moved < 8) {
-    if (moved >= 8) marker.setLatLng(to);
-    return;
-  }
   const animationId = (marker.busAnimationId ?? 0) + 1;
   marker.busAnimationId = animationId;
   const started = performance.now();
@@ -2705,11 +2662,10 @@ function rebuildLiveBusMarkers() {
   };
   Object.values(arrivals).forEach(collect);
   previewArrivals.forEach(collect);
-  // Vehicle display is deliberately scoped to lines the user explicitly
-  // chose. Direction resolution decides whether a bus can snap to a route;
-  // it must not decide whether a real, geolocated vehicle exists at all.
+  // Vehicle display is deliberately scoped to routes the user explicitly
+  // chose. A map with no directional route has no live-bus workload at all.
   for (const [key, bus] of buses) {
-    if (shownRoutesFor(busLineCode(bus).line).length === 0) buses.delete(key);
+    if (!busShownRoute(bus)) buses.delete(key);
   }
   for (const [key, marker] of liveBusMarkers) {
     if (buses.has(key)) continue;
@@ -2718,36 +2674,27 @@ function rebuildLiveBusMarkers() {
   }
   for (const [key, bus] of buses) {
     const shown = busShownRoute(bus);
-    const drawn = shownRoutesFor(busLineCode(bus).line);
-    const fallbackShown = drawn[0] ?? null;
-    let track = shown?.snapped ? busRouteTrack(bus) : null;
-    let progress = track ? busTrackProgress(bus, track, shown.route) : null;
+    const track = shown?.snapped ? busRouteTrack(bus) : null;
+    const progress = track ? busTrackProgress(bus, track, shown.route) : null;
     const marker = liveBusMarkers.get(key);
 
-    // A projection can fail during a diversion, around a disconnected route
-    // component, or when EMT's distance and geometry feeds update out of
-    // phase. The GPS fix is less elegant than along-route interpolation, but
-    // it is real and is preferable to making a due bus disappear completely.
+    // On the line but not yet on the leg being drawn: placing it anywhere on
+    // this path would put it on a street it is not in.
     if (track && progress == null) {
-      track = null;
-      progress = null;
+      if (marker) {
+        liveBusLayer.removeLayer(marker);
+        liveBusMarkers.delete(key);
+      }
+      continue;
     }
 
     // The estimate belongs to the stop the route was opened from, which is the
     // stop the user is standing at — so name it rather than showing its number.
-    bus.sourceStopName = stopDisplayName(bus.sourceStopId,
-      shown?.route ?? routeCache.get(fallbackShown?.code));
+    bus.sourceStopName = stopDisplayName(bus.sourceStopId, shown?.route);
     const coordinate = track ? trackCoordinateAt(track, progress) : bus.coordinates;
-    const reportedBearing = bus.bearing == null ? NaN : Number(bus.bearing);
-    const fixMoved = marker?.busCoordinates
-      ? metresBetweenCoordinates(marker.busCoordinates, bus.coordinates) : Infinity;
-    bus.bearing = Number.isFinite(reportedBearing)
-      ? reportedBearing
-      : track
-        ? trackBearingAt(track, progress)
-        : fixMoved >= 8
-          ? movementBearing(marker?.busCoordinates ?? bus.coordinates, bus.coordinates)
-          : marker?.busBearing;
+    bus.bearing = track
+      ? trackBearingAt(track, progress)
+      : movementBearing(marker?.busCoordinates ?? bus.coordinates, bus.coordinates);
 
     if (marker) {
       // A route compiled after the marker was drawn must be allowed to place
@@ -2767,12 +2714,12 @@ function rebuildLiveBusMarkers() {
       }
       marker.liveBus = bus; // so the popup can be re-rendered as it ticks
       marker.busProgress = progress;
+      marker.busBearing = bus.bearing ?? marker.busBearing;
       marker.busCoordinates = bus.coordinates;
       marker.busFetchedAt = bus.fetchedAt;
       marker.busSourceStopId = bus.sourceStopId;
-      marker.busRouteKey = shown?.key
-        ?? (fallbackShown ? routeKey(fallbackShown.code, fallbackShown.direction) : null);
-      setBusMarkerBearing(marker, bus.bearing);
+      marker.busRouteKey = shown?.key ?? null;
+      marker.setIcon(liveBusIcon(bus));
       marker.unbindPopup().bindPopup(() => liveBusPopup(bus));
       syncRouteSelectionStyles();
       continue;
@@ -2788,14 +2735,12 @@ function rebuildLiveBusMarkers() {
     created.busCoordinates = bus.coordinates;
     created.busFetchedAt = bus.fetchedAt;
     created.busSourceStopId = bus.sourceStopId;
-    created.busRouteKey = shown?.key
-      ?? (fallbackShown ? routeKey(fallbackShown.code, fallbackShown.direction) : null);
+    created.busRouteKey = shown?.key ?? null;
     created.bindPopup(() => liveBusPopup(bus));
     created.on("click", () => {
       if (created.busRouteKey) setSelectedRoute(created.busRouteKey);
     });
     created.addTo(liveBusLayer);
-    setBusMarkerBearing(created, bus.bearing);
     liveBusMarkers.set(key, created);
   }
   syncRouteSelectionStyles();
