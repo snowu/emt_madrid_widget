@@ -2477,33 +2477,41 @@ function trackCoordinateAt(track, progress) {
 
 /** Where a bus is along the drawn path, in metres from its start.
  *
- * EMT publishes two positions per arrival and only one of them is usable for
- * motion. `geometry.coordinates` is a GPS fix that can sit unchanged for
- * minutes and then jump a kilometre. `DistanceBus` is the distance along the
- * route from the bus to the stop being estimated, and it moves on every
- * single poll.
+ * EMT publishes two positions per arrival. `geometry.coordinates` is a GPS
+ * fix that can sit unchanged for minutes; `DistanceBus` moves on every poll,
+ * but night routes have shown it disagreeing with an on-route GPS fix by more
+ * than a kilometre. Neither feed is unconditionally authoritative.
  *
  * Measured on line 27, 2026-08-25: across 48 seconds the fix did not change
  * for 43 of them and then jumped 1.1km, while DistanceBus counted 3137 →
  * 2957m smoothly. Once the fix caught up, the along-track distance from it to
  * the stop was 2873m against a reported 2957m — agreement to within 85m.
  *
- * So the stop anchors the bus and DistanceBus places it. Animating the fix
- * instead is what made buses sprint to a point and then sit still.
+ * Use the smooth stop distance while both sources broadly agree. If a GPS fix
+ * is itself close to the selected route and they differ implausibly, prefer
+ * that fix rather than teleporting the marker out of view.
  */
 function busTrackProgress(bus, track, route) {
   const metres = Number(bus.metres);
   const source = anchorCoordinates(route, String(bus.sourceStopId));
   const stopOnTrack = source && nearestTrackPosition(track, source);
+  const fix = Array.isArray(bus.coordinates) && nearestTrackPosition(track, bus.coordinates);
+  const usableFix = fix && fix.distance <= 120 ? fix : null;
   if (Number.isFinite(metres) && stopOnTrack && stopOnTrack.distance <= 120) {
     const progress = stopOnTrack.progress - metres;
     // Before the start of the path the bus has not joined this leg yet — it is
     // still finishing the other one, which is not the line drawn on screen.
-    return progress >= 0 ? progress : null;
+    if (progress < 0) return null;
+    // N1 at 00:57 on 2026-08-26: GPS sat 7m from the route while DistanceBus
+    // put the same vehicle 1.46km further along it. The first refresh looked
+    // like the marker vanished because it jumped beyond the viewport.
+    if (usableFix && Math.abs(usableFix.progress - progress) > 800) {
+      return usableFix.progress;
+    }
+    return progress;
   }
   // No distance reported: fall back to the fix, stale as it may be.
-  const fix = Array.isArray(bus.coordinates) && nearestTrackPosition(track, bus.coordinates);
-  return fix && fix.distance <= 120 ? fix.progress : null;
+  return usableFix?.progress ?? null;
 }
 
 /** Heading from the path itself rather than from two GPS fixes minutes
