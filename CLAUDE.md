@@ -330,7 +330,7 @@ sentinel, not a real countdown.
 Arrivals live at `data[0].Arrive[]`. Per bus:
 - `line` — line number (string)
 - `estimateArrive` — seconds until arrival
-- `DistanceBus` — metres from the stop (capital D)
+- `DistanceBus` — metres **along the route** to the stop (capital D)
 
 Also present: `bus`, `destination`, `geometry.coordinates`, `isHead`.
 
@@ -348,6 +348,29 @@ estimate came from names the direction outright for almost every bus; the
 signed destination, compared as a token subset, covers the shared ones.
 Position is *not* a usable fallback: both directions share carriageways, so
 "which path is nearer" is polyline sampling noise.
+
+**`DistanceBus` is the only position that moves.** EMT sends two per arrival
+and they are not equally useful. `geometry.coordinates` is a GPS fix that can
+sit unchanged for minutes and then jump a kilometre; `DistanceBus` counts down
+on every poll. Measured on line 27, 2026-08-25: across 48 seconds one bus's fix
+did not change for 43 of them and then moved 1.1km, while its `DistanceBus`
+went 3137 → 2957m in steady steps; a mid-route bus stepped 2–4m per 5s poll
+with its fix frozen throughout. Once a fix does land, the along-track distance
+from it to the stop agrees with `DistanceBus` to within ~85m — the two describe
+the same thing and only one of them is current.
+
+So the page places a bus at `stopProgress − DistanceBus` along the compiled
+route instead of snapping the fix onto it. Animating the fix is what made buses
+sprint to a point and then sit still. `DistanceBus` is not strictly monotonic —
+a re-estimate can push a bus back ~25m — but the steps stay small enough to
+animate honestly, and a correction beyond 400m is treated as a re-lock and
+snapped rather than raced.
+
+**Negative progress means the bus is on the other leg.** A line's two
+directions form a loop, so a bus reported 4.9km from a stop that sits 209m
+along its direction has not joined that leg yet — it is still finishing the
+other one. It is not drawn at all, rather than drawn several kilometres up the
+right line in the wrong street.
 
 The worker parses and caches **every** arrival EMT sent, sorted soonest-first,
 and `limit` only trims what one caller gets. The card (2) and the stop sheet
@@ -580,7 +603,11 @@ is most stale), and manually per-card or all at once.
    clearing the route removes them and stops the polling. Showing every
    visible line at once was tried and abandoned: the geometry fetches alone
    made the map unusable.
-13. **One probe stop per displayed direction, every 5s.** A stop's arrivals
+13. **Buses are placed by distance, not by their GPS fix**, and glide between
+   polls along the compiled path — see the arrivals notes above for why the fix
+   is unusable. Heading comes from the path's own tangent, since two fixes
+   minutes apart say nothing about which way a bus points.
+14. **One probe stop per displayed direction, every 5s.** A stop's arrivals
    only ever describe buses still heading *for* it, so polling the stop the
    route was opened from is exactly "what is coming to me" — buses already
    past it are somebody else's problem. Cycling to the other direction reuses

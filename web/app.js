@@ -1915,14 +1915,19 @@ function busRouteTrack(bus) {
       components.push({ points: [...segment] });
     }
   }
+  // Progress is measured from the start of the whole path, not of a component,
+  // so it can be compared with a distance EMT reports along the route.
+  let offset = 0;
   for (const component of components) {
     component.cumulative = [0];
     for (let i = 1; i < component.points.length; i += 1) {
       component.cumulative.push(component.cumulative[i - 1]
         + metresBetweenCoordinates(component.points[i - 1], component.points[i]));
     }
+    component.offset = offset;
+    offset += component.cumulative.at(-1);
   }
-  const track = components.length ? { components } : null;
+  const track = components.length ? { components, length: offset } : null;
   routeTrackCache.set(cacheKey, track);
   return track;
 }
@@ -1946,9 +1951,8 @@ function nearestTrackPosition(track, coordinate) {
       if (!nearest || distance < nearest.distance) {
         nearest = {
           coordinate: point,
-          component: componentIndex,
           distance,
-          progress: component.cumulative[i - 1]
+          progress: component.offset + component.cumulative[i - 1]
             + (component.cumulative[i] - component.cumulative[i - 1]) * ratio,
         };
       }
@@ -1957,37 +1961,70 @@ function nearestTrackPosition(track, coordinate) {
   return nearest;
 }
 
-function trackCoordinateAt(track, componentIndex, progress) {
-  const component = track.components[componentIndex];
-  const bounded = Math.max(0, Math.min(progress, component.cumulative.at(-1)));
+function trackCoordinateAt(track, progress) {
+  const bounded = Math.max(0, Math.min(progress, track.length));
+  let component = track.components[0];
+  for (const candidate of track.components) {
+    if (bounded >= candidate.offset) component = candidate;
+  }
+  const local = Math.min(bounded - component.offset, component.cumulative.at(-1));
   let low = 1;
   let high = component.cumulative.length - 1;
   while (low < high) {
     const middle = Math.floor((low + high) / 2);
-    if (component.cumulative[middle] < bounded) low = middle + 1;
+    if (component.cumulative[middle] < local) low = middle + 1;
     else high = middle;
   }
   const index = low;
   const start = component.cumulative[index - 1];
   const length = component.cumulative[index] - start;
-  const ratio = length ? (bounded - start) / length : 0;
+  const ratio = length ? (local - start) / length : 0;
   const a = component.points[index - 1];
   const b = component.points[index];
   return [a[0] + (b[0] - a[0]) * ratio, a[1] + (b[1] - a[1]) * ratio];
 }
 
-function estimatedBusTrackSpeed(bus, track, position) {
-  const source = details[bus.sourceStopId]?.coordinates
-    ?? nearbyStops.find((stop) => String(stop.stopId) === String(bus.sourceStopId))?.coordinates;
-  const sourceOnTrack = source && nearestTrackPosition(track, source);
-  const seconds = Number(bus.seconds);
-  if (!sourceOnTrack || sourceOnTrack.component !== position.component
-      || sourceOnTrack.distance > 120 || seconds < 20) return 0;
-  const speed = (sourceOnTrack.progress - position.progress) / seconds;
-  return speed >= 0.5 && speed <= 25 ? speed : 0;
+/** Where a bus is along the drawn path, in metres from its start.
+ *
+ * EMT publishes two positions per arrival and only one of them is usable for
+ * motion. `geometry.coordinates` is a GPS fix that can sit unchanged for
+ * minutes and then jump a kilometre. `DistanceBus` is the distance along the
+ * route from the bus to the stop being estimated, and it moves on every
+ * single poll.
+ *
+ * Measured on line 27, 2026-08-25: across 48 seconds the fix did not change
+ * for 43 of them and then jumped 1.1km, while DistanceBus counted 3137 →
+ * 2957m smoothly. Once the fix caught up, the along-track distance from it to
+ * the stop was 2873m against a reported 2957m — agreement to within 85m.
+ *
+ * So the stop anchors the bus and DistanceBus places it. Animating the fix
+ * instead is what made buses sprint to a point and then sit still.
+ */
+function busTrackProgress(bus, track, route) {
+  const metres = Number(bus.metres);
+  const source = anchorCoordinates(route, String(bus.sourceStopId));
+  const stopOnTrack = source && nearestTrackPosition(track, source);
+  if (Number.isFinite(metres) && stopOnTrack && stopOnTrack.distance <= 120) {
+    const progress = stopOnTrack.progress - metres;
+    // Before the start of the path the bus has not joined this leg yet — it is
+    // still finishing the other one, which is not the line drawn on screen.
+    return progress >= 0 ? progress : null;
+  }
+  // No distance reported: fall back to the fix, stale as it may be.
+  const fix = Array.isArray(bus.coordinates) && nearestTrackPosition(track, bus.coordinates);
+  return fix && fix.distance <= 120 ? fix.progress : null;
 }
 
-function animateBusOnTrack(marker, track, component, fromProgress, toProgress) {
+/** Heading from the path itself rather than from two GPS fixes minutes
+ *  apart — a bus on a road points along that road. */
+function trackBearingAt(track, progress) {
+  const ahead = Math.min(track.length, progress + 20);
+  const behind = Math.max(0, ahead - 40);
+  if (ahead - behind < 1) return null;
+  return movementBearing(trackCoordinateAt(track, behind), trackCoordinateAt(track, ahead));
+}
+
+function animateBusOnTrack(marker, track, fromProgress, toProgress) {
   const animationId = (marker.busAnimationId ?? 0) + 1;
   marker.busAnimationId = animationId;
   const started = performance.now();
@@ -1995,7 +2032,7 @@ function animateBusOnTrack(marker, track, component, fromProgress, toProgress) {
   const frame = (now) => {
     const ratio = Math.min(1, (now - started) / duration);
     const coordinate = trackCoordinateAt(
-      track, component, fromProgress + (toProgress - fromProgress) * ratio,
+      track, fromProgress + (toProgress - fromProgress) * ratio,
     );
     marker.setLatLng([coordinate[1], coordinate[0]]);
     if (ratio < 1 && liveBusMarkers.get(marker.busKey) === marker
@@ -2098,108 +2135,65 @@ function rebuildLiveBusMarkers() {
     liveBusMarkers.delete(key);
   }
   for (const [key, bus] of buses) {
-    const reported = bus.coordinates;
-    const track = busRouteTrack(bus);
+    const shown = busShownRoute(bus);
+    const track = shown?.snapped ? busRouteTrack(bus) : null;
+    const progress = track ? busTrackProgress(bus, track, shown.route) : null;
     const marker = liveBusMarkers.get(key);
-    if (marker) {
-      // A newly compiled route must be allowed to upgrade an existing raw
-      // marker even when the EMT sample itself has not changed.
-      if (Number(bus.fetchedAt) <= Number(marker.busFetchedAt)
-          && (!track || marker.busComponent != null)) continue;
-      const previous = marker.getLatLng();
-      const sampleSeconds = Math.max(1, (bus.fetchedAt - marker.busFetchedAt) / 1000);
-      const reportedCandidate = track && nearestTrackPosition(track, reported);
-      const previousCandidate = track && nearestTrackPosition(track, [previous.lng, previous.lat]);
-      const reportedOnTrack = reportedCandidate?.distance <= 120 ? reportedCandidate : null;
-      const previousOnTrack = previousCandidate?.distance <= 120 ? previousCandidate : null;
-      const sampleProgress = marker.busComponent === reportedOnTrack?.component
-        ? marker.busReportedProgress : previousOnTrack?.progress;
-      const progressDelta = reportedOnTrack && previousOnTrack
-        ? reportedOnTrack.progress - (sampleProgress ?? previousOnTrack.progress) : 0;
-      const plausibleProgress = Math.abs(progressDelta) <= sampleSeconds * 25 + 75;
-      if (reportedOnTrack && previousOnTrack
-          && reportedOnTrack.component === previousOnTrack.component && plausibleProgress) {
-        if (marker.busComponent !== reportedOnTrack.component || marker.busReportedProgress == null) {
-          marker.busSpeed = estimatedBusTrackSpeed(bus, track, reportedOnTrack);
-        }
-        const measuredSpeed = progressDelta / sampleSeconds;
-        const freshMovement = measuredSpeed >= 0.5 && measuredSpeed <= 25;
-        if (freshMovement) marker.busSpeed = measuredSpeed;
-        marker.busReportedProgress = reportedOnTrack.progress;
-        marker.busComponent = reportedOnTrack.component;
-        const source = details[bus.sourceStopId]?.coordinates
-          ?? nearbyStops.find((stop) => String(stop.stopId) === String(bus.sourceStopId))?.coordinates;
-        const sourceOnTrack = source && nearestTrackPosition(track, source);
-        const sourceProgress = sourceOnTrack && sourceOnTrack.component === reportedOnTrack.component
-          && sourceOnTrack.distance <= 120 ? sourceOnTrack.progress : null;
-        const projectionBase = freshMovement
-          ? reportedOnTrack.progress : Math.max(reportedOnTrack.progress, previousOnTrack.progress);
-        const projectedProgress = projectionBase
-          + Math.max(0, marker.busSpeed ?? 0) * ((BUS_MAP_REFRESH_MS - 500) / 1000);
-        const targetProgress = Number.isFinite(sourceProgress)
-          ? Math.min(projectedProgress, sourceProgress) : projectedProgress;
-        const target = trackCoordinateAt(track, reportedOnTrack.component, targetProgress);
-        bus.bearing = movementBearing(reportedOnTrack.coordinate, target) ?? marker.busBearing;
-        animateBusOnTrack(
-          marker, track, reportedOnTrack.component, previousOnTrack.progress, targetProgress,
-        );
-      } else {
-        const bearing = movementBearing(marker.busCoordinates, reported);
-        bus.bearing = bearing ?? marker.busBearing;
-        marker.busSpeed = 0;
-        marker.busReportedProgress = undefined;
-        marker.busComponent = undefined;
-        const rawSpeed = metresBetweenCoordinates(marker.busCoordinates, reported) / sampleSeconds;
-        if (rawSpeed <= 25) {
-          animateBusMarker(marker, [previous.lat, previous.lng], [reported[1], reported[0]]);
-        } else {
-          marker.setLatLng([reported[1], reported[0]]);
-        }
+
+    // On the line but not yet on the leg being drawn: placing it anywhere on
+    // this path would put it on a street it is not in.
+    if (track && progress == null) {
+      if (marker) {
+        liveBusLayer.removeLayer(marker);
+        liveBusMarkers.delete(key);
       }
-      marker.busBearing = bus.bearing;
-      marker.busCoordinates = reported;
+      continue;
+    }
+
+    const coordinate = track ? trackCoordinateAt(track, progress) : bus.coordinates;
+    bus.bearing = track
+      ? trackBearingAt(track, progress)
+      : movementBearing(marker?.busCoordinates ?? bus.coordinates, bus.coordinates);
+
+    if (marker) {
+      // A route compiled after the marker was drawn must be allowed to place
+      // it, even when EMT has sent nothing new.
+      const upgraded = marker.busProgress == null && progress != null;
+      if (Number(bus.fetchedAt) <= Number(marker.busFetchedAt) && !upgraded) continue;
+      if (track) {
+        const from = marker.busProgress ?? progress;
+        // A correction this large is EMT re-locking the vehicle, not a bus
+        // covering ground. Racing along the path to meet it is precisely the
+        // artefact this model exists to remove.
+        if (Math.abs(progress - from) > 400) marker.setLatLng([coordinate[1], coordinate[0]]);
+        else animateBusOnTrack(marker, track, from, progress);
+      } else {
+        const previous = marker.getLatLng();
+        animateBusMarker(marker, [previous.lat, previous.lng], [coordinate[1], coordinate[0]]);
+      }
+      marker.busProgress = progress;
+      marker.busBearing = bus.bearing ?? marker.busBearing;
+      marker.busCoordinates = bus.coordinates;
       marker.busFetchedAt = bus.fetchedAt;
       marker.busSourceStopId = bus.sourceStopId;
       marker.setIcon(liveBusIcon(bus));
       marker.unbindPopup().bindPopup(() => liveBusPopup(bus));
       continue;
     }
-    const reportedCandidate = track && nearestTrackPosition(track, reported);
-    const reportedOnTrack = reportedCandidate?.distance <= 120 ? reportedCandidate : null;
-    const speed = reportedOnTrack ? estimatedBusTrackSpeed(bus, track, reportedOnTrack) : 0;
-    const source = reportedOnTrack && (details[bus.sourceStopId]?.coordinates
-      ?? nearbyStops.find((stop) => String(stop.stopId) === String(bus.sourceStopId))?.coordinates);
-    const sourceOnTrack = source && nearestTrackPosition(track, source);
-    const sourceProgress = sourceOnTrack && sourceOnTrack.component === reportedOnTrack?.component
-      && sourceOnTrack.distance <= 120 ? sourceOnTrack.progress : null;
-    const projectedProgress = reportedOnTrack
-      ? reportedOnTrack.progress + speed * ((BUS_MAP_REFRESH_MS - 500) / 1000) : null;
-    const targetProgress = Number.isFinite(sourceProgress)
-      ? Math.min(projectedProgress, sourceProgress) : projectedProgress;
-    const target = targetProgress == null ? reported
-      : trackCoordinateAt(track, reportedOnTrack.component, targetProgress);
-    bus.bearing = reportedOnTrack
-      ? movementBearing(reportedOnTrack.coordinate, target) : null;
-    const startCoordinate = reportedOnTrack?.coordinate ?? reported;
-    const start = [startCoordinate[1], startCoordinate[0]];
-    const created = L.marker(start, { icon: liveBusIcon(bus), zIndexOffset: 700 });
+
+    const created = L.marker([coordinate[1], coordinate[0]], {
+      icon: liveBusIcon(bus), zIndexOffset: 700,
+    });
     created.busKey = key;
+    created.busProgress = progress;
     created.busBearing = bus.bearing;
-    created.busSourceStopId = bus.sourceStopId;
-    created.busCoordinates = reported;
+    created.busCoordinates = bus.coordinates;
     created.busFetchedAt = bus.fetchedAt;
-    created.busSpeed = speed;
-    created.busReportedProgress = reportedOnTrack?.progress;
-    created.busComponent = reportedOnTrack?.component;
+    created.busSourceStopId = bus.sourceStopId;
     created.bindPopup(() => liveBusPopup(bus));
     created.on("click", () => showBusRoute(bus));
     created.addTo(liveBusLayer);
     liveBusMarkers.set(key, created);
-    if (reportedOnTrack && speed) {
-      animateBusOnTrack(
-        created, track, reportedOnTrack.component, reportedOnTrack.progress, targetProgress,
-      );
-    }
   }
 }
 
