@@ -2276,7 +2276,10 @@ function liveBusIcon(bus) {
   svg.append(rotor, plate);
   return L.divIcon({
     className: "bus-marker",
-    html: svg,
+    // Give Leaflet markup rather than a namespaced SVG node to adopt. Some
+    // browsers silently lose descendants when an SVGElement is moved between
+    // documents; the rendered node is still retained and mutated after this.
+    html: svg.outerHTML,
     iconSize: [44, 52],
     iconAnchor: [22, 26],
   });
@@ -3254,7 +3257,10 @@ function showSheetMap() {
         touchZoom: false,
         keyboard: false,
       });
-      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 })
+      L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png", {
+        maxZoom: 20,
+        subdomains: "abcd",
+      })
         .addTo(sheetMap);
       sheetMarker = L.marker(latlng).addTo(sheetMap);
     } else {
