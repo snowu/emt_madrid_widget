@@ -3192,7 +3192,7 @@ function showSection(next) {
   if (next !== section) closeFullscreenMap();
   section = next;
   const bikes = next === "bikes";
-  document.title = bikes ? "BiciMAD" : busListMode === "places" ? "Places" : "Stops";
+  document.title = bikes ? "BiciMAD" : busListMode === "places" ? "Hubwise" : "Stops";
   busModePlaces.setAttribute("aria-selected", String(!bikes && busListMode === "places"));
   busModeStops.setAttribute("aria-selected", String(!bikes && busListMode === "stops"));
   menuBikes.setAttribute("aria-selected", String(bikes));
