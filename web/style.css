@@ -639,6 +639,7 @@ body.map-is-fullscreen { overflow: hidden; }
 .route-arrow { background: none; border: none; }
 .live-bus-icon { background: none; border: none; }
 .live-bus-badge {
+  position: relative;
   display: grid;
   width: 34px;
   height: 24px;
@@ -650,6 +651,26 @@ body.map-is-fullscreen { overflow: hidden; }
   box-shadow: 0 2px 7px rgb(0 0 0 / 0.55);
   font-size: 0.7rem;
   font-weight: 800;
+}
+.live-bus-badge::before {
+  content: "";
+  position: absolute;
+  right: 5px;
+  bottom: -4px;
+  width: 5px;
+  height: 5px;
+  border: 1px solid #fff;
+  border-radius: 50%;
+  background: #111;
+  box-shadow: -21px 0 0 -1px #111, -21px 0 0 0 #fff;
+}
+.live-bus-badge::after {
+  content: "";
+  position: absolute;
+  inset: 3px 4px auto;
+  height: 3px;
+  border-radius: 2px;
+  background: rgb(255 255 255 / 0.7);
 }
 
 .chips { display: flex; flex-wrap: wrap; gap: 0.3rem; margin: 0.35rem 0 0; }

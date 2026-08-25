@@ -1223,14 +1223,15 @@ const routeCache = new Map(); // line code → route payload
  * Route geometry is ~25KB a line and never changes during a session, so it is
  * fetched once and kept; the worker holds it for a week.
  */
-async function toggleRoute(code, label) {
+async function toggleRoute(code, label, requestedDirection = null) {
   if (!leafletMap) return;
 
   // One direction at a time, cycling out → back → off. Drawn together the two
   // run along the same streets, so whichever is on top hides the other and the
   // arrows point both ways a few pixels apart.
   const current = shownRoutes.get(code);
-  const next = !current ? "toA" : current.direction === "toA" ? "toB" : null;
+  if (requestedDirection && current?.direction === requestedDirection) return;
+  const next = requestedDirection || (!current ? "toA" : current.direction === "toA" ? "toB" : null);
   if (current) {
     routeLayer.removeLayer(current.layer);
     shownRoutes.delete(code);
@@ -1534,6 +1535,59 @@ function liveBusIcon(bus) {
   });
 }
 
+function busLineCode(bus) {
+  const identity = (value) => {
+    const code = String(value ?? "").trim().toUpperCase();
+    return /^\d+$/.test(code) ? code.replace(/^0+(?=\d)/, "") : code;
+  };
+  const wanted = identity(bus.line);
+  const known = stopLines(bus.sourceStopId).find((entry) => {
+    const line = normaliseLine(entry);
+    return identity(line.line) === wanted || identity(line.label) === wanted;
+  });
+  return normaliseLine(known ?? bus.line);
+}
+
+async function showBusRoute(bus) {
+  const line = busLineCode(bus);
+  let route = routeCache.get(line.line);
+  if (!route) {
+    try {
+      route = await api(`/lines/${encodeURIComponent(line.line)}/route`);
+      routeCache.set(line.line, route);
+    } catch (err) {
+      statusEl.textContent = `Could not load route ${line.label}: ${err.message}`;
+      return;
+    }
+  }
+  const destination = String(bus.destination ?? "").trim().toUpperCase();
+  const direction = destination && destination === String(route.nameA ?? "").trim().toUpperCase()
+    ? "toA"
+    : destination && destination === String(route.nameB ?? "").trim().toUpperCase()
+      ? "toB" : null;
+  await toggleRoute(line.line, line.label, direction);
+}
+
+function liveBusPopup(bus) {
+  const wrap = document.createElement("div");
+  const title = document.createElement("h3");
+  title.textContent = `Bus ${bus.line}`;
+  const direction = document.createElement("p");
+  direction.className = "stop-num";
+  direction.textContent = bus.destination ? `→ ${bus.destination}` : "Direction unavailable";
+  const vehicle = document.createElement("p");
+  vehicle.className = "muted";
+  vehicle.textContent = bus.vehicleId ? `Vehicle ${bus.vehicleId}` : "";
+  const route = document.createElement("button");
+  route.type = "button";
+  route.textContent = `Show route ${bus.line}`;
+  route.addEventListener("click", () => showBusRoute(bus));
+  wrap.append(title, direction);
+  if (vehicle.textContent) wrap.append(vehicle);
+  wrap.append(route);
+  return wrap;
+}
+
 function rebuildLiveBusMarkers() {
   if (!liveBusLayer) return;
   liveBusLayer.clearLayers();
@@ -1546,7 +1600,7 @@ function rebuildLiveBusMarkers() {
       const key = bus.vehicleId || `${bus.line}:${lon}:${lat}`;
       const previous = buses.get(key);
       if (!previous || payload.fetchedAt > previous.fetchedAt) {
-        buses.set(key, { ...bus, fetchedAt: payload.fetchedAt });
+        buses.set(key, { ...bus, fetchedAt: payload.fetchedAt, sourceStopId: payload.stopId });
       }
     }
   };
@@ -1557,7 +1611,7 @@ function rebuildLiveBusMarkers() {
       icon: liveBusIcon(bus),
       zIndexOffset: 700,
     });
-    marker.bindTooltip(`Line ${bus.line}${bus.vehicleId ? ` · bus ${bus.vehicleId}` : ""}`);
+    marker.bindPopup(() => liveBusPopup(bus));
     marker.addTo(liveBusLayer);
   }
 }
