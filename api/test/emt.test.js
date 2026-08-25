@@ -232,6 +232,7 @@ describe("getStopDetail", () => {
       to: "23:30",
       dayType: "FE",
       headers: ["SOL/SEVILLA", "CHAMARTIN"],
+      direction: "A",
     });
     expect(detail.lines.map((l) => l.label)).toEqual(["5", "66", "70"]);
   });

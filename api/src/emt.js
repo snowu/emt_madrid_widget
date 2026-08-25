@@ -189,6 +189,7 @@ async function requestDetail(env, stopId, token) {
  */
 function lineEntry(l) {
   if (l && typeof l === "object") {
+    const direction = String(l.direction ?? l.to ?? "").toUpperCase();
     return {
       line: String(l.line ?? l.label ?? ""),
       label: String(l.label ?? l.line ?? ""),
@@ -199,6 +200,7 @@ function lineEntry(l) {
       // the only way to pick the right row out of a line's timetable.
       dayType: l.dayType ?? null,
       headers: [l.headerA, l.headerB].filter(Boolean).map(String),
+      ...(["A", "B"].includes(direction) ? { direction } : {}),
     };
   }
   // A bare code. The label is not derivable — night line 523 is signed N23 —

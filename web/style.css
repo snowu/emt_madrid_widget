@@ -638,40 +638,11 @@ body.map-is-fullscreen { overflow: hidden; }
 /* Leaflet gives divIcons a white background by default. */
 .route-arrow { background: none; border: none; }
 .live-bus-icon { background: none; border: none; }
-.live-bus-badge {
-  position: relative;
-  display: grid;
-  width: 34px;
-  height: 24px;
-  place-items: center;
-  border: 2px solid #fff;
-  border-radius: 8px;
-  background: var(--bus-line-color);
-  color: #fff;
-  box-shadow: 0 2px 7px rgb(0 0 0 / 0.55);
-  font-size: 0.7rem;
-  font-weight: 800;
-}
-.live-bus-badge::before {
-  content: "";
-  position: absolute;
-  right: 5px;
-  bottom: -4px;
-  width: 5px;
-  height: 5px;
-  border: 1px solid #fff;
-  border-radius: 50%;
-  background: #111;
-  box-shadow: -21px 0 0 -1px #111, -21px 0 0 0 #fff;
-}
-.live-bus-badge::after {
-  content: "";
-  position: absolute;
-  inset: 3px 4px auto;
-  height: 3px;
-  border-radius: 2px;
-  background: rgb(255 255 255 / 0.7);
-}
+.live-bus-icon svg { width: 44px; height: 44px; overflow: visible; filter: drop-shadow(0 2px 3px rgb(0 0 0 / 0.55)); }
+.live-bus-body { stroke: #fff; stroke-width: 2; }
+.live-bus-wheel { fill: #15171c; stroke: #fff; stroke-width: 1.2; }
+.live-bus-number { fill: #fff; stroke: rgb(0 0 0 / 0.45); stroke-width: 0.8px; paint-order: stroke; text-anchor: middle; font: 800 11px system-ui, sans-serif; }
+.live-bus-direction { fill: var(--accent); stroke: #0d0f14; stroke-width: 1; stroke-linejoin: round; }
 
 .chips { display: flex; flex-wrap: wrap; gap: 0.3rem; margin: 0.35rem 0 0; }
 .line-chip.on { background: var(--selected-wash); }

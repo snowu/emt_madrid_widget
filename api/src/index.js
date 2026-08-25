@@ -133,7 +133,7 @@ async function cachedArrivals(requestUrl, env, stopId, ctx) {
 }
 
 async function cachedStopDetail(requestUrl, env, stopId, ctx) {
-  return edgeCachedJson(requestUrl, `detail/${encodeURIComponent(stopId)}`, DETAIL_CACHE_TTL,
+  return edgeCachedJson(requestUrl, `detail-v2/${encodeURIComponent(stopId)}`, DETAIL_CACHE_TTL,
     () => getStopDetail(env, stopId), ctx);
 }
 
@@ -181,7 +181,7 @@ function grid3(n) {
 }
 
 async function cachedNearby(requestUrl, env, lat, lon, radius, ctx) {
-  const key = `nearby/${grid3(lon)}/${grid3(lat)}/${radius}`;
+  const key = `nearby-v2/${grid3(lon)}/${grid3(lat)}/${radius}`;
   return edgeCachedJson(requestUrl, key, NEARBY_CACHE_TTL,
     () => getNearbyStops(env, { lat, lon, radius }), ctx);
 }
