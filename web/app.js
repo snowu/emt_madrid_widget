@@ -2909,15 +2909,6 @@ document.getElementById("nearby-stops-open").addEventListener("click", () => {
     void updateClosestStopsDialog();
   }
 });
-nearestRoutesBtn.addEventListener("click", async () => {
-  nearestRoutesBtn.disabled = true;
-  try {
-    await toggleNearestStopRoutes();
-  } finally {
-    nearestRoutesBtn.disabled = false;
-  }
-});
-
 document.getElementById("nearby-stops-close").addEventListener("click", () => nearbyStopsDialog.close());
 
 /** Load stops within 500m of the map centre; one fetch per ~110m cell. */
@@ -3397,6 +3388,15 @@ const bikeTripsOpen = document.getElementById("bike-trips-open");
 const mapActions = document.getElementById("map-actions");
 const mapFullscreenBtn = document.getElementById("map-fullscreen");
 const nearestRoutesBtn = document.getElementById("map-nearest-routes");
+
+nearestRoutesBtn.addEventListener("click", async () => {
+  nearestRoutesBtn.disabled = true;
+  try {
+    await toggleNearestStopRoutes();
+  } finally {
+    nearestRoutesBtn.disabled = false;
+  }
+});
 
 const BIKE_RADIUS = 700;
 
