@@ -654,19 +654,73 @@ body.map-is-fullscreen { overflow: hidden; }
 .live-bus-number { fill: #fff; stroke: rgb(0 0 0 / 0.45); stroke-width: 0.8px; paint-order: stroke; text-anchor: middle; font: 800 11px system-ui, sans-serif; }
 .live-bus-direction { fill: var(--accent); stroke: #0d0f14; stroke-width: 1; stroke-linejoin: round; }
 
-.chips { display: flex; flex-wrap: wrap; gap: 0.3rem; margin: 0.35rem 0 0; }
+.chips { display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0.5rem 0 0; }
 .line-chip.on { background: var(--selected-wash); }
+/* A chip naming where the line ends up can be longer than the popup is wide;
+   it must not be what decides the popup's width. */
+.line-chip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.leaflet-popup-content-wrapper,
-.leaflet-popup-tip { background: var(--card); color: var(--fg); }
+/* Leaflet's own popup is a white box with square-ish corners and a drop
+   shadow that belongs to another design. Only the frame is restyled here —
+   the contents reuse the card vocabulary from the list. */
+.leaflet-popup-content-wrapper {
+  background: var(--card);
+  color: var(--fg);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: 0 12px 32px rgb(0 0 0 / 0.32);
+  padding: 1px;
+}
 
-.leaflet-popup-content { font: 0.95rem/1.4 system-ui, sans-serif; }
-.leaflet-popup-content h3 { margin: 0 0 0.25rem; font-size: 1rem; }
-.leaflet-popup-content .eta { font-size: 1.05rem; }
-.leaflet-popup-content ul { list-style: none; margin: 0.25rem 0 0; padding: 0; }
-.leaflet-popup-content .stop-num { margin: 0; font-size: 0.75rem; color: var(--muted); }
+.leaflet-popup-tip {
+  background: var(--card);
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  box-shadow: none;
+}
+
+.leaflet-popup-content {
+  margin: 0.8rem 0.9rem;
+  min-width: 11.5rem;
+  font: 0.95rem/1.4 system-ui, sans-serif;
+}
+
+.leaflet-popup-content h3 {
+  margin: 0;
+  /* Room for the close button, which floats over the top-right corner. */
+  padding-right: 1.1rem;
+  font-size: 1rem;
+}
+
+.leaflet-popup-close-button {
+  color: var(--muted) !important;
+  padding: 0.35rem 0.45rem 0 0 !important;
+}
+
+.leaflet-popup-close-button:hover { color: var(--fg) !important; }
+
+/* The same three-column rhythm the list cards use, so a stop reads the same
+   way whether it is on a card or in a popup. */
+.leaflet-popup-content ul { list-style: none; margin: 0.5rem 0 0; padding: 0; }
+
+.leaflet-popup-content li {
+  display: grid;
+  grid-template-columns: minmax(3ch, auto) minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 0.65rem;
+  padding: 0.3rem 0;
+  border-bottom: 1px solid var(--separator);
+}
+
+.leaflet-popup-content li:last-child { border-bottom: none; }
+.leaflet-popup-content li .eta { grid-column: 3; text-align: right; font-size: 1.05rem; }
+/* "Nothing due" is prose, not a row: it needs the whole width. */
+.leaflet-popup-content li.muted { display: block; border-bottom: none; }
+.leaflet-popup-content .stop-num { margin: 0.15rem 0 0; font-size: 0.75rem; color: var(--muted); }
+.leaflet-popup-content .age { margin: 0.5rem 0 0; font-size: 0.75rem; }
+
 .leaflet-popup-content button {
-  margin-top: 0.5rem;
+  margin-top: 0.6rem;
   min-height: 38px;
   padding: 0.35rem 0.75rem;
 }

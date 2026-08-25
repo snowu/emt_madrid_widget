@@ -270,17 +270,24 @@ function todayDayType() {
 }
 
 function stopLines(stopId) {
-  const known = (details[stopId]?.lines ?? []).map(normaliseLine);
-  const seen = new Set(known.map((line) => String(line.line)));
+  const known = [];
+  const seen = new Set();
+  const add = (entry) => {
+    const line = normaliseLine(entry);
+    const id = lineIdentity(line);
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    known.push(line);
+  };
+  // Detail is the richer record, so it goes first and is never overwritten.
+  for (const line of details[stopId]?.lines ?? []) add(line);
   // EMT's stop-detail catalogue has holes for valid stops. Arrivals is a
   // separate source and still identifies the routes serving those stops, so
-  // use it to complete (but never overwrite) the richer detail metadata.
-  for (const arrival of arrivals[stopId]?.arrivals ?? []) {
-    const code = String(arrival.line ?? "");
-    if (!code || seen.has(code)) continue;
-    known.push(normaliseLine(code));
-    seen.add(code);
-  }
+  // it completes the list. It reports the label ("5") where detail and area
+  // search carry the code ("005"), so identity — never the raw string — is
+  // what tells one line from another across the two; comparing the strings
+  // listed the same line twice in every stop that needed healing.
+  for (const arrival of arrivals[stopId]?.arrivals ?? []) add(arrival.line);
   return known;
 }
 
@@ -1424,19 +1431,18 @@ async function toggleRoute(code, label, requestedDirection = null, anchorStopId 
     shownRoutes.delete(shownCode);
   }
 
-  // One direction at a time, cycling out → back → off. Drawn together the two
-  // run along the same streets, so whichever is on top hides the other and the
-  // arrows point both ways a few pixels apart.
+  // One direction at a time. Drawn together the two run along the same
+  // streets, so whichever is on top hides the other and the arrows point both
+  // ways a few pixels apart.
   const current = shownRoutes.get(code);
-  // Cycling direction from the legend keeps whichever stop opened the route,
-  // so the probe can fall back to its counterpart across the street.
   const anchor = anchorStopId ?? current?.anchorStopId ?? null;
-  if (requestedDirection && current?.direction === requestedDirection) return;
-  const next = requestedDirection || (!current ? "toA" : current.direction === "toA" ? "toB" : null);
   if (current) {
     routeLayer.removeLayer(current.layer);
     shownRoutes.delete(code);
-    if (!next) {
+    // Already drawn means a tap is "off". There is no other side to cycle to:
+    // a stop serves one direction of a line, so its chip has only ever meant
+    // that one, and the legend chip is labelled with a ×.
+    if (!requestedDirection || current.direction === requestedDirection) {
       renderRouteLegend();
       rebuildLiveBusMarkers();
       return;
@@ -1457,6 +1463,10 @@ async function toggleRoute(code, label, requestedDirection = null, anchorStopId 
   statusEl.textContent = "";
   if (shownRoutes.has(code)) return; // toggled again while loading
 
+  // The stop a chip was tapped in serves exactly one direction of that line,
+  // so it names the direction outright rather than being guessed at and
+  // corrected by a second tap.
+  const next = requestedDirection ?? routeStopDirection(route, anchor) ?? "toA";
   const color = lineColor(label);
   const segments = route.paths?.[next] ?? [];
   // featureGroup, not layerGroup: only this one can report its own bounds.
@@ -1486,10 +1496,14 @@ async function toggleRoute(code, label, requestedDirection = null, anchorStopId 
   renderRouteLegend();
   rebuildLiveBusMarkers();
 
-  // Drawing a route you can only see a tenth of is not showing it. The legend
-  // chip is how you get rid of it again.
+  // Only fit when the route would otherwise be off screen entirely. Moving
+  // the map out from under a tap is disorienting on its own, and it cascades:
+  // the pan reloads nearby stops, which rebuilds the pins and destroys the
+  // popup the chip was tapped in.
   const bounds = group.getBounds();
-  if (bounds.isValid()) leafletMap.fitBounds(bounds.pad(0.08));
+  if (bounds.isValid() && !leafletMap.getBounds().intersects(bounds)) {
+    leafletMap.fitBounds(bounds.pad(0.08));
+  }
   // After the fit, never before: the probe is chosen against the viewport.
   void refreshMapArrivals();
 }
@@ -1558,12 +1572,15 @@ function addRouteStops(group, stops, color) {
   for (const stop of stops) {
     if (seen.has(stop.stopId) || saved.has(stop.stopId) || !stop.coordinates) continue;
     seen.add(stop.stopId);
+    // Quiet on purpose: the drawn path and the live buses are the subject,
+    // and these are every stop on a city-length line. Radius stays tap-sized.
     L.circleMarker([stop.coordinates[1], stop.coordinates[0]], {
       radius: 4,
       color,
-      weight: 2,
+      weight: 1.5,
+      opacity: 0.6,
       fillColor: "#12141a",
-      fillOpacity: 1,
+      fillOpacity: 0.8,
     })
       // The same popup a nearby pin gets: live times, and a way to save it.
       .bindPopup(() => nearbyPopupHtml({ ...stop, lines: [] }))
@@ -1593,7 +1610,7 @@ function renderRouteLegend() {
       chip.textContent = towards ? `${label} → ${towards} ×` : `${label} ×`;
       chip.style.borderColor = lineColor(label);
       chip.style.color = lineColor(label);
-      chip.title = `Next tap: the other direction, then off`;
+      chip.title = `Hide this route`;
       chip.addEventListener("click", () => toggleRoute(code, label));
       return chip;
     })
@@ -1624,7 +1641,7 @@ function lineChips(lines, anchorStopId = null) {
     chip.textContent = drawn?.towards ? `${l.label} → ${drawn.towards}` : l.label;
     chip.style.color = lineColor(l.label);
     chip.style.borderColor = lineColor(l.label);
-    chip.title = drawn ? `Route ${l.label}: other direction, then off` : `Show route ${l.label}`;
+    chip.title = drawn ? `Hide route ${l.label}` : `Show route ${l.label}`;
     chip.addEventListener("click", (event) => {
       event.stopPropagation();
       toggleRoute(l.line, l.label, null, anchorStopId);
@@ -1674,7 +1691,7 @@ function popupHtml(stop) {
       ul.append(li);
     }
     const age = document.createElement("p");
-    age.className = "muted";
+    age.className = "age";
     age.textContent = `updated ${fmtAge(cached.fetchedAt)}`;
     wrap.append(title, num, chips, ul, age, open);
     return wrap;
@@ -1715,8 +1732,23 @@ function ensureMap() {
   loadNearby();
 }
 
+/** Which stop's popup is open, so a rebuild can put it back.
+ *
+ * Pins are rebuilt whenever nearby detail lands, and clearing the layer
+ * destroys the marker the popup belongs to. Reopening keeps a tap on a line
+ * chip from dismissing the popup that chip lives in.
+ */
+function openPopupStopId(layer, key) {
+  let open = null;
+  layer?.eachLayer((child) => {
+    if (child.isPopupOpen?.()) open = child[key];
+  });
+  return open;
+}
+
 function rebuildMarkers() {
   if (!markers) return;
+  const reopen = openPopupStopId(markers, "stopId");
   markers.clearLayers();
   for (const stop of stops) {
     const coords = details[stop.stop_id]?.coordinates;
@@ -1726,6 +1758,8 @@ function rebuildMarkers() {
     marker.bindPopup(() => popupHtml(stop));
     marker.stopId = stop.stop_id; // for popup refresh ticks
     marker.addTo(markers);
+    // Reopening must not pan: a pan reloads nearby stops and rebuilds again.
+    if (stop.stop_id === reopen) marker.openPopup({ autoPan: false });
   }
 }
 
@@ -2304,11 +2338,12 @@ function nearbyPopupHtml(s) {
 function renderNearbyPins() {
   if (!nearbyLayer) return;
   const saved = savedIds();
+  const reopen = openPopupStopId(nearbyLayer, "nearbyStop")?.stopId;
   nearbyLayer.clearLayers();
   for (const s of nearbyStops) {
     if (saved.has(s.stopId) || !s.coordinates) continue;
     // GeoJSON order is [lon, lat]; Leaflet wants [lat, lon].
-    L.circleMarker([s.coordinates[1], s.coordinates[0]], {
+    const pin = L.circleMarker([s.coordinates[1], s.coordinates[0]], {
       radius: 7,
       color: "#8b93a7",
       weight: 2,
@@ -2316,7 +2351,9 @@ function renderNearbyPins() {
       fillOpacity: 0.9,
     })
       .bindPopup(() => nearbyPopupHtml(s))
-      .addTo(nearbyLayer).nearbyStop = s; // for popup refresh ticks
+      .addTo(nearbyLayer);
+    pin.nearbyStop = s; // for popup refresh ticks
+    if (s.stopId === reopen) pin.openPopup({ autoPan: false });
   }
 }
 
