@@ -1221,17 +1221,12 @@ async function refreshMapArrivals() {
   if (!leafletMap || mapEl.hidden || shownRoutes.size === 0) return;
   const bounds = leafletMap.getBounds().pad(0.25);
   const stopIds = new Set();
-  // Two probes spread across each selected direction are enough to discover
-  // approaching vehicles without polling every stop on a city-length route.
+  // A stop's arrivals only ever describe buses still heading for it, so the
+  // stop a route was opened from is exactly "what is coming to me". Probing
+  // further down the line would surface buses that have already gone past.
   for (const [code, shown] of shownRoutes) {
-    const route = routeCache.get(code);
-    const visible = (route?.stops?.[shown.direction] ?? []).filter((stop) =>
-      Array.isArray(stop.coordinates)
-      && bounds.contains([stop.coordinates[1], stop.coordinates[0]]));
-    if (visible.length) {
-      stopIds.add(visible[Math.floor(visible.length / 3)].stopId);
-      stopIds.add(visible[Math.floor(visible.length * 2 / 3)].stopId);
-    }
+    const probe = routeProbeStop(code, shown);
+    if (probe) stopIds.add(probe);
   }
   for (const marker of liveBusMarkers.values()) {
     if (marker.busSourceStopId && bounds.contains(marker.getLatLng())) {
@@ -1243,8 +1238,46 @@ async function refreshMapArrivals() {
       force: true, updateView: false, persist: false,
     })),
   ]);
-  writeArrivalCache(arrivals);
+  // Probe stops are not saved stops: persisting them would grow the shared
+  // arrivals cache by every route ever toggled.
+  writeArrivalCache(Object.fromEntries(stops
+    .filter((stop) => arrivals[stop.stop_id])
+    .map((stop) => [stop.stop_id, arrivals[stop.stop_id]])));
   rebuildLiveBusMarkers();
+}
+
+/** The one stop worth polling for a displayed direction: the stop the route
+ *  was opened from, or — when the direction was cycled and that stop belongs
+ *  to the other side of the street — its nearest counterpart on this one. */
+function routeProbeStop(code, shown) {
+  const route = routeCache.get(code);
+  const candidates = route?.stops?.[shown.direction] ?? [];
+  if (!candidates.length) return null;
+  const anchor = shown.anchorStopId == null ? null : String(shown.anchorStopId);
+  if (anchor && candidates.some((stop) => String(stop.stopId) === anchor)) return anchor;
+  const centre = leafletMap?.getCenter();
+  const from = (anchor && anchorCoordinates(route, anchor))
+    ?? (centre ? [centre.lng, centre.lat] : null);
+  if (!from) return null;
+  let best = null;
+  for (const stop of candidates) {
+    if (!Array.isArray(stop.coordinates)) continue;
+    const metres = metresBetweenCoordinates(from, stop.coordinates);
+    if (!best || metres < best.metres) best = { metres, stopId: String(stop.stopId) };
+  }
+  return best?.stopId ?? null;
+}
+
+function anchorCoordinates(route, stopId) {
+  const known = details[stopId]?.coordinates
+    ?? nearbyStops.find((stop) => String(stop.stopId) === stopId)?.coordinates;
+  if (Array.isArray(known)) return known;
+  for (const direction of ["toA", "toB"]) {
+    const match = (route?.stops?.[direction] ?? [])
+      .find((stop) => String(stop.stopId) === stopId);
+    if (Array.isArray(match?.coordinates)) return match.coordinates;
+  }
+  return null;
 }
 
 /** Fetch and remember what EMT knows about a stop; throws not_found if it
@@ -1380,7 +1413,7 @@ const routeTrackCache = new Map(); // line + direction → compiled animation tr
  * Route geometry is ~25KB a line and never changes during a session, so it is
  * fetched once and kept; the worker holds it for a week.
  */
-async function toggleRoute(code, label, requestedDirection = null) {
+async function toggleRoute(code, label, requestedDirection = null, anchorStopId = null) {
   if (!leafletMap) return;
 
   // EMT mixes padded and signed codes (070/70). They are one route and must
@@ -1395,6 +1428,9 @@ async function toggleRoute(code, label, requestedDirection = null) {
   // run along the same streets, so whichever is on top hides the other and the
   // arrows point both ways a few pixels apart.
   const current = shownRoutes.get(code);
+  // Cycling direction from the legend keeps whichever stop opened the route,
+  // so the probe can fall back to its counterpart across the street.
+  const anchor = anchorStopId ?? current?.anchorStopId ?? null;
   if (requestedDirection && current?.direction === requestedDirection) return;
   const next = requestedDirection || (!current ? "toA" : current.direction === "toA" ? "toB" : null);
   if (current) {
@@ -1445,15 +1481,17 @@ async function toggleRoute(code, label, requestedDirection = null) {
     label,
     direction: next,
     towards: next === "toA" ? route.nameA : route.nameB,
+    anchorStopId: anchor,
   });
   renderRouteLegend();
   rebuildLiveBusMarkers();
-  void refreshMapArrivals();
 
   // Drawing a route you can only see a tenth of is not showing it. The legend
   // chip is how you get rid of it again.
   const bounds = group.getBounds();
   if (bounds.isValid()) leafletMap.fitBounds(bounds.pad(0.08));
+  // After the fit, never before: the probe is chosen against the viewport.
+  void refreshMapArrivals();
 }
 
 /** EMT's segments chain end to start, so concatenating them gives the path in
@@ -1572,7 +1610,7 @@ function clearRoutesChip() {
 }
 
 /** The line list inside a popup, each line a button that draws its route. */
-function lineChips(lines) {
+function lineChips(lines, anchorStopId = null) {
   const wrap = document.createElement("p");
   wrap.className = "chips";
   for (const raw of lines ?? []) {
@@ -1589,7 +1627,7 @@ function lineChips(lines) {
     chip.title = drawn ? `Route ${l.label}: other direction, then off` : `Show route ${l.label}`;
     chip.addEventListener("click", (event) => {
       event.stopPropagation();
-      toggleRoute(l.line, l.label);
+      toggleRoute(l.line, l.label, null, anchorStopId);
     });
     wrap.append(chip);
   }
@@ -1604,7 +1642,7 @@ function popupHtml(stop) {
   const num = document.createElement("p");
   num.className = "stop-num";
   num.textContent = `Nº ${stop.stop_id}`;
-  const chips = lineChips(stopLines(stop.stop_id));
+  const chips = lineChips(stopLines(stop.stop_id), stop.stop_id);
   const ul = document.createElement("ul");
 
   const open = document.createElement("button");
@@ -1732,13 +1770,63 @@ function movementBearing([oldLon, oldLat], [newLon, newLat]) {
   return (Math.atan2(dx, dy) * 180) / Math.PI;
 }
 
+/** Which of a route's two directions a reported bus is running.
+ *
+ * EMT's arrivals payload carries no direction field at all, so it has to be
+ * inferred. The strongest signal is the stop the estimate came from: the two
+ * directions run down opposite sides of the street and barely share stops —
+ * live line 27 has 27 and 28 of them with 2 in common — so membership settles
+ * almost every bus outright; stop detail's own A/B and the signed destination
+ * cover the shared stops. Geometry deliberately is not a fallback — the two
+ * directions share carriageways, so "nearest path" is polyline sampling noise
+ * and was decisively wrong on half the live samples it decided.
+ */
 function busRouteDirection(bus, line, route) {
-  const routeName = (value) => String(value ?? "").normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "").replace(/[^A-Z0-9]/gi, "").toUpperCase();
-  const destination = routeName(bus.destination);
-  return line.direction === "A" ? "toA" : line.direction === "B" ? "toB"
-    : destination && destination === routeName(route.nameA) ? "toA"
-      : destination && destination === routeName(route.nameB) ? "toB" : null;
+  const byStop = routeStopDirection(route, bus.sourceStopId);
+  if (byStop) return byStop;
+  if (line.direction === "A") return "toA";
+  if (line.direction === "B") return "toB";
+  return destinationDirection(bus.destination, route);
+}
+
+const routeStopSets = new WeakMap(); // route payload → stop ids per direction
+
+function routeStopDirection(route, stopId) {
+  if (stopId == null) return null;
+  let sets = routeStopSets.get(route);
+  if (!sets) {
+    sets = {
+      toA: new Set((route.stops?.toA ?? []).map((stop) => String(stop.stopId))),
+      toB: new Set((route.stops?.toB ?? []).map((stop) => String(stop.stopId))),
+    };
+    routeStopSets.set(route, sets);
+  }
+  const id = String(stopId);
+  const inA = sets.toA.has(id);
+  const inB = sets.toB.has(id);
+  // A terminus, or the rare two-way bay, sits on both lists and says nothing.
+  return inA && !inB ? "toA" : inB && !inA ? "toB" : null;
+}
+
+/** EMT signs its buses with an abbreviation of the section name, never the
+ *  name itself — "EMBAJADORES" for "GLORIETA DE EMBAJADORES", "PLAZA
+ *  CASTILLA" for "PLAZA DE CASTILLA" — so this is a token-subset test rather
+ *  than the string equality that matched nothing. */
+function destinationDirection(destination, route) {
+  const wanted = routeNameTokens(destination);
+  if (!wanted.size) return null;
+  const covers = (name) => {
+    const tokens = routeNameTokens(name);
+    return tokens.size > 0 && [...wanted].every((token) => tokens.has(token));
+  };
+  const a = covers(route.nameA);
+  const b = covers(route.nameB);
+  return a && !b ? "toA" : b && !a ? "toB" : null;
+}
+
+function routeNameTokens(value) {
+  return new Set(String(value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase().split(/[^A-Z0-9]+/).filter((token) => token.length > 2));
 }
 
 function loadBusRoute(bus) {
@@ -1756,14 +1844,31 @@ function loadBusRoute(bus) {
   return routeLoads.get(line.line).then((route) => ({ route, line }));
 }
 
-function busRouteTrack(bus) {
+/** The displayed route a bus belongs to, or null if it belongs to none.
+ *
+ * A bus whose direction cannot be pinned down still counts: it is a real
+ * vehicle on a line the user asked to see, and dropping it leaves an empty
+ * map. It simply gets drawn where EMT reports it rather than snapped to the
+ * path.
+ */
+function busShownRoute(bus) {
   const line = busLineCode(bus);
   const shown = [...shownRoutes].find(([code]) => lineIdentity(code) === lineIdentity(line.line));
   if (!shown) return null;
   const [shownCode, shownRoute] = shown;
   const route = routeCache.get(line.line) ?? routeCache.get(shownCode);
-  const direction = route && busRouteDirection(bus, line, route);
-  if (!direction || shownRoute.direction !== direction) return null;
+  if (!route) return null;
+  const direction = busRouteDirection(bus, line, route);
+  if (direction && direction !== shownRoute.direction) return null;
+  return { code: shownCode, route, direction: shownRoute.direction, snapped: Boolean(direction) };
+}
+
+function busRouteTrack(bus) {
+  const shown = busShownRoute(bus);
+  // Without a resolved direction the vehicle could be running either way, and
+  // snapping it to the drawn path would invent a position.
+  if (!shown?.snapped) return null;
+  const { code: shownCode, route, direction } = shown;
   const cacheKey = `${shownCode}:${direction}`;
   if (routeTrackCache.has(cacheKey)) return routeTrackCache.get(cacheKey);
   const components = [];
@@ -1907,7 +2012,7 @@ async function showBusRoute(bus) {
     }
   }
   const direction = busRouteDirection(bus, line, route);
-  await toggleRoute(line.line, line.label, direction);
+  await toggleRoute(line.line, line.label, direction, bus.sourceStopId);
   rebuildLiveBusMarkers();
 }
 
@@ -1951,7 +2056,7 @@ function rebuildLiveBusMarkers() {
   // Vehicle display is deliberately scoped to routes the user explicitly
   // chose. A map with no directional route has no live-bus workload at all.
   for (const [key, bus] of buses) {
-    if (!busRouteTrack(bus)) buses.delete(key);
+    if (!busShownRoute(bus)) buses.delete(key);
   }
   for (const [key, marker] of liveBusMarkers) {
     if (buses.has(key)) continue;
@@ -2147,7 +2252,7 @@ function nearbyPopupHtml(s) {
   num.className = "stop-num";
   num.textContent = `Nº ${s.stopId}`;
   wrap.append(title, num);
-  if (s.lines?.length) wrap.append(lineChips(s.lines));
+  if (s.lines?.length) wrap.append(lineChips(s.lines, s.stopId));
 
   // What you actually want to know before saving a stop: is a bus coming.
   const ul = document.createElement("ul");

@@ -112,7 +112,7 @@ changes so old Cache API objects cannot serve an incompatible response.
 ```bash
 cd api
 npm install
-npm test          # vitest under workerd; 94 tests, no network, no quota burnt
+npm test          # vitest under workerd; 124 tests, no network, no quota burnt
 npm run dev       # wrangler dev, needs .dev.vars
 npm run deploy    # wrangler deploy
 ```
@@ -337,6 +337,18 @@ Also present: `bus`, `destination`, `geometry.coordinates`, `isHead`.
 `StopInfo[]` in the arrivals answer is always empty — with estimations and
 without. It is not a way to learn about a stop.
 
+**An arrival says nothing about which way the bus is going.** There is no
+direction field, and `destination` is the abbreviation the bus is signed with,
+never the route's own `nameSectionA`/`nameSectionB`: "EMBAJADORES" against
+"GLORIETA DE EMBAJADORES", "PLAZA CASTILLA" against "PLAZA DE CASTILLA".
+Comparing the two strings for equality matches nothing at all. The direction
+is recovered from the stop instead — `stops.toA`/`stops.toB` in the route
+answer barely overlap (line 27: 27 and 28 stops, 2 in common), so the stop the
+estimate came from names the direction outright for almost every bus; the
+signed destination, compared as a token subset, covers the shared ones.
+Position is *not* a usable fallback: both directions share carriageways, so
+"which path is nearer" is polyline sampling noise.
+
 The worker parses and caches **every** arrival EMT sent, sorted soonest-first,
 and `limit` only trims what one caller gets. The card (2) and the stop sheet
 (8) therefore share a single fetch.
@@ -560,6 +572,21 @@ is most stale), and manually per-card or all at once.
    geolocation and recentres; without it the map falls back to Puerta del Sol.
    Saved stations are optional — if `bike_stations` was never created, the page
    says so once and the rest of the section still works.
+
+12. **Live buses only for a route you asked to see.** A vehicle's position
+   rides along in every arrival, so buses can be drawn on the map for free —
+   but only where the page already knows the path they run on. Selecting a
+   line direction turns them on for that line and that direction alone;
+   clearing the route removes them and stops the polling. Showing every
+   visible line at once was tried and abandoned: the geometry fetches alone
+   made the map unusable.
+13. **One probe stop per displayed direction, every 5s.** A stop's arrivals
+   only ever describe buses still heading *for* it, so polling the stop the
+   route was opened from is exactly "what is coming to me" — buses already
+   past it are somebody else's problem. Cycling to the other direction reuses
+   that stop's nearest counterpart across the street. One stop at 5s is about
+   720 calls an hour of map-open time against a 20,000/day quota. Probe stops
+   are not saved stops and must never reach `writeArrivalCache`.
 
 Cached payload shapes are versioned in the worker's Cache API keys (`CACHE_VERSION`).
 Bump it when a parsed shape changes, or week-old detail entries keep serving
