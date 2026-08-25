@@ -63,6 +63,27 @@ export function estimateJourneySeconds(option) {
   return Math.round(secondDeparture + secondRide + destinationWalk);
 }
 
+/** Collapse candidates that represent the same journey as experienced by the user.
+ * Different nearby destination stops can otherwise produce duplicate legs. */
+export function deduplicateJourneyOptions(options) {
+  const seen = new Set();
+  return (options ?? []).filter((option) => {
+    const signature = [
+      option.type,
+      option.originStop?.stopId,
+      lineIdentity(option.firstLeg),
+      option.firstLeg?.direction,
+      option.type === "one_transfer" ? option.transfer?.fromStop?.stopId : "",
+      option.type === "one_transfer" ? option.transfer?.toStop?.stopId : "",
+      option.type === "one_transfer" ? lineIdentity(option.secondLeg) : "",
+      option.type === "one_transfer" ? option.secondLeg?.direction : "",
+    ].join("|");
+    if (seen.has(signature)) return false;
+    seen.add(signature);
+    return true;
+  });
+}
+
 export function boardHasLine(board, line) {
   const wanted = lineIdentity(line);
   return Boolean(wanted) && (board?.arrivals ?? [])
@@ -229,7 +250,7 @@ function bestTransfers(originLines, destinationLines, routes, thresholdM) {
   return candidates;
 }
 
-export function planJourney({ originStops, destinationStops, routes, transferRadiusM = 200, limit = 4 }) {
+export function planJourney({ originStops, destinationStops, routes, transferRadiusM = 200, limit = 8 }) {
   const originLines = linesAt(originStops);
   const destinationLines = linesAt(destinationStops);
   return [...bestDirect(originLines, destinationLines, routes),

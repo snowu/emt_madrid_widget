@@ -35,6 +35,7 @@ import { authenticatedUser, bearerToken } from "./auth.js";
 import { getBikeTripDiagnostics, monitorBikeTrips } from "./trip-monitor.js";
 import {
   boardHasLine,
+  deduplicateJourneyOptions,
   estimateJourneySeconds,
   linesMatch,
   nearbyAccess,
@@ -412,6 +413,7 @@ async function journeys(request, body, env, ctx) {
       || (a.estimatedSeconds ?? Number.POSITIVE_INFINITY)
         - (b.estimatedSeconds ?? Number.POSITIVE_INFINITY)
       || a.score - b.score);
+    item.options = deduplicateJourneyOptions(item.options);
   }
   return {
     origin,

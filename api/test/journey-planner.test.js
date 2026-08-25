@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   boardHasLine,
+  deduplicateJourneyOptions,
   estimateJourneySeconds,
   linesMatch,
   nearbyAccess,
@@ -94,6 +95,18 @@ describe("journey planner", () => {
     };
     expect(estimateJourneySeconds(option)).toBe(970);
     expect(option.secondLeg.selectedArrival).toBe(600);
+  });
+
+  it("collapses identical legs produced by different destination stops", () => {
+    const common = {
+      type: "direct", originStop: { stopId: "213" },
+      firstLeg: { line: "070", direction: "toA" },
+    };
+    const options = [
+      { ...common, destinationStop: { stopId: "a" }, estimatedSeconds: 600 },
+      { ...common, destinationStop: { stopId: "b" }, estimatedSeconds: 650 },
+    ];
+    expect(deduplicateJourneyOptions(options)).toEqual([options[0]]);
   });
 
   it("accepts a direct line only in the direction that reaches the destination", () => {
