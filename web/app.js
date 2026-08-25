@@ -644,6 +644,7 @@ function renderSavedStops() {
       routes.innerHTML = LINES_ICON;
       routes.title = `Show the lines running at stop ${stop.stop_id}`;
       routes.setAttribute("aria-label", routes.title);
+      routes.disabled = stopLines(stop.stop_id).length === 0;
       routes.addEventListener("click", async (event) => {
         event.stopPropagation();
         routes.disabled = true;
