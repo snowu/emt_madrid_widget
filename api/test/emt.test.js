@@ -100,6 +100,8 @@ describe("getArrivals", () => {
       seconds: 145,
       metres: 610,
       destination: "PLAZA CASTILLA",
+      vehicleId: "4802",
+      coordinates: [-3.6899, 40.4477],
     });
   });
 
@@ -170,6 +172,8 @@ describe("getArrivals", () => {
       seconds: 100,
       metres: null,
       destination: null,
+      vehicleId: null,
+      coordinates: null,
     });
   });
 });

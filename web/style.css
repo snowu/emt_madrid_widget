@@ -637,6 +637,20 @@ body.map-is-fullscreen { overflow: hidden; }
 
 /* Leaflet gives divIcons a white background by default. */
 .route-arrow { background: none; border: none; }
+.live-bus-icon { background: none; border: none; }
+.live-bus-badge {
+  display: grid;
+  width: 34px;
+  height: 24px;
+  place-items: center;
+  border: 2px solid #fff;
+  border-radius: 8px;
+  background: var(--bus-line-color);
+  color: #fff;
+  box-shadow: 0 2px 7px rgb(0 0 0 / 0.55);
+  font-size: 0.7rem;
+  font-weight: 800;
+}
 
 .chips { display: flex; flex-wrap: wrap; gap: 0.3rem; margin: 0.35rem 0 0; }
 .line-chip.on { background: var(--selected-wash); }

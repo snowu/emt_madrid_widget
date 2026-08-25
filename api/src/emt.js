@@ -141,6 +141,9 @@ function parseArrivals(body) {
       seconds: Number(a.estimateArrive),
       metres: a.DistanceBus == null ? null : Number(a.DistanceBus),
       destination: a.destination ?? null,
+      vehicleId: a.bus == null ? null : String(a.bus),
+      coordinates: Array.isArray(a.geometry?.coordinates)
+        ? a.geometry.coordinates.map(Number) : null,
     }))
     .sort((a, b) => a.seconds - b.seconds);
 }

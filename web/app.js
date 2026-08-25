@@ -1059,6 +1059,7 @@ async function refreshStop(stopId, { force = false, updateView = true, persist =
       if (updateView) {
         render();
         renderSheetArrivals();
+        rebuildLiveBusMarkers();
       }
       return payload;
     } catch (err) {
@@ -1090,6 +1091,7 @@ async function refreshAll({ force = false } = {}) {
   writeArrivalCache(arrivals);
   render();
   renderSheetArrivals();
+  rebuildLiveBusMarkers();
 }
 
 /** Fetch and remember what EMT knows about a stop; throws not_found if it
@@ -1200,6 +1202,7 @@ async function healStubs() {
 let leafletMap = null;
 let markers = null; // L.LayerGroup — saved stops
 let nearbyLayer = null; // L.LayerGroup — unsaved stops around the view
+let liveBusLayer = null; // L.LayerGroup — vehicles reported by live arrivals
 let busUserMarker = null;
 let nearbyCell = null;
 let nearbyStops = [];
@@ -1484,8 +1487,10 @@ function ensureMap() {
   routeLayer = L.layerGroup().addTo(leafletMap);
   markers = L.layerGroup().addTo(leafletMap);
   nearbyLayer = L.layerGroup().addTo(leafletMap);
+  liveBusLayer = L.layerGroup().addTo(leafletMap);
   if (myLocation) busUserMarker = addUserMarker(leafletMap, myLocation);
   rebuildMarkers();
+  rebuildLiveBusMarkers();
   leafletMap.on("moveend", loadNearby);
 
   // Fit once, on the first build, when all pins are known.
@@ -1513,6 +1518,47 @@ function rebuildMarkers() {
     marker.bindPopup(() => popupHtml(stop));
     marker.stopId = stop.stop_id; // for popup refresh ticks
     marker.addTo(markers);
+  }
+}
+
+function liveBusIcon(bus) {
+  const badge = document.createElement("span");
+  badge.className = "live-bus-badge";
+  badge.style.setProperty("--bus-line-color", lineColor(bus.line));
+  badge.textContent = bus.line;
+  return L.divIcon({
+    className: "live-bus-icon",
+    html: badge,
+    iconSize: [34, 24],
+    iconAnchor: [17, 12],
+  });
+}
+
+function rebuildLiveBusMarkers() {
+  if (!liveBusLayer) return;
+  liveBusLayer.clearLayers();
+  const buses = new Map();
+  const collect = (payload) => {
+    if (!payload || Date.now() - Number(payload.fetchedAt) > 120_000) return;
+    for (const bus of payload.arrivals ?? []) {
+      const [lon, lat] = bus.coordinates ?? [];
+      if (!Number.isFinite(lon) || !Number.isFinite(lat)) continue;
+      const key = bus.vehicleId || `${bus.line}:${lon}:${lat}`;
+      const previous = buses.get(key);
+      if (!previous || payload.fetchedAt > previous.fetchedAt) {
+        buses.set(key, { ...bus, fetchedAt: payload.fetchedAt });
+      }
+    }
+  };
+  Object.values(arrivals).forEach(collect);
+  previewArrivals.forEach(collect);
+  for (const bus of buses.values()) {
+    const marker = L.marker([bus.coordinates[1], bus.coordinates[0]], {
+      icon: liveBusIcon(bus),
+      zIndexOffset: 700,
+    });
+    marker.bindTooltip(`Line ${bus.line}${bus.vehicleId ? ` · bus ${bus.vehicleId}` : ""}`);
+    marker.addTo(liveBusLayer);
   }
 }
 
@@ -1554,6 +1600,7 @@ function showView(view) {
   if (isMap) {
     ensureMap();
     rebuildMarkers();
+    rebuildLiveBusMarkers();
     renderNearbyPins();
     renderRouteLegend();
     leafletMap.invalidateSize();
@@ -1586,6 +1633,7 @@ async function loadPreviewArrivals(stopId) {
   } catch {
     previewArrivals.set(stopId, null);
   }
+  rebuildLiveBusMarkers();
   tickPopups();
 }
 
