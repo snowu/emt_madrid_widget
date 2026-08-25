@@ -1367,6 +1367,12 @@ let routeLayer = null;
 const shownRoutes = new Map(); // line code → { layer, label }
 const routeCache = new Map(); // line code → route payload
 const routeLoads = new Map();
+const MAX_TRACKED_BUS_LINES = 3;
+const trackedBusLines = new Set();
+const queuedBusRouteLoads = new Set();
+const busRouteLoadQueue = [];
+let busRouteLoadActive = false;
+let preferredTrackedLine = null;
 
 /** Draw or erase one line's route, in that line's colour.
  *
@@ -1745,8 +1751,69 @@ function loadBusRoute(bus) {
   return routeLoads.get(line.line).then((route) => ({ route, line }));
 }
 
+function drainBusRouteLoads() {
+  if (busRouteLoadActive || mapEl.hidden) return;
+  const next = busRouteLoadQueue.shift();
+  if (!next) return;
+  queuedBusRouteLoads.delete(next.identity);
+  if (!trackedBusLines.has(next.identity) || routeCache.has(next.line)) {
+    drainBusRouteLoads();
+    return;
+  }
+  busRouteLoadActive = true;
+  const run = () => {
+    if (mapEl.hidden || !trackedBusLines.has(next.identity)) {
+      busRouteLoadActive = false;
+      drainBusRouteLoads();
+      return;
+    }
+    loadBusRoute(next.bus)
+      .catch(() => {})
+      .finally(() => {
+        busRouteLoadActive = false;
+        rebuildLiveBusMarkers();
+        drainBusRouteLoads();
+      });
+  };
+  if ("requestIdleCallback" in window) window.requestIdleCallback(run, { timeout: 800 });
+  else setTimeout(run, 0);
+}
+
+function prioritizeBusRoutes(buses) {
+  if (!leafletMap || mapEl.hidden) return;
+  const bounds = leafletMap.getBounds().pad(0.15);
+  const centre = leafletMap.getCenter();
+  const closest = new Map();
+  for (const bus of buses.values()) {
+    const [lon, lat] = bus.coordinates ?? [];
+    if (!Number.isFinite(lon) || !Number.isFinite(lat) || !bounds.contains([lat, lon])) continue;
+    const line = busLineCode(bus);
+    const identity = lineIdentity(line.line);
+    const distance = leafletMap.distance(centre, [lat, lon]);
+    const known = closest.get(identity);
+    if (!known || distance < known.distance) closest.set(identity, {
+      bus, distance, identity, line: line.line,
+    });
+  }
+  const ranked = [...closest.values()].sort((a, b) => {
+    if (a.identity === preferredTrackedLine) return -1;
+    if (b.identity === preferredTrackedLine) return 1;
+    return a.distance - b.distance;
+  }).slice(0, MAX_TRACKED_BUS_LINES);
+  trackedBusLines.clear();
+  for (const candidate of ranked) {
+    trackedBusLines.add(candidate.identity);
+    if (routeCache.has(candidate.line) || queuedBusRouteLoads.has(candidate.identity)
+        || routeLoads.has(candidate.line)) continue;
+    queuedBusRouteLoads.add(candidate.identity);
+    busRouteLoadQueue.push(candidate);
+  }
+  drainBusRouteLoads();
+}
+
 function busRouteTrack(bus) {
   const line = busLineCode(bus);
+  if (!trackedBusLines.has(lineIdentity(line.line))) return null;
   const route = routeCache.get(line.line);
   const direction = route && busRouteDirection(bus, line, route);
   if (!direction) return null;
@@ -1861,6 +1928,7 @@ function busLineCode(bus) {
 
 async function showBusRoute(bus) {
   const line = busLineCode(bus);
+  preferredTrackedLine = lineIdentity(line.line);
   let route = routeCache.get(line.line);
   if (!route) {
     try {
@@ -1873,6 +1941,7 @@ async function showBusRoute(bus) {
   }
   const direction = busRouteDirection(bus, line, route);
   await toggleRoute(line.line, line.label, direction);
+  rebuildLiveBusMarkers();
 }
 
 function liveBusPopup(bus) {
@@ -1912,6 +1981,7 @@ function rebuildLiveBusMarkers() {
   };
   Object.values(arrivals).forEach(collect);
   previewArrivals.forEach(collect);
+  prioritizeBusRoutes(buses);
   for (const [key, marker] of liveBusMarkers) {
     if (buses.has(key)) continue;
     liveBusLayer.removeLayer(marker);
