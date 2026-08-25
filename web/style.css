@@ -96,7 +96,7 @@ header {
 
 h1 { font-size: 1.25rem; margin: 0; }
 
-#auth-button { margin-right: auto; font-size: 0.85rem; padding-inline: 0.7rem; }
+#auth-button { font-size: 0.85rem; padding-inline: 0.7rem; }
 
 #auth-button[aria-label="Open account menu"] {
   width: var(--tap);
@@ -143,20 +143,33 @@ button:active { transform: scale(0.97); }
   font-weight: 600;
 }
 
-#section-menu {
-  margin-top: 0.5rem;
-  width: 100%;
-  /* body is a flex column, and `overflow: hidden` on .segmented zeroes a flex
-     item's automatic minimum size — without this the nav shrinks to its 2px
-     border box and clips the 44px buttons inside it to nothing. */
-  flex: none;
-}
-
-#section-menu button { flex: 1; font-weight: 600; }
-.compact-segmented { align-self: center; margin-top: 0.4rem; flex: none; }
-.compact-segmented button { min-height: 34px; min-width: 5.5rem; padding: 0.25rem 0.65rem; font-size: 0.78rem; }
-.compact-segmented[hidden] { display: none; }
 #nearby-stops-open { width: var(--tap); padding: 0; color: var(--accent); }
+
+#header-context { display: flex; min-width: 0; flex: 1; align-items: center; gap: 0.4rem; color: var(--muted); font-size: 0.75rem; }
+#header-context[hidden] { display: none; }
+#header-context i { width: 0.42rem; height: 0.42rem; flex: none; border-radius: 50%; background: var(--success); }
+#header-context span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+#primary-menu {
+  position: fixed;
+  z-index: 1900;
+  left: 50%;
+  bottom: calc(0.5rem + env(safe-area-inset-bottom, 0px));
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 3px;
+  width: calc(100% - 1.5rem);
+  max-width: 406px;
+  padding: 4px;
+  transform: translateX(-50%);
+  border: 1px solid var(--line);
+  border-radius: 17px;
+  background: color-mix(in srgb, var(--card) 94%, transparent);
+  box-shadow: 0 10px 35px rgb(0 0 0 / 0.55);
+  backdrop-filter: blur(15px);
+}
+#primary-menu button { min-height: 48px; padding: 0.4rem; border: 0; border-radius: 13px; background: transparent; color: var(--muted); }
+#primary-menu button[aria-selected="true"] { background: var(--accent); color: var(--accent-ink); font-weight: 700; }
 
 .bike-account {
   display: flex;
@@ -397,7 +410,7 @@ button:active { transform: scale(0.97); }
 #map-actions {
   position: fixed;
   right: calc(1rem + env(safe-area-inset-right, 0px));
-  bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
+  bottom: calc(4.75rem + env(safe-area-inset-bottom, 0px));
   z-index: 2100;
   display: flex;
   gap: 0.6rem;
@@ -748,7 +761,7 @@ body.map-is-fullscreen { overflow: hidden; }
 #fab {
   position: fixed;
   right: calc(1rem + env(safe-area-inset-right, 0px));
-  bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
+  bottom: calc(4.75rem + env(safe-area-inset-bottom, 0px));
   width: 56px;
   height: 56px;
   min-height: 56px;

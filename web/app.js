@@ -62,9 +62,10 @@ const placesDialog = document.getElementById("places-dialog");
 const placesForm = document.getElementById("places-form");
 const placesList = document.getElementById("places-list");
 const placesMessage = document.getElementById("places-message");
-const busModeMenu = document.getElementById("bus-mode-menu");
 const busModePlaces = document.getElementById("bus-mode-places");
 const busModeStops = document.getElementById("bus-mode-stops");
+const menuBikes = document.getElementById("menu-bikes");
+const headerContext = document.getElementById("header-context");
 const nearbyStopsDialog = document.getElementById("nearby-stops-dialog");
 const nearbyStopsList = document.getElementById("nearby-stops-list");
 const nearbyStopsMessage = document.getElementById("nearby-stops-message");
@@ -458,12 +459,6 @@ function placeCard(place) {
 function renderPlaces() {
   const destinations = activeDestinations();
   const blocks = [];
-  const current = places.find((place) => place.enabled !== false &&
-    placeDistance(place) != null && placeDistance(place) <= place.geofence_radius_m);
-  const context = document.createElement("p");
-  context.className = "place-context";
-  context.textContent = current ? `At ${current.name}` : "";
-  if (current) blocks.push(context);
   blocks.push(...destinations.map(placeCard));
   if (destinations.length === 0) {
     const empty = document.createElement("p");
@@ -593,6 +588,10 @@ function renderSavedStops() {
 }
 
 function render() {
+  const current = places.find((place) => place.enabled !== false &&
+    placeDistance(place) != null && placeDistance(place) <= place.geofence_radius_m);
+  headerContext.hidden = !current;
+  headerContext.querySelector("span").textContent = current ? `At ${current.name}` : "";
   if (authSession && busListMode === "places") return renderPlaces();
   return renderSavedStops();
 }
@@ -1739,8 +1738,14 @@ function setBusListMode(mode) {
   button.setAttribute("aria-label", purpose);
   render();
 }
-busModePlaces.addEventListener("click", () => setBusListMode("places"));
-busModeStops.addEventListener("click", () => setBusListMode("stops"));
+busModePlaces.addEventListener("click", () => {
+  showSection("buses");
+  setBusListMode("places");
+});
+busModeStops.addEventListener("click", () => {
+  showSection("buses");
+  setBusListMode("stops");
+});
 setBusListMode(busListMode);
 
 async function loadStops() {
@@ -2152,8 +2157,6 @@ const bikesEl = document.getElementById("bikes");
 const bikeMapEl = document.getElementById("bike-map");
 const bikeAgeEl = document.getElementById("bike-age");
 const locateBtn = document.getElementById("locate");
-const menuBuses = document.getElementById("menu-buses");
-const menuBikes = document.getElementById("menu-bikes");
 const bikeAccountEl = document.getElementById("bike-account");
 const bikeAccountDot = document.getElementById("bike-account-dot");
 const bikeAccountText = document.getElementById("bike-account-text");
@@ -3189,13 +3192,13 @@ function showSection(next) {
   if (next !== section) closeFullscreenMap();
   section = next;
   const bikes = next === "bikes";
-  document.title = bikes ? "BiciMAD" : "Overview";
-  menuBuses.setAttribute("aria-selected", String(!bikes));
+  document.title = bikes ? "BiciMAD" : busListMode === "places" ? "Places" : "Stops";
+  busModePlaces.setAttribute("aria-selected", String(!bikes && busListMode === "places"));
+  busModeStops.setAttribute("aria-selected", String(!bikes && busListMode === "stops"));
   menuBikes.setAttribute("aria-selected", String(bikes));
   fab.hidden = bikes || !authSession;
   bikeAgeEl.hidden = !bikes;
   bikeAccountEl.hidden = !bikes || !isOwner;
-  busModeMenu.hidden = bikes;
 
   const mapView = viewMapBtn.getAttribute("aria-selected") === "true";
   listEl.hidden = bikes || mapView;
@@ -3221,7 +3224,6 @@ function showSection(next) {
   syncMapControls();
 }
 
-menuBuses.addEventListener("click", () => showSection("buses"));
 menuBikes.addEventListener("click", () => showSection("bikes"));
 
 function userLocationIcon() {
