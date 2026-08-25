@@ -421,9 +421,14 @@ function placeCard(place) {
 
   const route = document.createElement("div");
   route.className = "place-route";
-  if (!myLocation) route.textContent = "Waiting for your location…";
-  else if (!journeyPayload) route.textContent = "Loading…";
-  else if (!option) route.textContent = "No route";
+  if (!myLocation || !journeyPayload || !option) {
+    const status = document.createElement("span");
+    status.className = "place-route-status";
+    status.textContent = !myLocation
+      ? "Waiting for your location…"
+      : !journeyPayload ? "Loading…" : "No route";
+    route.append(status);
+  }
   else {
     const first = document.createElement("strong");
     first.className = "place-line";
