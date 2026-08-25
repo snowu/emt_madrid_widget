@@ -109,6 +109,23 @@ describe("journey planner", () => {
     expect(deduplicateJourneyOptions(options)).toEqual([options[0]]);
   });
 
+  it("collapses the same bus sequence boarded at different stops", () => {
+    const leg = {
+      type: "one_transfer",
+      firstLeg: { line: "043", direction: "toA" },
+      secondLeg: { line: "009", direction: "toB" },
+    };
+    const options = [
+      { ...leg, originStop: { stopId: "near" }, transfer: {
+        fromStop: { stopId: "x1" }, toStop: { stopId: "x1" },
+      } },
+      { ...leg, originStop: { stopId: "next" }, transfer: {
+        fromStop: { stopId: "x2" }, toStop: { stopId: "x2" },
+      } },
+    ];
+    expect(deduplicateJourneyOptions(options)).toEqual([options[0]]);
+  });
+
   it("accepts a direct line only in the direction that reaches the destination", () => {
     const a = { ...stop("a", -3.70, 40.40, ["107"]), distanceM: 80 };
     const z = { ...stop("z", -3.68, 40.46, ["107"]), distanceM: 120 };

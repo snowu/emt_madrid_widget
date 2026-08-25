@@ -70,11 +70,8 @@ export function deduplicateJourneyOptions(options) {
   return (options ?? []).filter((option) => {
     const signature = [
       option.type,
-      option.originStop?.stopId,
       lineIdentity(option.firstLeg),
       option.firstLeg?.direction,
-      option.type === "one_transfer" ? option.transfer?.fromStop?.stopId : "",
-      option.type === "one_transfer" ? option.transfer?.toStop?.stopId : "",
       option.type === "one_transfer" ? lineIdentity(option.secondLeg) : "",
       option.type === "one_transfer" ? option.secondLeg?.direction : "",
     ].join("|");
