@@ -847,6 +847,17 @@ body.map-is-fullscreen { overflow: hidden; }
 #sheet-arrivals .eta { margin-left: auto; }
 #sheet-arrivals .dest + .eta { margin-left: 0.5rem; }
 
+/* A later run of the same bus carries no countdown, so it does not need a
+   countdown's height or weight. It is context, not the answer. */
+#sheet-arrivals li.is-scheduled {
+  padding: 0.15rem 0;
+  opacity: 0.7;
+}
+
+#sheet-arrivals li.is-scheduled .line { font-size: 0.85rem; }
+#sheet-arrivals li.is-scheduled .eta { font-size: 0.8rem; color: var(--muted); }
+#sheet-arrivals li.is-scheduled .dest { font-size: 0.68rem; }
+
 #sheet-age { margin: 0; }
 
 #sheet-service-wrap summary {

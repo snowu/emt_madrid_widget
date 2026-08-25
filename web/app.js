@@ -271,25 +271,44 @@ function todayDayType() {
   return day === 0 ? "FE" : day === 6 ? "SA" : "LA";
 }
 
+/** The lines a stop serves, each listed once, preferring the richer record.
+ *
+ * Two identity spaces collide here. EMT's code and the label a bus is signed
+ * with differ for the same line (519 is signed N19, 833 is SE833), so an
+ * arrival naming "N19" has to be recognised as detail's 519. But codes and
+ * labels are not interchangeable either: line 001 is signed "1" while a
+ * *different* line, 361, is signed "001". Treating identity as symmetric
+ * merges those two into one and loses a real line.
+ *
+ * So the rule is directional. Detail entries deduplicate on their code alone.
+ * An arrival, which only ever names a label, is added only when neither the
+ * codes nor the labels already seen account for it.
+ */
 function stopLines(stopId) {
   const known = [];
-  const seen = new Set();
-  const add = (entry) => {
+  const codes = new Set();
+  const labels = new Set();
+  for (const entry of details[stopId]?.lines ?? []) {
     const line = normaliseLine(entry);
-    const id = lineIdentity(line);
-    if (!id || seen.has(id)) return;
-    seen.add(id);
+    const code = lineIdentity(line.line);
+    if (!code || codes.has(code)) continue;
+    codes.add(code);
+    labels.add(lineIdentity(line.label));
     known.push(line);
-  };
-  // Detail is the richer record, so it goes first and is never overwritten.
-  for (const line of details[stopId]?.lines ?? []) add(line);
+  }
   // EMT's stop-detail catalogue has holes for valid stops. Arrivals is a
   // separate source and still identifies the routes serving those stops, so
   // it completes the list. It reports the label ("5") where detail and area
   // search carry the code ("005"), so identity — never the raw string — is
   // what tells one line from another across the two; comparing the strings
   // listed the same line twice in every stop that needed healing.
-  for (const arrival of arrivals[stopId]?.arrivals ?? []) add(arrival.line);
+  for (const arrival of arrivals[stopId]?.arrivals ?? []) {
+    const id = lineIdentity(arrival.line);
+    if (!id || codes.has(id) || labels.has(id)) continue;
+    codes.add(id);
+    labels.add(id);
+    known.push(normaliseLine(arrival.line));
+  }
   return known;
 }
 
@@ -1581,7 +1600,10 @@ function routeKey(code, direction) {
 /** Every drawn direction of one line, whichever code spelling drew it. */
 function shownRoutesFor(code) {
   return [...shownRoutes.values()]
-    .filter((shown) => lineIdentity(shown.code) === lineIdentity(code));
+    // A drawn route answers to both of its names: the code it was fetched
+    // under and the label its buses are signed with.
+    .filter((shown) => lineIdentity(shown.code) === lineIdentity(code)
+      || lineIdentity(shown.label) === lineIdentity(code));
 }
 
 /** What a chip in `stopId`'s popup refers to: that stop's own direction if the
@@ -1785,7 +1807,11 @@ function dueLinesAt(stopId) {
   const due = new Set((arrivals[stopId]?.arrivals ?? [])
     .filter((bus) => Number(bus.seconds) < SCHEDULED_SECONDS)
     .map((bus) => lineIdentity(bus.line)));
-  return stopLines(stopId).filter((line) => due.has(lineIdentity(line)));
+  // Arrivals name a line by its label, so a stop's line matches on either of
+  // its names. Matching on the code alone discarded detail's record and drew
+  // the route under a bare label that no bus could then be matched against.
+  return stopLines(stopId).filter((line) =>
+    due.has(lineIdentity(line.line)) || due.has(lineIdentity(line.label)));
 }
 
 /** Draw every line running at a stop, each in the direction that stop serves.
@@ -3070,6 +3096,10 @@ function renderSheetArrivals() {
     sheetArrivals.replaceChildren(
       ...cached.arrivals.map((bus) => {
         const li = document.createElement("li");
+        // A row with no countdown is a later run, not something you are about
+        // to catch. It says so in a quieter, shorter row.
+        const scheduled = Number(bus.seconds) >= SCHEDULED_SECONDS;
+        if (scheduled) li.className = "is-scheduled";
         const line = document.createElement("span");
         line.className = "line";
         line.textContent = bus.line;
