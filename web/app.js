@@ -1712,28 +1712,53 @@ function rebuildLiveBusMarkers() {
     liveBusMarkers.delete(key);
   }
   for (const [key, bus] of buses) {
-    const next = [bus.coordinates[1], bus.coordinates[0]];
+    const reported = bus.coordinates;
     const marker = liveBusMarkers.get(key);
     if (marker) {
       if (Number(bus.fetchedAt) <= Number(marker.busFetchedAt)) continue;
       const previous = marker.getLatLng();
-      const bearing = movementBearing(marker.busCoordinates, bus.coordinates);
+      const sampleSeconds = Math.max(1, (bus.fetchedAt - marker.busFetchedAt) / 1000);
+      const movedMetres = metresBetweenCoordinates(marker.busCoordinates, reported);
+      const speed = movedMetres / sampleSeconds;
+      const bearing = movementBearing(marker.busCoordinates, reported);
+      if (bearing != null && speed >= 0.5 && speed <= 25) {
+        marker.busVelocity = [
+          (reported[0] - marker.busCoordinates[0]) / sampleSeconds,
+          (reported[1] - marker.busCoordinates[1]) / sampleSeconds,
+        ];
+        marker.busVelocityAt = bus.fetchedAt;
+      } else if (bus.fetchedAt - Number(marker.busVelocityAt ?? 0) > 20_000) {
+        marker.busVelocity = null;
+      }
       bus.bearing = bearing ?? marker.busBearing;
       marker.busBearing = bus.bearing;
-      marker.busCoordinates = bus.coordinates;
+      marker.busCoordinates = reported;
       marker.busFetchedAt = bus.fetchedAt;
       marker.busSourceStopId = bus.sourceStopId;
       marker.setIcon(liveBusIcon(bus));
       marker.unbindPopup().bindPopup(() => liveBusPopup(bus));
-      if (bearing != null) animateBusMarker(marker, [previous.lat, previous.lng], next);
+      const horizon = (BUS_MAP_REFRESH_MS - 500) / 1000;
+      const projected = marker.busVelocity
+        ? [
+          reported[1] + marker.busVelocity[1] * horizon,
+          reported[0] + marker.busVelocity[0] * horizon,
+        ]
+        : [reported[1], reported[0]];
+      if (bearing != null || marker.busVelocity) {
+        animateBusMarker(marker, [previous.lat, previous.lng], projected);
+      } else {
+        marker.setLatLng(projected);
+      }
       continue;
     }
-    const created = L.marker(next, { icon: liveBusIcon(bus), zIndexOffset: 700 });
+    const created = L.marker([reported[1], reported[0]], { icon: liveBusIcon(bus), zIndexOffset: 700 });
     created.busKey = key;
     created.busBearing = null;
     created.busSourceStopId = bus.sourceStopId;
-    created.busCoordinates = bus.coordinates;
+    created.busCoordinates = reported;
     created.busFetchedAt = bus.fetchedAt;
+    created.busVelocity = null;
+    created.busVelocityAt = 0;
     created.bindPopup(() => liveBusPopup(bus));
     created.on("click", () => showBusRoute(bus));
     created.addTo(liveBusLayer);
@@ -2431,8 +2456,17 @@ addForm.addEventListener("submit", async (event) => {
   }
 });
 
-document.getElementById("refresh-all").addEventListener("click", () => {
+document.getElementById("refresh-all").addEventListener("click", async () => {
   if (section !== "bikes") {
+    if (!mapEl.hidden && leafletMap) {
+      busMapRefreshAt = Date.now();
+      const centre = leafletMap.getCenter();
+      await Promise.all([
+        refreshMapArrivals(),
+        loadNearbyAt(centre.lat, centre.lng, { force: true }),
+      ]);
+      return;
+    }
     return busListMode === "places" ? loadJourneys({ force: true }) : refreshAll({ force: true });
   }
   const c = bikeMap?.getCenter();
