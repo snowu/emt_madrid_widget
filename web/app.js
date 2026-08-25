@@ -49,6 +49,9 @@ const mapEl = document.getElementById("map");
 const viewListBtn = document.getElementById("view-list");
 const viewMapBtn = document.getElementById("view-map");
 const addDialog = document.getElementById("add-dialog");
+const addStopMapEl = document.getElementById("add-stop-map");
+const addStopNearbyList = document.getElementById("add-stop-nearby");
+const addStopMessage = document.getElementById("add-stop-message");
 const authButton = document.getElementById("auth-button");
 const authDialog = document.getElementById("auth-dialog");
 const authForm = document.getElementById("auth-form");
@@ -1136,7 +1139,7 @@ let nearbySeq = 0;
 let closestWalking = new Map();
 let closestWalkingOrigin = null;
 
-const NEARBY_RADIUS = 2000;
+const NEARBY_RADIUS = 700;
 
 /* ---- Line routes on the map -------------------------------------------- */
 
@@ -1619,17 +1622,13 @@ async function loadNearbyAt(lat, lon, { force = false } = {}) {
   }
 }
 
-function renderClosestStopsDialog() {
-  if (!myLocation) {
-    nearbyStopsMessage.textContent = "Finding your location…";
-    nearbyStopsList.replaceChildren();
-    return;
-  }
-  const closest = [...nearbyStops].sort((a, b) =>
+function closestStops() {
+  return [...nearbyStops].sort((a, b) =>
     proximity(closestWalking.get(String(a.stopId))?.metres ?? metresFromCurrent(a.coordinates)) -
     proximity(closestWalking.get(String(b.stopId))?.metres ?? metresFromCurrent(b.coordinates))).slice(0, 8);
-  nearbyStopsMessage.textContent = closest.length ? "" : "No stops within 2 km";
-  nearbyStopsList.replaceChildren(...closest.map((stop) => {
+}
+
+function nearbyStopCard(stop) {
     const card = document.createElement("article");
     card.className = "nearby-stop-card";
     const head = document.createElement("div");
@@ -1643,7 +1642,7 @@ function renderClosestStopsDialog() {
     const actions = document.createElement("div");
     const directions = document.createElement("button");
     directions.type = "button";
-    directions.textContent = "➤";
+    directions.innerHTML = WALKING_ICON;
     directions.title = `Directions to stop ${stop.stopId}`;
     directions.setAttribute("aria-label", directions.title);
     directions.addEventListener("click", () => openWalkingDirections(stop.coordinates));
@@ -1667,12 +1666,52 @@ function renderClosestStopsDialog() {
     actions.append(directions, save);
     card.append(head, actions);
     return card;
-  }));
+}
+
+let addStopMap = null;
+let addStopMapMarkers = null;
+
+function renderAddStopMap() {
+  if (!addDialog.open || !myLocation) return;
+  if (!addStopMap) {
+    addStopMap = L.map(addStopMapEl, { zoomControl: true, attributionControl: false });
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 }).addTo(addStopMap);
+    addStopMapMarkers = L.layerGroup().addTo(addStopMap);
+  }
+  addStopMapMarkers.clearLayers();
+  L.circleMarker(myLocation, {
+    radius: 7, color: "#fff", weight: 3, fillColor: "#4ea3ff", fillOpacity: 1,
+  }).bindTooltip("You").addTo(addStopMapMarkers);
+  const saved = savedIds();
+  for (const stop of closestStops()) {
+    if (!Array.isArray(stop.coordinates)) continue;
+    L.circleMarker([stop.coordinates[1], stop.coordinates[0]], {
+      radius: 7,
+      color: saved.has(String(stop.stopId)) ? "#ffbf3f" : "#8b93a7",
+      weight: 2,
+      fillColor: "#202631",
+      fillOpacity: 1,
+    }).bindTooltip(`${stop.stopId} · ${stop.name || "Stop"}`).addTo(addStopMapMarkers);
+  }
+  addStopMap.setView(myLocation, 15);
+  requestAnimationFrame(() => addStopMap.invalidateSize());
+}
+
+function renderClosestStopsDialog() {
+  const waiting = !myLocation;
+  const closest = waiting ? [] : closestStops();
+  const message = waiting ? "Finding your location…" : closest.length ? "" : "No stops within 700 m";
+  nearbyStopsMessage.textContent = message;
+  addStopMessage.textContent = message;
+  nearbyStopsList.replaceChildren(...closest.map(nearbyStopCard));
+  addStopNearbyList.replaceChildren(...closest.map(nearbyStopCard));
+  renderAddStopMap();
 }
 
 async function updateClosestStopsDialog() {
-  if (!nearbyStopsDialog.open || !myLocation) return;
+  if ((!nearbyStopsDialog.open && !addDialog.open) || !myLocation) return;
   nearbyStopsMessage.textContent = "Finding nearby stops…";
+  addStopMessage.textContent = "Finding nearby stops…";
   await loadNearbyAt(myLocation[0], myLocation[1], { force: true });
   const originKey = `${myLocation[0].toFixed(5)},${myLocation[1].toFixed(5)}`;
   if (closestWalkingOrigin !== originKey) {
@@ -2069,7 +2108,9 @@ fab.addEventListener("click", () => {
     return;
   }
   addDialog.showModal();
-  document.getElementById("stop-id").focus();
+  renderClosestStopsDialog();
+  if (!myLocation) refreshLocation({ userInitiated: true, forceNearby: true });
+  else void updateClosestStopsDialog();
 });
 
 document.getElementById("add-cancel").addEventListener("click", () => addDialog.close());
@@ -3290,7 +3331,7 @@ function applyLocation(position, { recenter = false, forceNearby = false } = {})
   render();
   renderBikes();
   void loadNearbyAt(myLocation[0], myLocation[1], { force: forceNearby }).then(() => {
-    if (nearbyStopsDialog.open) void updateClosestStopsDialog();
+    if (nearbyStopsDialog.open || addDialog.open) void updateClosestStopsDialog();
   });
   void loadBikesNear(myLocation[0], myLocation[1], { force: forceNearby });
   scheduleJourneys({ force: forceNearby });

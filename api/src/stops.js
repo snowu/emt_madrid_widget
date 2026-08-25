@@ -178,7 +178,7 @@ function placeValues(input, { partial = false } = {}) {
   }
   for (const [key, fallback, minimum, maximum] of [
     ["geofenceRadiusM", 200, 50, 1500],
-    ["destinationRadiusM", 2000, 2000, 3000],
+    ["destinationRadiusM", 700, 200, 3000],
   ]) {
     if (!partial || Object.hasOwn(input, key)) {
       const value = Number(input[key] ?? fallback);

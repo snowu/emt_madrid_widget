@@ -506,6 +506,11 @@ body.map-is-fullscreen { overflow: hidden; }
 .place-editor-actions button { flex: 1 1 auto; }
 #nearby-stops-dialog { width: min(92vw, 28rem); }
 #nearby-stops-list { display: grid; gap: 0.45rem; }
+#add-dialog { width: min(94vw, 30rem); max-height: min(90dvh, 48rem); overflow-y: auto; }
+#add-stop-map { height: min(30vh, 240px); min-height: 180px; border-radius: 12px; }
+#add-stop-nearby { display: grid; gap: 0.4rem; max-height: 15rem; overflow-y: auto; }
+#add-stop-message { margin: 0; font-size: 0.75rem; }
+#add-stop > input { width: 100%; }
 .nearby-stop-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0.6rem; padding: 0.6rem; border: 1px solid var(--line); border-radius: 10px; }
 .nearby-stop-card > div:first-child { display: flex; min-width: 0; flex-direction: column; }
 .nearby-stop-card small { color: var(--muted); font-size: 0.72rem; overflow-wrap: anywhere; }
@@ -517,6 +522,7 @@ body.map-is-fullscreen { overflow: hidden; }
   color: var(--star);
   font-size: 1.1rem;
 }
+.nearby-stop-card button svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 
 .stop {
   background: var(--card);
