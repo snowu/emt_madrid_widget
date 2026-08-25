@@ -369,10 +369,10 @@ async function journeys(request, body, env, ctx) {
 
   let transferStopIds = [];
   if (activeOriginStops.length) {
-    transferStopIds = [...new Set(planned.map((item) => item.options
-      .find((option) => option.type === "one_transfer"))
-      .filter(Boolean)
-      .map((option) => String(option.transfer.toStop.stopId)))].slice(0, 3);
+    transferStopIds = [...new Set(planned.flatMap((item) => item.options
+      .filter((option) => option.type === "one_transfer")
+      .slice(0, 3)
+      .map((option) => String(option.transfer.toStop.stopId))))].slice(0, 3);
     const transferLive = new Map(await Promise.all(transferStopIds.map(async (stopId) => {
       try {
         return [stopId, await cachedArrivals(request.url, env, stopId, ctx)];
