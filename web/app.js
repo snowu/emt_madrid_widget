@@ -1613,6 +1613,35 @@ function movementBearing([oldLon, oldLat], [newLon, newLat]) {
   return (Math.atan2(dx, dy) * 180) / Math.PI;
 }
 
+function initialBusVelocity(bus) {
+  const source = details[bus.sourceStopId]?.coordinates
+    ?? nearbyStops.find((stop) => String(stop.stopId) === String(bus.sourceStopId))?.coordinates;
+  const seconds = Number(bus.seconds);
+  if (!Array.isArray(source) || !Number.isFinite(seconds) || seconds < 20) return null;
+  const distance = metresBetweenCoordinates(bus.coordinates, source);
+  const speed = distance / seconds;
+  if (speed < 0.5 || speed > 25) return null;
+  return [
+    (source[0] - bus.coordinates[0]) / seconds,
+    (source[1] - bus.coordinates[1]) / seconds,
+  ];
+}
+
+function velocityBearing(velocity, at) {
+  if (!velocity) return null;
+  return movementBearing(at, [at[0] + velocity[0], at[1] + velocity[1]]);
+}
+
+function projectedBusPosition(bus, velocity) {
+  const horizon = (BUS_MAP_REFRESH_MS - 500) / 1000;
+  return velocity
+    ? [
+      bus.coordinates[1] + velocity[1] * horizon,
+      bus.coordinates[0] + velocity[0] * horizon,
+    ]
+    : [bus.coordinates[1], bus.coordinates[0]];
+}
+
 function animateBusMarker(marker, from, to, duration = BUS_MAP_REFRESH_MS - 500) {
   const animationId = (marker.busAnimationId ?? 0) + 1;
   marker.busAnimationId = animationId;
@@ -1737,13 +1766,7 @@ function rebuildLiveBusMarkers() {
       marker.busSourceStopId = bus.sourceStopId;
       marker.setIcon(liveBusIcon(bus));
       marker.unbindPopup().bindPopup(() => liveBusPopup(bus));
-      const horizon = (BUS_MAP_REFRESH_MS - 500) / 1000;
-      const projected = marker.busVelocity
-        ? [
-          reported[1] + marker.busVelocity[1] * horizon,
-          reported[0] + marker.busVelocity[0] * horizon,
-        ]
-        : [reported[1], reported[0]];
+      const projected = projectedBusPosition(bus, marker.busVelocity);
       if (bearing != null || marker.busVelocity) {
         animateBusMarker(marker, [previous.lat, previous.lng], projected);
       } else {
@@ -1751,18 +1774,22 @@ function rebuildLiveBusMarkers() {
       }
       continue;
     }
-    const created = L.marker([reported[1], reported[0]], { icon: liveBusIcon(bus), zIndexOffset: 700 });
+    const velocity = initialBusVelocity(bus);
+    bus.bearing = velocityBearing(velocity, reported);
+    const start = [reported[1], reported[0]];
+    const created = L.marker(start, { icon: liveBusIcon(bus), zIndexOffset: 700 });
     created.busKey = key;
-    created.busBearing = null;
+    created.busBearing = bus.bearing;
     created.busSourceStopId = bus.sourceStopId;
     created.busCoordinates = reported;
     created.busFetchedAt = bus.fetchedAt;
-    created.busVelocity = null;
-    created.busVelocityAt = 0;
+    created.busVelocity = velocity;
+    created.busVelocityAt = velocity ? bus.fetchedAt : 0;
     created.bindPopup(() => liveBusPopup(bus));
     created.on("click", () => showBusRoute(bus));
     created.addTo(liveBusLayer);
     liveBusMarkers.set(key, created);
+    if (velocity) animateBusMarker(created, start, projectedBusPosition(bus, velocity));
   }
 }
 
