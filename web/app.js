@@ -2705,10 +2705,11 @@ function rebuildLiveBusMarkers() {
   };
   Object.values(arrivals).forEach(collect);
   previewArrivals.forEach(collect);
-  // Vehicle display is deliberately scoped to routes the user explicitly
-  // chose. A map with no directional route has no live-bus workload at all.
+  // Vehicle display is deliberately scoped to lines the user explicitly
+  // chose. Direction resolution decides whether a bus can snap to a route;
+  // it must not decide whether a real, geolocated vehicle exists at all.
   for (const [key, bus] of buses) {
-    if (!busShownRoute(bus)) buses.delete(key);
+    if (shownRoutesFor(busLineCode(bus).line).length === 0) buses.delete(key);
   }
   for (const [key, marker] of liveBusMarkers) {
     if (buses.has(key)) continue;
@@ -2717,23 +2718,25 @@ function rebuildLiveBusMarkers() {
   }
   for (const [key, bus] of buses) {
     const shown = busShownRoute(bus);
-    const track = shown?.snapped ? busRouteTrack(bus) : null;
-    const progress = track ? busTrackProgress(bus, track, shown.route) : null;
+    const drawn = shownRoutesFor(busLineCode(bus).line);
+    const fallbackShown = drawn[0] ?? null;
+    let track = shown?.snapped ? busRouteTrack(bus) : null;
+    let progress = track ? busTrackProgress(bus, track, shown.route) : null;
     const marker = liveBusMarkers.get(key);
 
-    // On the line but not yet on the leg being drawn: placing it anywhere on
-    // this path would put it on a street it is not in.
+    // A projection can fail during a diversion, around a disconnected route
+    // component, or when EMT's distance and geometry feeds update out of
+    // phase. The GPS fix is less elegant than along-route interpolation, but
+    // it is real and is preferable to making a due bus disappear completely.
     if (track && progress == null) {
-      if (marker) {
-        liveBusLayer.removeLayer(marker);
-        liveBusMarkers.delete(key);
-      }
-      continue;
+      track = null;
+      progress = null;
     }
 
     // The estimate belongs to the stop the route was opened from, which is the
     // stop the user is standing at — so name it rather than showing its number.
-    bus.sourceStopName = stopDisplayName(bus.sourceStopId, shown?.route);
+    bus.sourceStopName = stopDisplayName(bus.sourceStopId,
+      shown?.route ?? routeCache.get(fallbackShown?.code));
     const coordinate = track ? trackCoordinateAt(track, progress) : bus.coordinates;
     const reportedBearing = bus.bearing == null ? NaN : Number(bus.bearing);
     const fixMoved = marker?.busCoordinates
@@ -2767,7 +2770,8 @@ function rebuildLiveBusMarkers() {
       marker.busCoordinates = bus.coordinates;
       marker.busFetchedAt = bus.fetchedAt;
       marker.busSourceStopId = bus.sourceStopId;
-      marker.busRouteKey = shown?.key ?? null;
+      marker.busRouteKey = shown?.key
+        ?? (fallbackShown ? routeKey(fallbackShown.code, fallbackShown.direction) : null);
       setBusMarkerBearing(marker, bus.bearing);
       marker.unbindPopup().bindPopup(() => liveBusPopup(bus));
       syncRouteSelectionStyles();
@@ -2784,7 +2788,8 @@ function rebuildLiveBusMarkers() {
     created.busCoordinates = bus.coordinates;
     created.busFetchedAt = bus.fetchedAt;
     created.busSourceStopId = bus.sourceStopId;
-    created.busRouteKey = shown?.key ?? null;
+    created.busRouteKey = shown?.key
+      ?? (fallbackShown ? routeKey(fallbackShown.code, fallbackShown.direction) : null);
     created.bindPopup(() => liveBusPopup(bus));
     created.on("click", () => {
       if (created.busRouteKey) setSelectedRoute(created.busRouteKey);
