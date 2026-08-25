@@ -725,6 +725,44 @@ body.map-is-fullscreen { overflow: hidden; }
   padding: 0.35rem 0.75rem;
 }
 
+/* A live bus: where it is going is the headline, not which bus it is. */
+.bus-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.bus-line {
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: 0.05rem 0.45rem;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.bus-towards {
+  font-size: 0.95rem;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Stop names run long in Madrid. Wrapping reads; truncating to
+   "Plaza de Cast..." with room to spare does not. */
+.leaflet-popup-content li .bus-where {
+  grid-column: 1 / 3;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.bus-vehicle {
+  margin: 0.5rem 0 0;
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
 /* Cards are tappable now: they open the stop sheet. */
 .stop { cursor: pointer; }
 .stop:active { background: var(--active); }

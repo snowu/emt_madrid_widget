@@ -2211,43 +2211,80 @@ function busLineCode(bus) {
   return normaliseLine(known ?? bus.line);
 }
 
-async function showBusRoute(bus) {
-  const line = busLineCode(bus);
-  let route = routeCache.get(line.line);
-  if (!route) {
-    try {
-      route = await api(`/lines/${encodeURIComponent(line.line)}/route`);
-      routeCache.set(line.line, route);
-    } catch (err) {
-      statusEl.textContent = `Could not load route ${line.label}: ${err.message}`;
-      return;
-    }
+/** What you tapped a moving bus to find out.
+ *
+ * Where it is heading leads, because that is the question. Then when it
+ * reaches the stop this estimate belongs to — which is the stop the route was
+ * opened from, so it is the one you are standing at — and how far off it is.
+ * The vehicle number is an EMT fleet id and means nothing to a passenger; it
+ * stays only because it is the one way to tell two buses of a line apart, and
+ * it stays at the bottom, muted.
+ *
+ * No "show route" button: a bus is only ever visible because its route is
+ * already drawn, so the button could only have hidden what it offered.
+ */
+/** A stop's name from whichever source knows it. Probe stops are usually not
+ *  saved and often have no detail record, but the route answer names every
+ *  stop it calls at, so that is the reliable one here. */
+function stopDisplayName(stopId, route) {
+  const id = String(stopId);
+  const known = details[id]?.name ?? nearbyStop(id)?.name;
+  if (known) return known;
+  for (const direction of ["toA", "toB"]) {
+    const match = (route?.stops?.[direction] ?? []).find((s) => String(s.stopId) === id);
+    if (match?.name) return match.name;
   }
-  const direction = busRouteDirection(bus, line, route);
-  // A bus is only ever visible because its direction is already drawn, so
-  // toggling here would hide the very route this offers to show.
-  if (direction && shownRoutes.has(routeKey(line.line, direction))) return;
-  await toggleRoute(line.line, line.label, direction, bus.sourceStopId);
-  rebuildLiveBusMarkers();
+  return null;
 }
 
 function liveBusPopup(bus) {
   const wrap = document.createElement("div");
+  const color = lineColor(bus.line);
+
   const title = document.createElement("h3");
-  title.textContent = `Bus ${bus.line}`;
-  const direction = document.createElement("p");
-  direction.className = "stop-num";
-  direction.textContent = bus.destination ? `→ ${bus.destination}` : "Direction unavailable";
-  const vehicle = document.createElement("p");
-  vehicle.className = "muted";
-  vehicle.textContent = bus.vehicleId ? `Vehicle ${bus.vehicleId}` : "";
-  const route = document.createElement("button");
-  route.type = "button";
-  route.textContent = `Show route ${bus.line}`;
-  route.addEventListener("click", () => showBusRoute(bus));
-  wrap.append(title, direction);
-  if (vehicle.textContent) wrap.append(vehicle);
-  wrap.append(route);
+  title.className = "bus-head";
+  const label = document.createElement("span");
+  label.className = "bus-line";
+  label.textContent = String(bus.line);
+  label.style.color = color;
+  label.style.borderColor = color;
+  const towards = document.createElement("span");
+  towards.className = "bus-towards";
+  towards.textContent = bus.destination ? `→ ${bus.destination}` : "→ destination unknown";
+  title.append(label, towards);
+  wrap.append(title);
+
+  const ul = document.createElement("ul");
+  const seconds = Number(bus.seconds);
+  if (Number.isFinite(seconds) && seconds < SCHEDULED_SECONDS) {
+    const li = document.createElement("li");
+    const where = document.createElement("span");
+    where.className = "bus-where";
+    where.textContent = bus.sourceStopName || `Stop ${bus.sourceStopId}`;
+    const eta = document.createElement("span");
+    eta.className = "eta";
+    // Counted down from the sample, so it ticks with the rest of the map.
+    eta.textContent = fmtCountdown(seconds - Math.floor((Date.now() - bus.fetchedAt) / 1000));
+    li.append(where, eta);
+    ul.append(li);
+  }
+  const metres = Number(bus.metres);
+  if (Number.isFinite(metres)) {
+    const li = document.createElement("li");
+    const away = document.createElement("span");
+    away.className = "bus-where muted";
+    away.textContent = `${formatDistance(metres)} to go`;
+    li.append(away);
+    ul.append(li);
+  }
+  if (ul.childElementCount) wrap.append(ul);
+
+  if (bus.vehicleId) {
+    const vehicle = document.createElement("p");
+    vehicle.className = "bus-vehicle";
+    vehicle.textContent = `Vehicle ${bus.vehicleId}`;
+    wrap.append(vehicle);
+  }
   return wrap;
 }
 
@@ -2301,6 +2338,9 @@ function rebuildLiveBusMarkers() {
       continue;
     }
 
+    // The estimate belongs to the stop the route was opened from, which is the
+    // stop the user is standing at — so name it rather than showing its number.
+    bus.sourceStopName = stopDisplayName(bus.sourceStopId, shown?.route);
     const coordinate = track ? trackCoordinateAt(track, progress) : bus.coordinates;
     bus.bearing = track
       ? trackBearingAt(track, progress)
@@ -2322,6 +2362,7 @@ function rebuildLiveBusMarkers() {
         const previous = marker.getLatLng();
         animateBusMarker(marker, [previous.lat, previous.lng], [coordinate[1], coordinate[0]]);
       }
+      marker.liveBus = bus; // so the popup can be re-rendered as it ticks
       marker.busProgress = progress;
       marker.busBearing = bus.bearing ?? marker.busBearing;
       marker.busCoordinates = bus.coordinates;
@@ -2336,13 +2377,13 @@ function rebuildLiveBusMarkers() {
       icon: liveBusIcon(bus), zIndexOffset: 700,
     });
     created.busKey = key;
+    created.liveBus = bus;
     created.busProgress = progress;
     created.busBearing = bus.bearing;
     created.busCoordinates = bus.coordinates;
     created.busFetchedAt = bus.fetchedAt;
     created.busSourceStopId = bus.sourceStopId;
     created.bindPopup(() => liveBusPopup(bus));
-    created.on("click", () => showBusRoute(bus));
     created.addTo(liveBusLayer);
     liveBusMarkers.set(key, created);
   }
@@ -2360,6 +2401,11 @@ function tickPopups() {
     // Route stops live one level down, inside their line's group.
     layer?.eachLayer((child) => tickUnsavedPopup(child));
   }
+  liveBusLayer?.eachLayer((marker) => {
+    if (marker.liveBus && marker.isPopupOpen()) {
+      marker.setPopupContent(liveBusPopup(marker.liveBus));
+    }
+  });
 }
 
 function tickUnsavedPopup(layer) {
