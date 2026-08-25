@@ -387,6 +387,46 @@ function setPlaceReachability(card, waitSeconds, walkSeconds) {
     : margin < 120 ? "reachability-tight" : "reachability-comfortable");
 }
 
+function placeRouteRow(option, card, { primary = false } = {}) {
+  const route = document.createElement("div");
+  route.className = `place-route${primary ? "" : " place-route-alternative"}`;
+  const first = document.createElement("strong");
+  first.className = "place-line";
+  first.style.color = lineColor(option.firstLeg.label);
+  first.textContent = option.firstLeg.label;
+  const copy = document.createElement("p");
+  const wait = option.firstLeg.selectedArrival ?? option.firstLeg.arrivals?.[0];
+  const connection = option.type === "direct"
+    ? "direct"
+    : `then ${option.secondLeg.label} · ${option.transfer.walkM} m transfer`;
+  const origin = document.createElement("b");
+  const walkMetres = option.originStop.walkMetres ?? option.originStop.distanceM;
+  origin.textContent = `Stop ${option.originStop.stopId} · ${Math.round(walkMetres)} m walk`;
+  const detail = document.createElement("small");
+  detail.textContent = connection;
+  if (option.incidents?.length) {
+    const warning = document.createElement("span");
+    warning.className = "route-incident";
+    warning.textContent = " · ⚠ Detour";
+    warning.title = option.incidents.map((incident) => incident.title).filter(Boolean).join("\n");
+    detail.append(warning);
+  }
+  copy.append(origin, document.createElement("br"), detail);
+  const eta = document.createElement("time");
+  const fetchedAt = option.firstLeg.fetchedAt ?? journeyPayload.generatedAt;
+  const elapsed = Math.floor((Date.now() - fetchedAt) / 1000);
+  eta.className = "eta";
+  eta.textContent = wait == null ? "—" : fmtCountdown(wait - elapsed);
+  if (wait != null) {
+    eta.dataset.seconds = String(wait);
+    eta.dataset.fetchedAt = String(fetchedAt);
+    eta.dataset.walkSeconds = String(option.originStop.walkSeconds ?? "");
+    if (primary) setPlaceReachability(card, wait - elapsed, option.originStop.walkSeconds);
+  }
+  route.append(first, copy, eta);
+  return route;
+}
+
 function placeCard(place) {
   const card = document.createElement("article");
   card.className = "place-card";
@@ -398,7 +438,8 @@ function placeCard(place) {
   distance.className = "muted";
   distance.textContent = formatDistance(placeDistance(place)) || "—";
   const planned = journeyFor(place.id);
-  const option = planned?.options?.[0];
+  const options = planned?.options?.slice(0, 3) ?? [];
+  const option = options[0];
   const stopDirections = document.createElement("button");
   stopDirections.className = "place-directions";
   stopDirections.type = "button";
@@ -419,9 +460,10 @@ function placeCard(place) {
   heading.append(title, distance, stopDirections, fullRoute);
   card.append(heading);
 
-  const route = document.createElement("div");
-  route.className = "place-route";
+  let route;
   if (!myLocation || !journeyPayload || !option) {
+    route = document.createElement("div");
+    route.className = "place-route";
     const status = document.createElement("span");
     status.className = "place-route-status";
     status.textContent = !myLocation
@@ -430,47 +472,40 @@ function placeCard(place) {
     route.append(status);
   }
   else {
-    const first = document.createElement("strong");
-    first.className = "place-line";
-    first.style.color = lineColor(option.firstLeg.label);
-    first.textContent = option.firstLeg.label;
-    const copy = document.createElement("p");
-    const wait = option.firstLeg.selectedArrival ?? option.firstLeg.arrivals?.[0];
-    const connection = option.type === "direct"
-      ? "direct"
-      : `then ${option.secondLeg.label} · ${option.transfer.walkM} m transfer`;
-    const origin = document.createElement("b");
-    const walkMetres = option.originStop.walkMetres ?? option.originStop.distanceM;
-    origin.textContent = `Stop ${option.originStop.stopId} · ${Math.round(walkMetres)} m walk`;
-    const detail = document.createElement("small");
-    detail.textContent = connection;
-    if (option.incidents?.length) {
-      const warning = document.createElement("span");
-      warning.className = "route-incident";
-      warning.textContent = " · ⚠ Detour";
-      warning.title = option.incidents.map((incident) => incident.title).filter(Boolean).join("\n");
-      detail.append(warning);
+    route = placeRouteRow(option, card, { primary: true });
+    const alternatives = options.slice(1).map((alternative) => {
+      const row = placeRouteRow(alternative, card);
+      row.hidden = true;
+      return row;
+    });
+    if (alternatives.length) {
+      route.classList.add("place-route-expandable");
+      route.tabIndex = 0;
+      route.setAttribute("role", "button");
+      route.setAttribute("aria-expanded", "false");
+      route.setAttribute("aria-label", `Show ${alternatives.length} alternative route${alternatives.length === 1 ? "" : "s"}`);
+      const toggle = () => {
+        const expanded = route.getAttribute("aria-expanded") === "true";
+        route.setAttribute("aria-expanded", String(!expanded));
+        route.setAttribute("aria-label", expanded ? `Show ${alternatives.length} alternative route${alternatives.length === 1 ? "" : "s"}` : "Hide alternative routes");
+        alternatives.forEach((row) => { row.hidden = expanded; });
+      };
+      route.addEventListener("click", toggle);
+      route.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        toggle();
+      });
     }
-    copy.append(origin, document.createElement("br"), detail);
-    const eta = document.createElement("time");
-    const fetchedAt = option.firstLeg.fetchedAt ?? journeyPayload.generatedAt;
-    const elapsed = Math.floor((Date.now() - fetchedAt) / 1000);
-    eta.className = "eta";
-    eta.textContent = wait == null ? "—" : fmtCountdown(wait - elapsed);
-    if (wait != null) {
-      eta.dataset.seconds = String(wait);
-      eta.dataset.fetchedAt = String(fetchedAt);
-      eta.dataset.walkSeconds = String(option.originStop.walkSeconds ?? "");
-      setPlaceReachability(card, wait - elapsed, option.originStop.walkSeconds);
-    }
-    route.append(first, copy, eta);
+    card.append(route, ...alternatives);
   }
   const age = document.createElement("p");
   age.className = "age";
   const fetchedAt = option?.firstLeg?.fetchedAt ?? journeyPayload?.generatedAt;
   age.textContent = fetchedAt ? `updated ${fmtAge(fetchedAt)}` : "never updated";
   if (fetchedAt) age.dataset.fetchedAt = String(fetchedAt);
-  card.append(route, age);
+  if (!route.parentNode) card.append(route);
+  card.append(age);
   return card;
 }
 
