@@ -165,7 +165,7 @@ function placeValues(input, { partial = false } = {}) {
   const values = {};
   if (!partial || Object.hasOwn(input, "name")) {
     const name = String(input.name ?? "").trim();
-    if (!name || name.length > 80) throw new EmtError("not_found", "place name must be 1–80 characters");
+    if (!name || name.length > 80) throw new EmtError("not_found", "hub name must be 1–80 characters");
     values.name = name;
   }
   for (const key of ["lat", "lon"]) {
@@ -208,14 +208,14 @@ export async function addPlace(env, accessToken, input) {
 
 export async function updatePlace(env, accessToken, id, input) {
   const values = placeValues(input, { partial: true });
-  if (Object.keys(values).length === 0) throw new EmtError("not_found", "no place fields to update");
+  if (Object.keys(values).length === 0) throw new EmtError("not_found", "no hub fields to update");
   values.updated_at = new Date().toISOString();
   const rows = await call(env, accessToken, `${PLACE_TABLE}?id=eq.${encodeURIComponent(id)}`, {
     method: "PATCH",
     headers: { Prefer: "return=representation" },
     body: JSON.stringify(values),
   });
-  if (!rows?.[0]) throw new EmtError("not_found", `no place ${id}`);
+  if (!rows?.[0]) throw new EmtError("not_found", `no hub ${id}`);
   return rows[0];
 }
 

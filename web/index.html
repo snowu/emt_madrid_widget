@@ -111,7 +111,7 @@
             <button type="button" data-theme-choice="dark" aria-pressed="false">Dark</button>
           </div>
         </section>
-        <button id="manage-places" type="button">Manage places</button>
+        <button id="manage-places" type="button">Manage hubs</button>
         <button id="account-signout" class="danger" type="button">Sign out</button>
       </form>
     </dialog>
@@ -119,26 +119,26 @@
     <dialog id="places-dialog" aria-labelledby="places-title">
       <form id="places-form" method="dialog">
         <div class="account-menu-heading">
-          <h2 id="places-title">Places</h2>
+          <h2 id="places-title">Hubs</h2>
           <button type="button" id="places-close" aria-label="Close">×</button>
         </div>
         <div id="places-list"></div>
         <section id="place-editor" class="place-editor" hidden>
-          <label class="field"><span>Name</span><input id="place-name" maxlength="80" placeholder="Home, Work, favorite park…" autocomplete="off" /></label>
+          <label class="field"><span>Name</span><input id="place-name" maxlength="80" placeholder="Home, Work, favorite hub…" autocomplete="off" /></label>
           <div class="place-address-row">
             <input id="place-address" maxlength="120" placeholder="Address in Madrid" autocomplete="street-address" aria-label="Address in Madrid" />
             <button id="place-search" type="button">Search</button>
           </div>
           <div id="place-search-results" class="place-search-results"></div>
-          <div id="place-picker-map" aria-label="Choose place on map"></div>
+          <div id="place-picker-map" aria-label="Choose hub on map"></div>
           <p id="place-picked" class="muted"></p>
           <div class="place-editor-actions">
             <button id="place-gps" type="button">◎ Use GPS</button>
             <button id="place-editor-cancel" type="button">Cancel</button>
-            <button id="place-add" type="submit">Save place</button>
+            <button id="place-add" type="submit">Save hub</button>
           </div>
         </section>
-        <button id="place-editor-open" type="button">＋ Add place</button>
+        <button id="place-editor-open" type="button">＋ Add hub</button>
         <p id="places-message" class="muted" role="status"></p>
       </form>
     </dialog>

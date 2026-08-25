@@ -463,7 +463,7 @@ function renderPlaces() {
   if (destinations.length === 0) {
     const empty = document.createElement("p");
     empty.className = "muted";
-    empty.textContent = places.length ? "No other places" : "No places saved";
+    empty.textContent = places.length ? "No other hubs" : "No hubs saved";
     blocks.push(empty);
   }
   const nearestBike = (bikeNear.stations ?? [])
@@ -688,7 +688,7 @@ async function loadPlaces() {
   } catch (err) {
     // The migration is deliberately non-breaking: saved stops remain the UI
     // until places.sql has been applied.
-    statusEl.textContent = `Places unavailable: ${err.message}`;
+    statusEl.textContent = `Hubs unavailable: ${err.message}`;
     render();
   }
 }
@@ -807,7 +807,7 @@ function renderPlacesDialog() {
         render();
         scheduleJourneys({ force: true });
       } catch (err) {
-        placesMessage.textContent = `Could not delete place: ${err.message}`;
+        placesMessage.textContent = `Could not delete hub: ${err.message}`;
         remove.disabled = false;
       }
     });
@@ -860,7 +860,7 @@ function openPlaceEditor(place = null) {
   placeDraft = place ? { ...place } : null;
   document.getElementById("place-name").value = place?.name ?? "";
   document.getElementById("place-address").value = place?.address ?? "";
-  document.getElementById("place-add").textContent = place ? "Save changes" : "Save place";
+  document.getElementById("place-add").textContent = place ? "Save changes" : "Save hub";
   placeSearchResults.replaceChildren();
   placesMessage.textContent = "";
   placeEditor.hidden = false;
@@ -941,7 +941,7 @@ placesForm.addEventListener("submit", async (event) => {
     scheduleJourneys({ force: true });
     closePlaceEditor();
   } catch (err) {
-    placesMessage.textContent = `Could not save place: ${err.message}`;
+    placesMessage.textContent = `Could not save hub: ${err.message}`;
   } finally {
     add.disabled = false;
   }
@@ -1733,7 +1733,7 @@ function setBusListMode(mode) {
   busModePlaces.setAttribute("aria-selected", String(busListMode === "places"));
   busModeStops.setAttribute("aria-selected", String(busListMode === "stops"));
   const button = document.getElementById("fab");
-  const purpose = busListMode === "places" ? "Add place" : "Add bus stop";
+  const purpose = busListMode === "places" ? "Add hub" : "Add bus stop";
   button.title = purpose;
   button.setAttribute("aria-label", purpose);
   render();
