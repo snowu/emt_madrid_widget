@@ -3,4 +3,5 @@ node_modules/
 .env
 .env.metrics
 .wrangler/
+.local/
 *.har

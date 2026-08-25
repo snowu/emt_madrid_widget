@@ -159,6 +159,9 @@ function parseArrivals(body) {
       metres: a.DistanceBus == null ? null : Number(a.DistanceBus),
       destination: a.destination ?? null,
       vehicleId: a.bus == null ? null : String(a.bus),
+      ...(Number.isFinite(Number(a.bearing ?? a.heading))
+        && (a.bearing ?? a.heading) != null
+        ? { bearing: Number(a.bearing ?? a.heading) } : {}),
       coordinates: Array.isArray(a.geometry?.coordinates)
         ? a.geometry.coordinates.map(Number) : null,
     }))
