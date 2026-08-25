@@ -334,7 +334,14 @@ they can be wider than the stop's own — the page marks borrowed hours with a
 `*` rather than passing them off as stop-specific.
 
 `estimateArrive = 888888` is EMT's "running on schedule, no GPS estimate yet"
-sentinel, not a real countdown.
+sentinel, not a real countdown. **`999999` is a second sentinel**, marking a
+vehicle's *next* run: EMT repeats the same `bus` id and the same
+`geometry.coordinates`, but pairs them with a `DistanceBus` for a trip that has
+not started. Observed at stop 30, 2026-08-25 — vehicle 2464 listed as both
+349s/407m and 999999s/12567m. The two rows collide on the vehicle id, so
+anything keyed on it must take the row that is counting down; the other says
+nothing about where the bus is now. Treat anything a day or more out as "not a
+countdown" rather than special-casing each number.
 
 Arrivals live at `data[0].Arrive[]`. Per bus:
 - `line` — line number (string)

@@ -340,10 +340,14 @@ function isStub(detail) {
   return !detail || !detail.coordinates;
 }
 
+// Past a day out, EMT is not counting down to anything: 888888 is "running to
+// schedule, no GPS estimate yet" and 999999 marks a vehicle's *next* run.
+const SCHEDULED_SECONDS = 24 * 3600;
+
 function fmtCountdown(seconds) {
   // EMT's sentinel: "running on schedule, no GPS estimate yet". Not a
   // countdown; render it as words.
-  if (seconds >= 24 * 3600) return "scheduled";
+  if (seconds >= SCHEDULED_SECONDS) return "scheduled";
   if (seconds <= 0) return "due";
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
@@ -2224,6 +2228,13 @@ function rebuildLiveBusMarkers() {
   const collect = (payload) => {
     if (!payload || Date.now() - Number(payload.fetchedAt) > 120_000) return;
     for (const bus of payload.arrivals ?? []) {
+      // EMT repeats a vehicle to describe its next run: same id, same fix, a
+      // sentinel ETA and a DistanceBus for a trip it has not started. Observed
+      // at stop 30, 2026-08-25 — vehicle 2464 as both 349s/407m and
+      // 999999s/12567m. Both rows collide on the vehicle id, and placing the
+      // wrong one puts a bus 400m away 12km down the road, which is to say it
+      // vanishes. Only the row counting down describes where a bus is now.
+      if (Number(bus.seconds) >= SCHEDULED_SECONDS) continue;
       const [lon, lat] = bus.coordinates ?? [];
       if (!Number.isFinite(lon) || !Number.isFinite(lat)) continue;
       const key = bus.vehicleId || `${bus.line}:${lon}:${lat}`;
