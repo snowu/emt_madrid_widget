@@ -373,6 +373,7 @@ function openWalkingDirections(coordinates) {
 }
 
 const WALKING_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="13" cy="4" r="1.8"></circle><path d="m10.5 8 2.5-1 2.5 2.5 2.5 1"></path><path d="m13 7-2 5 3 2 1.5 5"></path><path d="m11 12-3 3-2 4"></path></svg>';
+const LINES_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 18 9 6l6 12 5-12"></path></svg>';
 const ROUTE_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s6-5.4 6-11a6 6 0 1 0-12 0c0 5.6 6 11 6 11Z"></path><circle cx="12" cy="10" r="2"></circle></svg>';
 
 function openTransitDirections(place) {
@@ -481,7 +482,25 @@ function placeCard(place) {
   fullRoute.innerHTML = ROUTE_ICON;
   fullRoute.disabled = !myLocation;
   fullRoute.addEventListener("click", () => openTransitDirections(place));
-  heading.append(title, distance, stopDirections, fullRoute);
+
+  // The journey already names its lines and their directions, so this is a
+  // straight wire-up: draw exactly the legs this card is telling you to take.
+  const legs = document.createElement("button");
+  legs.className = "place-directions";
+  legs.type = "button";
+  legs.title = option ? `Show this route to ${place.name} on the map` : "No route to draw";
+  legs.setAttribute("aria-label", legs.title);
+  legs.innerHTML = LINES_ICON;
+  legs.disabled = !option;
+  legs.addEventListener("click", async () => {
+    legs.disabled = true;
+    try {
+      await showJourneyRoutes(option, place.name);
+    } finally {
+      legs.disabled = false;
+    }
+  });
+  heading.append(title, distance, stopDirections, fullRoute, legs);
   card.append(heading);
 
   let route;
@@ -620,6 +639,21 @@ function renderSavedStops() {
         openWalkingDirections(coordinates);
       });
 
+      const routes = document.createElement("button");
+      routes.className = "stop-directions-icon";
+      routes.innerHTML = LINES_ICON;
+      routes.title = `Show the lines running at stop ${stop.stop_id}`;
+      routes.setAttribute("aria-label", routes.title);
+      routes.addEventListener("click", async (event) => {
+        event.stopPropagation();
+        routes.disabled = true;
+        try {
+          await showRoutesForStop(stop.stop_id, stopTitle(stop));
+        } finally {
+          routes.disabled = false;
+        }
+      });
+
       const list = document.createElement("ul");
       if (!cached) {
         list.innerHTML = `<li class="muted">No data yet</li>`;
@@ -667,7 +701,7 @@ function renderSavedStops() {
 
       const controls = document.createElement("div");
       controls.className = "controls";
-      controls.append(walking, refresh, remove);
+      controls.append(routes, walking, refresh, remove);
 
       const head = document.createElement("div");
       head.className = "head";
@@ -1559,8 +1593,31 @@ function shownRouteFor(code, stopId) {
   return (direction ? drawn.find((shown) => shown.direction === direction) : drawn[0]) ?? null;
 }
 
-async function toggleRoute(code, label, requestedDirection = null, anchorStopId = null) {
-  if (!leafletMap) return;
+/** Tap semantics: draw this direction, or remove it if it is already up. */
+function toggleRoute(code, label, requestedDirection = null, anchorStopId = null) {
+  return applyRoute(code, label, requestedDirection, anchorStopId, { toggle: true });
+}
+
+/** Draw this direction and leave it drawn. Used where a control means "show
+ *  these", not "flip these" — a card's routes button, the nearest-stops
+ *  toggle. Returns the drawn record so a caller can undo exactly its own work.
+ */
+function ensureRoute(code, label, requestedDirection = null, anchorStopId = null) {
+  return applyRoute(code, label, requestedDirection, anchorStopId,
+    { toggle: false, fit: false, refresh: false });
+}
+
+function removeShownRoute(shown) {
+  const key = routeKey(shown.code, shown.direction);
+  if (!shownRoutes.has(key)) return false;
+  routeLayer.removeLayer(shownRoutes.get(key).layer);
+  shownRoutes.delete(key);
+  return true;
+}
+
+async function applyRoute(code, label, requestedDirection, anchorStopId,
+  { toggle = true, fit = true, refresh = true } = {}) {
+  if (!leafletMap) return null;
 
   // The direction has to be known before anything can be toggled, and it comes
   // out of the route. After the first draw this is a cache read, so turning a
@@ -1573,7 +1630,7 @@ async function toggleRoute(code, label, requestedDirection = null, anchorStopId 
       routeCache.set(code, route);
     } catch (err) {
       statusEl.textContent = `Could not load route ${label}: ${err.message}`;
-      return;
+      return null;
     }
     statusEl.textContent = "";
   }
@@ -1585,13 +1642,13 @@ async function toggleRoute(code, label, requestedDirection = null, anchorStopId 
   const current = shownRoutes.get(key);
   const anchor = anchorStopId ?? current?.anchorStopId ?? null;
   if (current) {
-    // This direction is already drawn, so the tap means "off". The opposite
-    // direction, if it is also drawn, is left exactly where it is.
-    routeLayer.removeLayer(current.layer);
-    shownRoutes.delete(key);
+    // Already drawn. A tap means "off"; a "show these" caller means "nothing
+    // to do". Either way the opposite direction is left exactly where it is.
+    if (!toggle) return current;
+    removeShownRoute(current);
     renderRouteLegend();
     rebuildLiveBusMarkers();
-    return;
+    return null;
   }
 
   const color = lineColor(label);
@@ -1613,14 +1670,15 @@ async function toggleRoute(code, label, requestedDirection = null, anchorStopId 
   }
   addRouteStops(group, route.stops?.[next] ?? [], color);
   group.addTo(routeLayer);
-  shownRoutes.set(key, {
+  const record = {
     layer: group,
     label,
     code,
     direction: next,
     towards: next === "toA" ? route.nameA : route.nameB,
     anchorStopId: anchor,
-  });
+  };
+  shownRoutes.set(key, record);
   renderRouteLegend();
   rebuildLiveBusMarkers();
 
@@ -1629,11 +1687,12 @@ async function toggleRoute(code, label, requestedDirection = null, anchorStopId 
   // the pan reloads nearby stops, which rebuilds the pins and destroys the
   // popup the chip was tapped in.
   const bounds = group.getBounds();
-  if (bounds.isValid() && !leafletMap.getBounds().intersects(bounds)) {
+  if (fit && bounds.isValid() && !leafletMap.getBounds().intersects(bounds)) {
     leafletMap.fitBounds(bounds.pad(0.08));
   }
   // After the fit, never before: the probe is chosen against the viewport.
-  void refreshMapArrivals();
+  if (refresh) void refreshMapArrivals();
+  return record;
 }
 
 /** EMT's segments chain end to start, so concatenating them gives the path in
@@ -1716,11 +1775,145 @@ function addRouteStops(group, stops, color) {
   }
 }
 
+/** The lines at a stop that actually have a bus coming.
+ *
+ * A stop's line list is what it serves; the board is what is running. At
+ * 22:40 those are very different things, and drawing five routes for one bus
+ * is not showing you anything.
+ */
+function dueLinesAt(stopId) {
+  const due = new Set((arrivals[stopId]?.arrivals ?? [])
+    .filter((bus) => Number(bus.seconds) < SCHEDULED_SECONDS)
+    .map((bus) => lineIdentity(bus.line)));
+  return stopLines(stopId).filter((line) => due.has(lineIdentity(line)));
+}
+
+/** Draw every line running at a stop, each in the direction that stop serves.
+ *
+ * The whole set costs one arrivals call: probe stops dedupe through a Set and
+ * every line anchored here resolves to this same stop, whose board already
+ * lists all of them. Geometry is the only real cost, and it is fetched one
+ * line at a time — a burst of parallel route requests is what made this
+ * unusable when it was tried before.
+ *
+ * Pressing again with all of them up takes them all down.
+ */
+async function toggleStopRoutes(stopId, { label } = {}) {
+  const where = label || `stop ${stopId}`;
+  if (!arrivals[stopId]) await refreshStop(stopId, { updateView: false });
+  const lines = dueLinesAt(stopId);
+  if (lines.length === 0) {
+    statusEl.textContent = `Nothing due at ${where} to draw.`;
+    return [];
+  }
+  const already = lines.map((line) => shownRouteFor(line.line, stopId)).filter(Boolean);
+  if (already.length === lines.length) {
+    already.forEach(removeShownRoute);
+    renderRouteLegend();
+    rebuildLiveBusMarkers();
+    statusEl.textContent = "";
+    return [];
+  }
+  const drawn = [];
+  for (const [index, line] of lines.entries()) {
+    statusEl.textContent = `Drawing ${where}: ${line.label} (${index + 1}/${lines.length})…`;
+    const record = await ensureRoute(line.line, line.label, null, stopId);
+    if (record) drawn.push(record);
+  }
+  statusEl.textContent = "";
+  void refreshMapArrivals();
+  return drawn;
+}
+
+/** Bring the map up, centred on a stop, without disturbing the zoom someone
+ *  chose. A control that draws routes is useless from the list view. */
+function focusMapOn(coordinates) {
+  showView("map");
+  if (!leafletMap || !Array.isArray(coordinates)) return;
+  const zoom = Math.max(leafletMap.getZoom(), NEARBY_MIN_ZOOM);
+  leafletMap.setView([coordinates[1], coordinates[0]], zoom);
+}
+
+/** Card control: show me what is running at this stop, on the map. */
+async function showRoutesForStop(stopId, label) {
+  focusMapOn(details[stopId]?.coordinates ?? nearbyStop(stopId)?.coordinates);
+  await toggleStopRoutes(stopId, { label });
+}
+
+/** Hub card control: draw the legs this journey actually tells you to take.
+ *  The planner already resolved each leg's line and direction, so nothing is
+ *  inferred here. */
+async function showJourneyRoutes(option, placeName) {
+  if (!option) return;
+  const legs = [
+    { leg: option.firstLeg, stopId: option.originStop?.stopId },
+    { leg: option.secondLeg, stopId: option.transfer?.toStop?.stopId },
+  ].filter(({ leg }) => leg?.line);
+  if (legs.length === 0) return;
+  focusMapOn(option.originStop?.coordinates);
+  for (const [index, { leg, stopId }] of legs.entries()) {
+    statusEl.textContent = `Drawing ${placeName}: ${leg.label} (${index + 1}/${legs.length})…`;
+    await ensureRoute(leg.line, leg.label, leg.direction ?? null, stopId ?? null);
+  }
+  statusEl.textContent = "";
+  void refreshMapArrivals();
+}
+
+// Routes drawn by the nearest-stops toggle, so turning it off removes exactly
+// what it added and leaves anything picked by hand alone.
+const NEAREST_STOPS_SHOWN = 5;
+let nearestStopRoutes = [];
+
+function nearestSavedStops(limit = NEAREST_STOPS_SHOWN) {
+  return [...stops]
+    .filter((stop) => details[stop.stop_id]?.coordinates)
+    .sort((a, b) => proximity(metresFromCurrent(details[a.stop_id].coordinates)) -
+      proximity(metresFromCurrent(details[b.stop_id].coordinates)))
+    .slice(0, limit);
+}
+
+/** One control for "what can I catch near me": the same thing as pressing the
+ *  routes button on each of the nearest saved stops. */
+async function toggleNearestStopRoutes() {
+  if (nearestStopRoutes.length) {
+    nearestStopRoutes.forEach(removeShownRoute);
+    nearestStopRoutes = [];
+    renderRouteLegend();
+    rebuildLiveBusMarkers();
+    syncMapControls();
+    return;
+  }
+  const nearest = nearestSavedStops();
+  if (nearest.length === 0) {
+    statusEl.textContent = "No saved stops with a known location yet.";
+    return;
+  }
+  showView("map");
+  const drawn = [];
+  for (const stop of nearest) {
+    if (!arrivals[stop.stop_id]) {
+      await refreshStop(stop.stop_id, { updateView: false });
+    }
+    for (const line of dueLinesAt(stop.stop_id)) {
+      statusEl.textContent = `Drawing ${stopTitle(stop)}: ${line.label}…`;
+      const record = await ensureRoute(line.line, line.label, null, stop.stop_id);
+      if (record) drawn.push(record);
+    }
+  }
+  nearestStopRoutes = drawn;
+  statusEl.textContent = drawn.length
+    ? "" : `Nothing due at your ${nearest.length} nearest stops.`;
+  void refreshMapArrivals();
+  syncMapControls();
+}
+
 function clearRoutes() {
   routeLayer?.clearLayers();
   shownRoutes.clear();
+  nearestStopRoutes = [];
   renderRouteLegend();
   rebuildLiveBusMarkers();
+  syncMapControls();
 }
 
 /** Chips naming what is drawn — the only way to tell one route from another
@@ -2716,6 +2909,15 @@ document.getElementById("nearby-stops-open").addEventListener("click", () => {
     void updateClosestStopsDialog();
   }
 });
+nearestRoutesBtn.addEventListener("click", async () => {
+  nearestRoutesBtn.disabled = true;
+  try {
+    await toggleNearestStopRoutes();
+  } finally {
+    nearestRoutesBtn.disabled = false;
+  }
+});
+
 document.getElementById("nearby-stops-close").addEventListener("click", () => nearbyStopsDialog.close());
 
 /** Load stops within 500m of the map centre; one fetch per ~110m cell. */
@@ -3194,6 +3396,7 @@ const bikeAccountCheck = document.getElementById("bike-account-check");
 const bikeTripsOpen = document.getElementById("bike-trips-open");
 const mapActions = document.getElementById("map-actions");
 const mapFullscreenBtn = document.getElementById("map-fullscreen");
+const nearestRoutesBtn = document.getElementById("map-nearest-routes");
 
 const BIKE_RADIUS = 700;
 
@@ -4287,6 +4490,11 @@ function syncMapControls() {
   const mapView = viewMapBtn.getAttribute("aria-selected") === "true";
   if (!mapView) closeFullscreenMap();
   mapActions.hidden = !mapView;
+  const on = nearestStopRoutes.length > 0;
+  nearestRoutesBtn.setAttribute("aria-pressed", String(on));
+  nearestRoutesBtn.title = on
+    ? "Hide the lines at your nearest saved stops"
+    : "Show lines at my nearest saved stops";
 }
 
 function closeFullscreenMap() {

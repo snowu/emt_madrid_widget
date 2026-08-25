@@ -639,7 +639,26 @@ is most stale), and manually per-card or all at once.
    way to tell two buses of a line apart, and it sits at the bottom, muted.
    There is no "show route" button: a bus is only ever visible *because* its
    route is drawn, so that button could only ever hide what it offered.
-15. **Nearby stops are cached by grid cell, not fetched as a disc.** A disc
+15. **Routes are reachable from the cards, not just the map.** A saved stop
+   card draws every line *running* at that stop, each in the direction that
+   stop serves; a hub card draws the legs of the journey it is recommending,
+   whose lines and `toA`/`toB` directions the planner already resolved. The
+   map's ≈ control does the same for the nearest saved stops
+   (`NEAREST_STOPS_SHOWN`, currently 5) and remembers what it drew, so turning
+   it off leaves anything picked by hand alone.
+
+   Only lines with a bus on the board are drawn: a stop's line list is what it
+   *serves*, the board is what is *running*, and at 22:40 those differ enough
+   that drawing five routes for one bus shows nothing. `dueLinesAt()` is that
+   filter.
+
+   The whole set of lines at one stop costs **one** arrivals call — probe stops
+   dedupe through a Set, every line anchored there resolves to that same stop,
+   and its board already lists all of them. Geometry is fetched one line at a
+   time; that is about responsiveness, not quota, since twenty parallel route
+   requests stall the map while they land. `toggleRoute` flips a direction,
+   `ensureRoute` only ever draws, and `applyRoute` is the shared body.
+16. **Nearby stops are cached by grid cell, not fetched as a disc.** A disc
    around the map centre covers a shrinking slice of the viewport as you zoom
    out, and re-centring replaced the whole set — so pins jumped and blinked
    out while panning. The page instead tiles a fixed 0.02° grid (2226m of
@@ -649,10 +668,10 @@ is most stale), and manually per-card or all at once.
    localStorage entry for 24h. A dense central cell is ~124 stops ≈ 29KB;
    forty cells are kept, oldest evicted first. Pins are added and removed one
    at a time rather than by clearing the layer.
-16. **Below zoom 14 there are no nearby pins at all.** The viewport is then
+17. **Below zoom 14 there are no nearby pins at all.** The viewport is then
    several cells across and thousands of dots wide, which is neither useful
    nor cheap. Saved stops and drawn routes are unaffected.
-17. **One probe stop per displayed direction, every 5s.** A stop's arrivals
+18. **One probe stop per displayed direction, every 5s.** A stop's arrivals
    only ever describe buses still heading *for* it, so polling the stop the
    route was opened from is exactly "what is coming to me" — buses already
    past it are somebody else's problem. Cycling to the other direction reuses
