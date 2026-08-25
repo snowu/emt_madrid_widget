@@ -1065,6 +1065,7 @@ authForm.addEventListener("submit", async (event) => {
 });
 
 const ARRIVALS_REFRESH_MS = 20_000;
+const BUS_MAP_REFRESH_MS = 10_000;
 const stopRefreshes = new Map();
 
 async function refreshStop(stopId, { force = false, updateView = true, persist = true } = {}) {
@@ -1114,6 +1115,30 @@ async function refreshAll({ force = false } = {}) {
   writeArrivalCache(arrivals);
   render();
   renderSheetArrivals();
+  rebuildLiveBusMarkers();
+}
+
+async function refreshMapArrivals() {
+  if (!leafletMap || mapEl.hidden) return;
+  const bounds = leafletMap.getBounds().pad(0.25);
+  const stopIds = new Set(stops.filter((stop) => {
+    const [lon, lat] = details[stop.stop_id]?.coordinates ?? [];
+    return Number.isFinite(lon) && Number.isFinite(lat) && bounds.contains([lat, lon]);
+  }).map((stop) => stop.stop_id));
+  for (const marker of liveBusMarkers.values()) {
+    if (marker.busSourceStopId && bounds.contains(marker.getLatLng())) {
+      stopIds.add(marker.busSourceStopId);
+    }
+  }
+  await Promise.all([
+    ...[...stopIds].map((stopId) => refreshStop(stopId, {
+      force: true, updateView: false, persist: false,
+    })),
+    ...nearbyStops.filter((stop) => previewArrivals.has(stop.stopId)
+      && Array.isArray(stop.coordinates) && bounds.contains([stop.coordinates[1], stop.coordinates[0]]))
+      .map((stop) => loadPreviewArrivals(stop.stopId, { force: true })),
+  ]);
+  writeArrivalCache(arrivals);
   rebuildLiveBusMarkers();
 }
 
@@ -1588,16 +1613,15 @@ function movementBearing([oldLon, oldLat], [newLon, newLat]) {
   return (Math.atan2(dx, dy) * 180) / Math.PI;
 }
 
-function animateBusMarker(marker, from, to, duration = ARRIVALS_REFRESH_MS - 1000) {
+function animateBusMarker(marker, from, to, duration = BUS_MAP_REFRESH_MS - 500) {
   const animationId = (marker.busAnimationId ?? 0) + 1;
   marker.busAnimationId = animationId;
   const started = performance.now();
   const frame = (now) => {
     const progress = Math.min(1, (now - started) / duration);
-    const eased = 1 - (1 - progress) ** 3;
     marker.setLatLng([
-      from[0] + (to[0] - from[0]) * eased,
-      from[1] + (to[1] - from[1]) * eased,
+      from[0] + (to[0] - from[0]) * progress,
+      from[1] + (to[1] - from[1]) * progress,
     ]);
     if (progress < 1 && liveBusMarkers.get(marker.busKey) === marker
       && marker.busAnimationId === animationId) requestAnimationFrame(frame);
@@ -1698,6 +1722,7 @@ function rebuildLiveBusMarkers() {
       marker.busBearing = bus.bearing;
       marker.busCoordinates = bus.coordinates;
       marker.busFetchedAt = bus.fetchedAt;
+      marker.busSourceStopId = bus.sourceStopId;
       marker.setIcon(liveBusIcon(bus));
       marker.unbindPopup().bindPopup(() => liveBusPopup(bus));
       if (bearing != null) animateBusMarker(marker, [previous.lat, previous.lng], next);
@@ -1706,6 +1731,7 @@ function rebuildLiveBusMarkers() {
     const created = L.marker(next, { icon: liveBusIcon(bus), zIndexOffset: 700 });
     created.busKey = key;
     created.busBearing = null;
+    created.busSourceStopId = bus.sourceStopId;
     created.busCoordinates = bus.coordinates;
     created.busFetchedAt = bus.fetchedAt;
     created.bindPopup(() => liveBusPopup(bus));
@@ -2439,12 +2465,9 @@ setInterval(() => {
     return;
   }
   if (mapEl.hidden) tickStopList();
-  else if (Date.now() - busMapRefreshAt >= ARRIVALS_REFRESH_MS) {
+  else if (Date.now() - busMapRefreshAt >= BUS_MAP_REFRESH_MS) {
     busMapRefreshAt = Date.now();
-    void Promise.all([
-      refreshAll({ force: true }),
-      ...[...previewArrivals.keys()].map((stopId) => loadPreviewArrivals(stopId, { force: true })),
-    ]);
+    void refreshMapArrivals();
   }
   tickPopups();
   renderSheetArrivals();
