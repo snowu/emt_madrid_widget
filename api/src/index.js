@@ -62,6 +62,7 @@ const WALKING_CACHE_TTL = 7 * 24 * 3600;
 const BIKES_CACHE_TTL = 45;
 // Names and positions only change when a station is built or moved.
 const BIKE_INFO_CACHE_TTL = 24 * 3600;
+const JOURNEY_ORIGIN_STOP_LIMIT = 12;
 // Cards want the next bus and the one after it; the stop sheet wants the board.
 const DEFAULT_ARRIVALS = 2;
 const MAX_ARRIVALS = 20;
@@ -288,7 +289,11 @@ async function journeys(request, body, env, ctx) {
   const destinationStops = await Promise.all(destinations.map(async (destination) =>
     nearbyAccess(await cachedNearby(request.url, env, destination.lat, destination.lon,
       destination.radius, ctx), destination, 6)));
-  const originStops = prioritizeAccessStops(originCandidates, destinationStops, 6);
+  const originStops = prioritizeAccessStops(
+    originCandidates,
+    destinationStops,
+    JOURNEY_ORIGIN_STOP_LIMIT,
+  );
   let walkingRouted = false;
   try {
     const matrix = await walkingMatrix(request.url, {
