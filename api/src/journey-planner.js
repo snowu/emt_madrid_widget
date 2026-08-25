@@ -61,6 +61,31 @@ export function nearbyAccess(stops, location, maxStops = 6) {
     .slice(0, maxStops);
 }
 
+/** Keep scarce live-arrival calls useful in dense areas.
+ *
+ * A merely nearest-first slice can discard a direct line 450 m away because
+ * six unrelated stops happen to be closer. Reserve the nearest candidate
+ * sharing a line with each destination, then fill the remaining slots by
+ * walking distance.
+ */
+export function prioritizeAccessStops(candidates, destinationGroups, maxStops = 6) {
+  const selected = [];
+  const selectedIds = new Set();
+  const add = (stop) => {
+    const id = String(stop?.stopId ?? "");
+    if (!id || selectedIds.has(id) || selected.length >= maxStops) return;
+    selectedIds.add(id);
+    selected.push(stop);
+  };
+  for (const destinations of destinationGroups ?? []) {
+    const destinationLines = (destinations ?? []).flatMap((stop) => stop.lines ?? []);
+    add((candidates ?? []).find((candidate) => (candidate.lines ?? [])
+      .some((line) => destinationLines.some((destinationLine) => linesMatch(line, destinationLine)))));
+  }
+  for (const candidate of candidates ?? []) add(candidate);
+  return selected;
+}
+
 export function linesAt(stops) {
   const result = new Map();
   for (const stop of stops ?? []) {

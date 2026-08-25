@@ -4,6 +4,7 @@ import {
   linesMatch,
   nearbyAccess,
   planJourney,
+  prioritizeAccessStops,
   stopsWithLiveLines,
 } from "../src/journey-planner.js";
 
@@ -46,6 +47,17 @@ describe("journey planner", () => {
       stop("far", -3.70, 40.42), stop("near", -3.7001, 40.4001),
     ], { lat: 40.4, lon: -3.7 });
     expect(result.map((item) => item.stopId)).toEqual(["near", "far"]);
+  });
+
+  it("preserves a farther direct-line stop before filling by distance", () => {
+    const candidates = [
+      { stopId: "near-1", distanceM: 50, lines: [{ line: "29" }] },
+      { stopId: "near-2", distanceM: 80, lines: [{ line: "70" }] },
+      { stopId: "airport", distanceM: 450, lines: [{ line: "125" }] },
+    ];
+    const destinations = [[{ stopId: "terminal", lines: [{ line: "125" }] }]];
+    expect(prioritizeAccessStops(candidates, destinations, 2).map((item) => item.stopId))
+      .toEqual(["airport", "near-1"]);
   });
 
   it("accepts a direct line only in the direction that reaches the destination", () => {

@@ -37,6 +37,7 @@ import {
   linesMatch,
   nearbyAccess,
   planJourney,
+  prioritizeAccessStops,
   stopsWithLiveLines,
   uniqueLineCodes,
 } from "./journey-planner.js";
@@ -283,7 +284,11 @@ async function journeys(request, body, env, ctx) {
     radius: Math.min(700, Math.max(200, Number(destination.destinationRadiusM) || 700)),
   }));
   const originRaw = await cachedNearby(request.url, env, origin.lat, origin.lon, 700, ctx);
-  const originStops = nearbyAccess(originRaw, origin, 6);
+  const originCandidates = nearbyAccess(originRaw, origin, 50);
+  const destinationStops = await Promise.all(destinations.map(async (destination) =>
+    nearbyAccess(await cachedNearby(request.url, env, destination.lat, destination.lon,
+      destination.radius, ctx), destination, 6)));
+  const originStops = prioritizeAccessStops(originCandidates, destinationStops, 6);
   let walkingRouted = false;
   try {
     const matrix = await walkingMatrix(request.url, {
@@ -303,10 +308,6 @@ async function journeys(request, body, env, ctx) {
     // Journey planning remains available if the public pedestrian router is
     // temporarily down. Without routed timing the UI deliberately stays neutral.
   }
-  const destinationStops = await Promise.all(destinations.map(async (destination) =>
-    nearbyAccess(await cachedNearby(request.url, env, destination.lat, destination.lon,
-      destination.radius, ctx), destination, 6)));
-
   // Read all candidate boarding boards first. Individual EMT failures are
   // isolated: one bad stop must not hold or reject the entire journey.
   const liveStopIds = originStops.map((stop) => String(stop.stopId));
