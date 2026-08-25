@@ -399,6 +399,7 @@ function openWalkingDirections(coordinates) {
 
 const WALKING_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="13" cy="4" r="1.8"></circle><path d="m10.5 8 2.5-1 2.5 2.5 2.5 1"></path><path d="m13 7-2 5 3 2 1.5 5"></path><path d="m11 12-3 3-2 4"></path></svg>';
 const LINES_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 18 9 6l6 12 5-12"></path></svg>';
+const INFO_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v5"></path><circle cx="12" cy="7.6" r=".9" fill="currentColor" stroke="none"></circle></svg>';
 const ROUTE_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s6-5.4 6-11a6 6 0 1 0-12 0c0 5.6 6 11 6 11Z"></path><circle cx="12" cy="10" r="2"></circle></svg>';
 
 function openTransitDirections(place) {
@@ -1668,10 +1669,20 @@ async function applyRoute(code, label, requestedDirection, anchorStopId,
     statusEl.textContent = "";
   }
 
+  // EMT answers to both of a line's names — /lines/519/route and
+  // /lines/N19/route are the same route — so the caller's spelling cannot be
+  // what identifies it. The payload reports its own canonical code and label;
+  // key on those, or one tap draws "519:toB" and the next draws "N19:toB" and
+  // neither can ever toggle the other off.
+  const canonicalCode = String(route.line ?? code);
+  const canonicalLabel = String(route.label ?? label);
+  if (!routeCache.has(canonicalCode)) routeCache.set(canonicalCode, route);
+  if (!routeCache.has(canonicalLabel)) routeCache.set(canonicalLabel, route);
+
   // The stop a chip was tapped in serves exactly one direction of that line,
   // so it names the direction outright rather than being guessed at.
   const next = requestedDirection ?? routeStopDirection(route, anchorStopId) ?? "toA";
-  const key = routeKey(code, next);
+  const key = routeKey(canonicalCode, next);
   const current = shownRoutes.get(key);
   const anchor = anchorStopId ?? current?.anchorStopId ?? null;
   if (current) {
@@ -1685,7 +1696,7 @@ async function applyRoute(code, label, requestedDirection, anchorStopId,
     return null;
   }
 
-  const color = lineColor(label);
+  const color = lineColor(canonicalLabel);
   const segments = route.paths?.[next] ?? [];
   // featureGroup, not layerGroup: only this one can report its own bounds.
   const group = L.featureGroup();
@@ -1708,8 +1719,8 @@ async function applyRoute(code, label, requestedDirection, anchorStopId,
   group.addTo(routeLayer);
   const record = {
     layer: group,
-    label,
-    code,
+    label: canonicalLabel,
+    code: canonicalCode,
     direction: next,
     towards: next === "toA" ? route.nameA : route.nameB,
     anchorStopId: anchor,
@@ -2162,73 +2173,38 @@ function savedStopStar(s) {
   return star;
 }
 
-function lineChips(lines, anchorStopId = null) {
-  const wrap = document.createElement("p");
-  wrap.className = "chips";
-  for (const raw of lines ?? []) {
-    const l = normaliseLine(raw);
-    const chip = document.createElement("button");
-    chip.type = "button";
-    // Drawn-or-not is read from the map, never held on the chip: popups are
-    // rebuilt every second by the countdown tick, which would lose it.
-    const drawn = shownRouteFor(l.line, anchorStopId);
-    paintLineChip(chip, l, drawn);
-    chip.title = drawn ? `Hide route ${l.label}` : `Show route ${l.label}`;
-    chip.addEventListener("click", (event) => {
-      event.stopPropagation();
-      toggleRoute(l.line, l.label, null, anchorStopId);
-    });
-    wrap.append(chip);
-  }
-  return wrap;
-}
 
 function popupHtml(stop) {
   // Built as DOM, never as a string: line names/labels come from EMT.
   const wrap = document.createElement("div");
-  const title = document.createElement("h3");
-  title.textContent = stopTitle(stop);
   const num = document.createElement("p");
   num.className = "stop-num";
   num.textContent = `Nº ${stop.stop_id}`;
-  const chips = lineChips(stopLines(stop.stop_id), stop.stop_id);
-  const ul = document.createElement("ul");
-
-  const open = document.createElement("button");
-  open.type = "button";
-  open.textContent = "Open";
-  open.addEventListener("click", () => {
-    leafletMap.closePopup();
-    openStop(stop);
-  });
+  wrap.append(
+    popupHead(stopTitle(stop),
+      savedStopStar({ stopId: stop.stop_id, name: stopTitle(stop) }),
+      stopInfoButton(stop)),
+    num,
+  );
 
   const cached = arrivals[stop.stop_id];
-  if (!cached || cached.arrivals.length === 0) {
-    const li = document.createElement("li");
-    li.className = "muted";
-    li.textContent = cached ? emptyBoardText(stop.stop_id) : "No data yet";
-    ul.append(li);
+  const list = lineRowList(stop.stop_id, stopLines(stop.stop_id), cached);
+  if (list) {
+    wrap.append(list);
   } else {
-    const elapsed = Math.floor((Date.now() - cached.fetchedAt) / 1000);
-    for (const bus of cached.arrivals.slice(0, CARD_ARRIVALS)) {
-      const li = document.createElement("li");
-      const line = document.createElement("span");
-      line.className = "line";
-      line.textContent = String(bus.line);
-      line.style.color = lineColor(bus.line);
-      const eta = document.createElement("span");
-      eta.className = "eta";
-      eta.textContent = fmtCountdown(bus.seconds - elapsed);
-      li.append(line, eta);
-      ul.append(li);
-    }
+    const empty = document.createElement("p");
+    empty.className = "muted pop-empty";
+    empty.textContent = cached ? emptyBoardText(stop.stop_id) : "No data yet";
+    wrap.append(empty);
+  }
+
+  // Every rendering of arrival data carries its age.
+  if (cached) {
     const age = document.createElement("p");
     age.className = "age";
     age.textContent = `updated ${fmtAge(cached.fetchedAt)}`;
-    wrap.append(title, num, chips, ul, age, open);
-    return wrap;
+    wrap.append(age);
   }
-  wrap.append(title, num, chips, ul, open);
   return wrap;
 }
 
@@ -2896,37 +2872,27 @@ async function loadPreviewArrivals(stopId, { force = false } = {}) {
   tickPopups();
 }
 
-/** A nearby stop, said in as little space as it honestly can be.
+/** The body both stop popups share.
  *
- * One row per line: its chip and its countdown, or a dash when nothing of that
- * line is coming. A chip row plus a separate arrivals list named the same
- * lines twice and cost twice the height. Saving is the star the stop cards
- * already use, which is a row cheaper than a full-width button.
+ * A line with a bus coming gets a row of its own: its chip and its countdown,
+ * soonest first. Every other line collapses into one wrapped row of chips.
  *
- * The whole row is the target, not just the chip — it does exactly what the
- * chip does, and a 22px chip is a poor thing to ask a thumb to hit.
+ * Both halves earn their space. A chip row plus a separate arrivals list named
+ * the same lines twice and cost twice the height — but a row each for all
+ * thirteen lines at Gran Vía is taller still, and twelve of those rows would
+ * say nothing but "—". Rows are for answers; chips are for the rest.
+ *
+ * Tapping either does the same thing: draw that line's route. The row is the
+ * larger target, which is the point — a 22px chip is a poor thing to ask a
+ * thumb to hit.
  */
-function nearbyPopupHtml(s) {
-  const wrap = document.createElement("div");
-  const head = document.createElement("div");
-  head.className = "pop-head";
-  const title = document.createElement("h3");
-  title.textContent = s.name || `Stop ${s.stopId}`;
-  head.append(title, savedStopStar(s));
-  const num = document.createElement("p");
-  num.className = "stop-num";
-  num.textContent = `Nº ${s.stopId}`;
-  wrap.append(head, num);
-
-  const preview = previewArrivals.get(s.stopId);
-  if (preview === undefined) loadPreviewArrivals(s.stopId);
-
-  // Soonest countdown per line. Keyed by identity so a board naming "N19"
+function lineRowList(stopId, lines, payload) {
+  // Soonest countdown per line, keyed by identity so a board naming "N19"
   // still answers for a stop list carrying 519.
   const due = new Map();
-  if (preview) {
-    const elapsed = Math.floor((Date.now() - preview.fetchedAt) / 1000);
-    for (const bus of preview.arrivals) {
+  if (payload) {
+    const elapsed = Math.floor((Date.now() - payload.fetchedAt) / 1000);
+    for (const bus of payload.arrivals ?? []) {
       if (Number(bus.seconds) >= SCHEDULED_SECONDS) continue;
       const id = lineIdentity(bus.line);
       const seconds = bus.seconds - elapsed;
@@ -2935,59 +2901,118 @@ function nearbyPopupHtml(s) {
   }
   const secondsFor = (l) => due.get(lineIdentity(l.label)) ?? due.get(lineIdentity(l.line));
 
-  const lines = [];
+  const entries = [];
   const seen = new Set();
-  for (const raw of s.lines ?? []) {
+  for (const raw of lines ?? []) {
     const l = normaliseLine(raw);
     const id = lineIdentity(l.line);
     if (!id || seen.has(id)) continue;
     seen.add(id);
     seen.add(lineIdentity(l.label));
-    lines.push(l);
+    entries.push(l);
   }
   // A board can name a line the stop record never listed.
-  for (const bus of preview?.arrivals ?? []) {
+  for (const bus of payload?.arrivals ?? []) {
     const id = lineIdentity(bus.line);
     if (!id || seen.has(id)) continue;
     seen.add(id);
-    lines.push(normaliseLine(bus.line));
+    entries.push(normaliseLine(bus.line));
   }
-  lines.sort((a, b) => (secondsFor(a) ?? Infinity) - (secondsFor(b) ?? Infinity));
+  if (entries.length === 0) return null;
 
-  if (lines.length === 0) {
+  const running = entries.filter((l) => secondsFor(l) != null)
+    .sort((a, b) => secondsFor(a) - secondsFor(b));
+  const idle = entries.filter((l) => secondsFor(l) == null);
+
+  const body = document.createElement("div");
+  body.className = "pop-lines";
+  for (const l of running) {
+    const row = lineControl(l, stopId, "pop-line");
+    const eta = document.createElement("span");
+    eta.className = "eta";
+    eta.textContent = fmtCountdown(secondsFor(l));
+    row.append(eta);
+    body.append(row);
+  }
+  if (idle.length) {
+    const rest = document.createElement("div");
+    rest.className = "pop-idle";
+    for (const l of idle) rest.append(lineControl(l, stopId, "pop-chip"));
+    // Nothing at all is coming, so one dash covers the whole board.
+    if (running.length === 0) {
+      const none = document.createElement("span");
+      none.className = "eta muted";
+      none.textContent = "—";
+      rest.append(none);
+    }
+    body.append(rest);
+  }
+  return body;
+}
+
+/** One tappable line, as a full-width row or as a bare chip. Both draw that
+ *  line's route, so they are the same control at two sizes. */
+function lineControl(l, stopId, className) {
+  const drawn = shownRouteFor(l.line, stopId);
+  const control = document.createElement("button");
+  control.type = "button";
+  control.className = className;
+  control.title = drawn ? `Hide route ${l.label}` : `Show route ${l.label}`;
+  const chip = document.createElement("span");
+  paintLineChip(chip, l, drawn);
+  control.append(chip);
+  control.addEventListener("click", (event) => {
+    event.stopPropagation();
+    toggleRoute(l.line, l.label, null, stopId);
+  });
+  return control;
+}
+
+
+/** A stop popup's first line: its name, and the two things you can do to it. */
+function popupHead(title, ...actions) {
+  const head = document.createElement("div");
+  head.className = "pop-head";
+  const heading = document.createElement("h3");
+  heading.textContent = title;
+  head.append(heading, ...actions.filter(Boolean));
+  return head;
+}
+
+function stopInfoButton(stop) {
+  const info = document.createElement("button");
+  info.type = "button";
+  info.className = "pop-info";
+  info.innerHTML = INFO_ICON;
+  info.title = `Open stop ${stop.stop_id}`;
+  info.setAttribute("aria-label", info.title);
+  info.addEventListener("click", (event) => {
+    event.stopPropagation();
+    leafletMap.closePopup();
+    openStop(stop);
+  });
+  return info;
+}
+
+function nearbyPopupHtml(s) {
+  const wrap = document.createElement("div");
+  const num = document.createElement("p");
+  num.className = "stop-num";
+  num.textContent = `Nº ${s.stopId}`;
+  wrap.append(popupHead(s.name || `Stop ${s.stopId}`, savedStopStar(s)), num);
+
+  const preview = previewArrivals.get(s.stopId);
+  if (preview === undefined) loadPreviewArrivals(s.stopId);
+
+  const list = lineRowList(s.stopId, s.lines, preview || null);
+  if (list) {
+    wrap.append(list);
+  } else {
     const empty = document.createElement("p");
     empty.className = "muted pop-empty";
     empty.textContent = preview === null ? "Could not reach EMT" : "No lines known";
     wrap.append(empty);
-    return wrap;
   }
-
-  const list = document.createElement("div");
-  list.className = "pop-lines";
-  for (const l of lines) {
-    const drawn = shownRouteFor(l.line, s.stopId);
-    const row = document.createElement("button");
-    row.type = "button";
-    row.className = "pop-line";
-    row.title = drawn ? `Hide route ${l.label}` : `Show route ${l.label}`;
-    const chip = document.createElement("span");
-    paintLineChip(chip, l, drawn);
-    const eta = document.createElement("span");
-    eta.className = "eta";
-    const seconds = secondsFor(l);
-    if (preview === null) eta.textContent = "?";
-    else if (preview === undefined) eta.textContent = "…";
-    else if (seconds == null) eta.textContent = "—";
-    else eta.textContent = fmtCountdown(seconds);
-    if (seconds == null) eta.classList.add("muted");
-    row.append(chip, eta);
-    row.addEventListener("click", (event) => {
-      event.stopPropagation();
-      toggleRoute(l.line, l.label, null, s.stopId);
-    });
-    list.append(row);
-  }
-  wrap.append(list);
   return wrap;
 }
 

@@ -771,7 +771,7 @@ body.map-is-fullscreen { overflow: hidden; }
 /* A nearby stop popup: header carries the save star, then one tappable row
    per line. Chip height is derived from its own font size — em padding and a
    fixed line-height — so the two cannot drift apart. */
-.pop-head { display: flex; align-items: baseline; gap: 0.4rem; }
+.pop-head { display: flex; align-items: baseline; gap: 0.3rem; }
 .pop-head h3 { flex: 1; min-width: 0; overflow-wrap: anywhere; padding-right: 0; }
 
 .leaflet-popup-content .pop-star {
@@ -785,6 +785,27 @@ body.map-is-fullscreen { overflow: hidden; }
   color: var(--star);
   font-size: 1.15rem;
   line-height: 1;
+}
+
+.leaflet-popup-content .pop-info {
+  flex: none;
+  width: 24px;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  line-height: 1;
+}
+
+.leaflet-popup-content .pop-info svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  vertical-align: middle;
 }
 
 .leaflet-popup-content .line-chip {
@@ -812,6 +833,27 @@ body.map-is-fullscreen { overflow: hidden; }
 }
 
 .leaflet-popup-content .pop-line:last-child { border-bottom: none; }
+
+/* The lines with nothing coming: one wrapped row of bare chips, no borders,
+   no countdown column to leave empty. */
+.pop-idle {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+  padding-top: 0.35rem;
+}
+
+.leaflet-popup-content .pop-chip {
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  line-height: 1;
+}
+
+.pop-idle .eta { margin-left: auto; font-size: 0.95rem; }
 .leaflet-popup-content .pop-line:active { background: var(--active); }
 .leaflet-popup-content .pop-line .eta { margin-left: auto; font-size: 0.95rem; }
 .leaflet-popup-content .pop-empty { margin: 0.4rem 0 0; font-size: 0.9rem; }
