@@ -80,6 +80,18 @@ function createMap(container, { center, zoom = 15, interactive = true, controls 
 
 const MADRID = [-3.7038, 40.4168];
 
+/** MapLibre's LngLatBounds has no `pad`, and the raw viewport is a hard edge:
+ *  a stop one pixel outside it would flicker in and out while panning. */
+function paddedBounds(map, ratio) {
+  const box = map.getBounds();
+  const dLng = (box.getEast() - box.getWest()) * ratio;
+  const dLat = (box.getNorth() - box.getSouth()) * ratio;
+  return new maplibregl.LngLatBounds(
+    [box.getWest() - dLng, box.getSouth() - dLat],
+    [box.getEast() + dLng, box.getNorth() + dLat],
+  );
+}
+
 /** `myLocation` is [lat, lon] — geolocation's order, and what every distance
  *  calculation in this file expects. MapLibre wants [lng, lat]. Flip here and
  *  nowhere else; EMT's own coordinates are already [lon, lat] and go straight
@@ -1371,7 +1383,7 @@ async function refreshMapArrivals() {
   // asleep — most of a 20,000/day quota, spent on buses nobody was watching.
   // visibilitychange refreshes on the way back, so nothing is lost by waiting.
   if (document.visibilityState !== "visible") return;
-  const bounds = leafletMap.getBounds().pad(0.25);
+  const bounds = paddedBounds(leafletMap, 0.25);
   const stopIds = new Set();
   // A stop's arrivals only ever describe buses still heading for it, so the
   // stop a route was opened from is exactly "what is coming to me". Probing
@@ -1383,7 +1395,7 @@ async function refreshMapArrivals() {
     if (probe) stopIds.add(probe);
   }
   for (const marker of liveBusMarkers.values()) {
-    if (marker.busSourceStopId && bounds.contains(marker.getLatLng())) {
+    if (marker.busSourceStopId && bounds.contains(marker.getLngLat())) {
       stopIds.add(marker.busSourceStopId);
     }
   }
@@ -1668,7 +1680,6 @@ function nearbyStop(stopId) {
 
 /* ---- Line routes on the map -------------------------------------------- */
 
-let routeLayer = null;
 // Keyed per direction, not per line. A stop only ever means one direction, so
 // a chip tapped in its popup draws that one — but nothing stops someone asking
 // for the other as well, and a line running both ways is a reasonable thing to
@@ -1719,10 +1730,105 @@ function ensureRoute(code, label, requestedDirection = null, anchorStopId = null
     { toggle: false, fit: false, refresh: false });
 }
 
+/** Draw one route direction as GL layers.
+ *
+ * Leaflet needed a DOM marker per arrowhead and per en-route stop — a dozen
+ * arrows and ~28 dots for every direction shown, all of them transformed on
+ * each frame. GL draws them from one GeoJSON source instead, which is the
+ * whole reason vector is worth the port: twenty routes is now geometry in a
+ * buffer rather than six hundred DOM nodes.
+ *
+ * Arrowheads are a symbol layer with `symbol-placement: line`, so MapLibre
+ * spaces and rotates them along the path itself — the manual bearing maths
+ * per arrow goes away.
+ */
+function drawRouteLayers(shown) {
+  if (!leafletMap?.isStyleLoaded()) return; // re-run from the style's load event
+  removeRouteLayers(shown);
+  const { sourceId, color, segments, routeStops } = shown;
+  const saved = savedIds();
+  const seen = new Set();
+  const dots = [];
+  for (const stop of routeStops) {
+    if (seen.has(stop.stopId) || saved.has(stop.stopId) || !stop.coordinates) continue;
+    seen.add(stop.stopId);
+    dots.push({
+      type: "Feature",
+      geometry: { type: "Point", coordinates: stop.coordinates },
+      properties: { stopId: String(stop.stopId), name: stop.name ?? "" },
+    });
+  }
+
+  leafletMap.addSource(sourceId, {
+    type: "geojson",
+    data: {
+      type: "FeatureCollection",
+      features: [
+        { type: "Feature", properties: {},
+          geometry: { type: "MultiLineString", coordinates: segments } },
+      ],
+    },
+  });
+  leafletMap.addSource(`${sourceId}-stops`, {
+    type: "geojson",
+    data: { type: "FeatureCollection", features: dots },
+  });
+
+  leafletMap.addLayer({
+    id: `${sourceId}-line`,
+    type: "line",
+    source: sourceId,
+    layout: { "line-cap": "round", "line-join": "round" },
+    paint: { "line-color": color, "line-width": 4, "line-opacity": 0.9 },
+  });
+  leafletMap.addLayer({
+    id: `${sourceId}-arrows`,
+    type: "symbol",
+    source: sourceId,
+    layout: {
+      "symbol-placement": "line",
+      "symbol-spacing": 90,
+      "text-field": "▲",
+      "text-size": 13,
+      "text-rotation-alignment": "map",
+      "text-keep-upright": false,
+      "text-allow-overlap": true,
+      "text-ignore-placement": true,
+    },
+    paint: { "text-color": color, "text-halo-color": "#0d0f14", "text-halo-width": 1 },
+  });
+  // Quiet on purpose: the drawn path and the live buses are the subject, and
+  // these are every stop on a city-length line.
+  leafletMap.addLayer({
+    id: `${sourceId}-stops`,
+    type: "circle",
+    source: `${sourceId}-stops`,
+    paint: {
+      "circle-radius": 4,
+      "circle-color": "#12141a",
+      "circle-opacity": 0.8,
+      "circle-stroke-color": color,
+      "circle-stroke-width": 1.5,
+      "circle-stroke-opacity": 0.6,
+    },
+  });
+}
+
+function removeRouteLayers(shown) {
+  if (!leafletMap) return;
+  for (const suffix of ["-line", "-arrows", "-stops"]) {
+    const id = `${shown.sourceId}${suffix}`;
+    if (leafletMap.getLayer(id)) leafletMap.removeLayer(id);
+  }
+  for (const id of [shown.sourceId, `${shown.sourceId}-stops`]) {
+    if (leafletMap.getSource(id)) leafletMap.removeSource(id);
+  }
+}
+
 function removeShownRoute(shown) {
   const key = routeKey(shown.code, shown.direction);
   if (!shownRoutes.has(key)) return false;
-  routeLayer.removeLayer(shownRoutes.get(key).layer);
+  removeRouteLayers(shownRoutes.get(key));
   shownRoutes.delete(key);
   return true;
 }
@@ -1775,36 +1881,19 @@ async function applyRoute(code, label, requestedDirection, anchorStopId,
   }
 
   const color = lineColor(canonicalLabel);
-  const segments = route.paths?.[next] ?? [];
-  // featureGroup, not layerGroup: only this one can report its own bounds.
-  const group = L.featureGroup();
-  const pathLayers = [];
-  if (segments.length) {
-    // GeoJSON order is [lon, lat]; Leaflet wants [lat, lon].
-    const latlngs = segments.map((seg) => seg.map(([lon, lat]) => [lat, lon]));
-    const path = L.polyline(latlngs, {
-      color,
-      weight: 5,
-      opacity: 0.9,
-      // Decoration, not a target: an interactive line would swallow taps meant
-      // for the stop pins it runs through.
-      interactive: false,
-    }).addTo(group);
-    pathLayers.push(path);
-    addDirectionArrows(group, segments, color);
-  }
-  addRouteStops(group, route.stops?.[next] ?? [], color);
-  group.addTo(routeLayer);
   const record = {
-    layer: group,
+    sourceId: `route-${key.replace(/[^A-Za-z0-9]/g, "_")}`,
+    segments: route.paths?.[next] ?? [],
+    routeStops: route.stops?.[next] ?? [],
+    color,
     label: canonicalLabel,
     code: canonicalCode,
     direction: next,
     towards: next === "toA" ? route.nameA : route.nameB,
     anchorStopId: anchor,
-    pathLayers,
   };
   shownRoutes.set(key, record);
+  drawRouteLayers(record);
   clearedRoutesUndo = [];
   renderRouteLegend();
   rebuildLiveBusMarkers();
@@ -1813,9 +1902,14 @@ async function applyRoute(code, label, requestedDirection, anchorStopId,
   // the map out from under a tap is disorienting on its own, and it cascades:
   // the pan reloads nearby stops, which rebuilds the pins and destroys the
   // popup the chip was tapped in.
-  const bounds = group.getBounds();
-  if (fit && bounds.isValid() && !leafletMap.getBounds().intersects(bounds)) {
-    leafletMap.fitBounds(bounds.pad(0.08));
+  const points = record.segments.flat();
+  if (fit && points.length) {
+    const bounds = points.reduce(
+      (box, at) => box.extend(at), new maplibregl.LngLatBounds(points[0], points[0]));
+    const view = leafletMap.getBounds();
+    const clear = bounds.getWest() > view.getEast() || bounds.getEast() < view.getWest()
+      || bounds.getSouth() > view.getNorth() || bounds.getNorth() < view.getSouth();
+    if (clear) leafletMap.fitBounds(bounds, { padding: 40, animate: false });
   }
   // After the fit, never before: the probe is chosen against the viewport.
   if (refresh) void refreshMapArrivals();
@@ -1837,70 +1931,7 @@ function orderedPoints(segments) {
 
 const ARROWS_PER_ROUTE = 12;
 
-/** Arrowheads along the path, pointing the way the bus goes.
- *
- * Solid-versus-dashed is not readable at the zoom a phone map sits at, and the
- * two directions usually run along the same street anyway, one hiding the
- * other. An arrow says which way without depending on either.
- */
-function addDirectionArrows(group, segments, color) {
-  const points = orderedPoints(segments);
-  if (points.length < 2) return;
-  const step = Math.max(1, Math.floor(points.length / ARROWS_PER_ROUTE));
 
-  for (let i = 0; i + 1 < points.length; i += step) {
-    const [lon1, lat1] = points[i];
-    const [lon2, lat2] = points[i + 1];
-    // Bearing in screen terms: longitude degrees shrink with latitude, and the
-    // glyph points north at 0.
-    const dx = (lon2 - lon1) * Math.cos((lat1 * Math.PI) / 180);
-    const dy = lat2 - lat1;
-    if (dx === 0 && dy === 0) continue;
-    const angle = (Math.atan2(dx, dy) * 180) / Math.PI;
-
-    const icon = L.divIcon({
-      className: "route-arrow",
-      iconSize: [16, 16],
-      iconAnchor: [8, 8],
-      html:
-        `<svg viewBox="0 0 16 16" width="16" height="16" ` +
-        `style="transform: rotate(${angle.toFixed(1)}deg)">` +
-        `<path d="M8 1 L14 14 L8 11 L2 14 Z" fill="${color}" ` +
-        // A thin dark edge keeps the arrow legible over pale map tiles without
-        // eating the fill that identifies the line.
-        `stroke="#0d0f14" stroke-width="0.9" stroke-linejoin="round"/></svg>`,
-    });
-    L.marker([lat1, lon1], { icon, interactive: false, keyboard: false }).addTo(group);
-  }
-}
-
-/** Every stop the line calls at, drawn as small dots along its route.
- *
- * These come in the same payload as the geometry, so showing them costs no
- * extra request. Only the direction on screen is drawn, and saved stops are
- * skipped — they have their own pin already.
- */
-function addRouteStops(group, stops, color) {
-  const saved = savedIds();
-  const seen = new Set();
-  for (const stop of stops) {
-    if (seen.has(stop.stopId) || saved.has(stop.stopId) || !stop.coordinates) continue;
-    seen.add(stop.stopId);
-    // Quiet on purpose: the drawn path and the live buses are the subject,
-    // and these are every stop on a city-length line. Radius stays tap-sized.
-    L.circleMarker([stop.coordinates[1], stop.coordinates[0]], {
-      radius: 4,
-      color,
-      weight: 1.5,
-      opacity: 0.6,
-      fillColor: "#12141a",
-      fillOpacity: 0.8,
-    })
-      // The same popup a nearby pin gets: live times, and a way to save it.
-      .bindPopup(() => nearbyPopupHtml({ ...stop, lines: [] }))
-      .addTo(group).nearbyStop = { ...stop, lines: [] }; // for popup refresh ticks
-  }
-}
 
 /** The lines at a stop that actually have a bus coming.
  *
@@ -2040,7 +2071,7 @@ async function toggleNearestStopRoutes() {
 
 function clearRoutes({ keepUndo = true } = {}) {
   if (keepUndo) clearedRoutesUndo = [...shownRoutes.values()];
-  routeLayer?.clearLayers();
+  for (const shown of shownRoutes.values()) removeRouteLayers(shown);
   shownRoutes.clear();
   selectedRouteKey = null;
   nearestStopRoutes = [];
@@ -2050,9 +2081,9 @@ function clearRoutes({ keepUndo = true } = {}) {
 }
 
 function undoClearRoutes() {
-  if (!routeLayer || clearedRoutesUndo.length === 0) return;
+  if (!leafletMap || clearedRoutesUndo.length === 0) return;
   for (const shown of clearedRoutesUndo) {
-    shown.layer.addTo(routeLayer);
+    drawRouteLayers(shown);
     shownRoutes.set(routeKey(shown.code, shown.direction), shown);
   }
   clearedRoutesUndo = [];
@@ -2087,15 +2118,18 @@ function syncRouteSelectionStyles() {
   for (const [key, shown] of shownRoutes) {
     const selected = selectedRouteKey === key;
     const dimmed = Boolean(selectedRouteKey) && !selected;
-    for (const path of shown.pathLayers ?? []) {
-      path.setStyle({ weight: selected ? 3 : 2, opacity: dimmed ? 0.14 : 0.9 });
-      if (selected) path.bringToFront();
+    // Paint properties instead of restyling a polyline object; GL has no
+    // z-order to bring forward, so the drawn order is the order.
+    const lineId = `${shown.sourceId}-line`;
+    if (leafletMap?.getLayer(lineId)) {
+      leafletMap.setPaintProperty(lineId, "line-width", selected ? 6 : 4);
+      leafletMap.setPaintProperty(lineId, "line-opacity", dimmed ? 0.14 : 0.9);
     }
   }
   for (const marker of liveBusMarkers.values()) {
     const selected = marker.busRouteKey === selectedRouteKey;
     const dimmed = Boolean(selectedRouteKey) && !selected;
-    marker.setZIndexOffset(selected ? 1000 : 700);
+    marker.getElement().style.zIndex = selected ? "1000" : "700";
     marker.getElement()?.classList.toggle("is-selected", selected);
     marker.getElement()?.classList.toggle("is-dimmed", dimmed);
   }
@@ -2443,12 +2477,7 @@ function liveBusIcon(bus) {
     svg.append(wheel);
   }
   svg.append(body, number, arrow);
-  return L.divIcon({
-    className: "live-bus-icon",
-    html: svg,
-    iconSize: [44, 44],
-    iconAnchor: [22, 22],
-  });
+  return svg;
 }
 
 function movementBearing([oldLon, oldLat], [newLon, newLat]) {
@@ -2715,7 +2744,7 @@ function animateBusOnTrack(marker, track, fromProgress, toProgress) {
     const coordinate = trackCoordinateAt(
       track, fromProgress + (toProgress - fromProgress) * ratio,
     );
-    marker.setLatLng([coordinate[1], coordinate[0]]);
+    marker.setLngLat(coordinate);
     if (ratio < 1 && liveBusMarkers.get(marker.busKey) === marker
       && marker.busAnimationId === animationId) requestAnimationFrame(frame);
   };
@@ -2728,7 +2757,7 @@ function animateBusMarker(marker, from, to, duration = BUS_MAP_REFRESH_MS - 500)
   const started = performance.now();
   const frame = (now) => {
     const progress = Math.min(1, (now - started) / duration);
-    marker.setLatLng([
+    marker.setLngLat([
       from[0] + (to[0] - from[0]) * progress,
       from[1] + (to[1] - from[1]) * progress,
     ]);
@@ -2829,7 +2858,7 @@ function liveBusPopup(bus) {
 }
 
 function rebuildLiveBusMarkers() {
-  if (!liveBusLayer) return;
+  if (!leafletMap || !liveBusLayerReady) return;
   const buses = new Map();
   const collect = (payload) => {
     if (!payload || Date.now() - Number(payload.fetchedAt) > 120_000) return;
@@ -2859,7 +2888,7 @@ function rebuildLiveBusMarkers() {
   }
   for (const [key, marker] of liveBusMarkers) {
     if (buses.has(key)) continue;
-    liveBusLayer.removeLayer(marker);
+    marker.remove();
     liveBusMarkers.delete(key);
   }
   for (const [key, bus] of buses) {
@@ -2872,7 +2901,7 @@ function rebuildLiveBusMarkers() {
     // this path would put it on a street it is not in.
     if (track && progress == null) {
       if (marker) {
-        liveBusLayer.removeLayer(marker);
+        marker.remove();
         liveBusMarkers.delete(key);
       }
       continue;
@@ -2896,11 +2925,12 @@ function rebuildLiveBusMarkers() {
         // A correction this large is EMT re-locking the vehicle, not a bus
         // covering ground. Racing along the path to meet it is precisely the
         // artefact this model exists to remove.
-        if (Math.abs(progress - from) > 400) marker.setLatLng([coordinate[1], coordinate[0]]);
+        if (Math.abs(progress - from) > 400) marker.setLngLat(coordinate);
         else animateBusOnTrack(marker, track, from, progress);
       } else {
-        const previous = marker.getLatLng();
-        animateBusMarker(marker, [previous.lat, previous.lng], [coordinate[1], coordinate[0]]);
+        const previous = marker.getLngLat();
+        // Both ends in [lng, lat] now — the order MapLibre and EMT agree on.
+        animateBusMarker(marker, [previous.lng, previous.lat], coordinate);
       }
       marker.liveBus = bus; // so the popup can be re-rendered as it ticks
       marker.busProgress = progress;
@@ -2909,15 +2939,13 @@ function rebuildLiveBusMarkers() {
       marker.busFetchedAt = bus.fetchedAt;
       marker.busSourceStopId = bus.sourceStopId;
       marker.busRouteKey = shown?.key ?? null;
-      marker.setIcon(liveBusIcon(bus));
-      marker.unbindPopup().bindPopup(() => liveBusPopup(bus));
+      marker.getElement().replaceChildren(liveBusIcon(bus));
       syncRouteSelectionStyles();
       continue;
     }
 
-    const created = L.marker([coordinate[1], coordinate[0]], {
-      icon: liveBusIcon(bus), zIndexOffset: 700,
-    });
+    const created = domMarker("", "live-bus-icon", coordinate);
+    created.getElement().append(liveBusIcon(bus));
     created.busKey = key;
     created.liveBus = bus;
     created.busProgress = progress;
@@ -2926,11 +2954,13 @@ function rebuildLiveBusMarkers() {
     created.busFetchedAt = bus.fetchedAt;
     created.busSourceStopId = bus.sourceStopId;
     created.busRouteKey = shown?.key ?? null;
-    created.bindPopup(() => liveBusPopup(bus));
-    created.on("click", () => {
+    created.getElement().addEventListener("click", (event) => {
+      event.stopPropagation();
+      showMapPopup(leafletMap, created.getLngLat().toArray(), `bus:${key}`,
+        () => liveBusPopup(created.liveBus));
       if (created.busRouteKey) setSelectedRoute(created.busRouteKey);
     });
-    created.addTo(liveBusLayer);
+    created.addTo(leafletMap);
     liveBusMarkers.set(key, created);
   }
   syncRouteSelectionStyles();
@@ -2955,7 +2985,7 @@ function showView(view) {
     rebuildLiveBusMarkers();
     renderNearbyPins();
     renderRouteLegend();
-    leafletMap.invalidateSize();
+    leafletMap.resize();
   } else {
     renderRouteLegend(); // it lives over the map; the list has no use for it
     render(); // the interval skips list renders while the map is up
@@ -3129,7 +3159,7 @@ function stopInfoButton(seed, saved) {
     if (seed?.coordinates || seed?.lines) {
       mergeNearbyDetails([seed], { onlySaved: false });
     }
-    leafletMap.closePopup();
+    closeMapPopup();
     // A stop with no row of its own still has everything the sheet reads.
     openStop(saved ?? { stop_id: stopId, label: null, id: null });
   });
@@ -3170,7 +3200,7 @@ function renderNearbyPins() {
   if (!leafletMap) return;
   const visible = !mapEl.hidden && shownRoutes.size === 0
     && leafletMap.getZoom() >= NEARBY_MIN_ZOOM;
-  const bounds = visible ? leafletMap.getBounds().pad(0.2) : null;
+  const bounds = visible ? paddedBounds(leafletMap, 0.2) : null;
   const saved = savedIds();
   const wanted = new Set();
   if (visible) {
@@ -3352,7 +3382,7 @@ async function loadNearby() {
     renderNearbyPins();
     return;
   }
-  await loadNearbyCells(viewportCells(leafletMap.getBounds().pad(0.2)));
+  await loadNearbyCells(viewportCells(paddedBounds(leafletMap, 0.2)));
   if (mergeNearbyDetails(nearbyStops)) {
     render();
     rebuildMarkers();
@@ -4825,13 +4855,13 @@ function bikePopup(station) {
   fav.textContent = saved ? "★ Saved" : "☆ Save";
   fav.addEventListener("click", () => {
     toggleBikeSaved(station, saved);
-    bikeMap.closePopup();
+    bikePopupControl?.remove();
   });
   const detailsButton = document.createElement("button");
   detailsButton.type = "button";
   detailsButton.textContent = "Details";
   detailsButton.addEventListener("click", () => {
-    bikeMap.closePopup();
+    bikePopupControl?.remove();
     openBikeStation(station);
   });
   wrap.append(fav, detailsButton);
@@ -4906,14 +4936,14 @@ function showSection(next) {
   if (bikes) {
     if (mapView) {
       ensureBikeMap();
-      bikeMap.invalidateSize();
+      bikeMap.resize();
     }
     const centre = bikeMap?.getCenter() ?? { lat: myLocation?.[0] ?? 40.4168, lng: myLocation?.[1] ?? -3.7038 };
     loadBikesNear(centre.lat, centre.lng);
     renderBikes();
   } else if (mapView) {
     ensureMap();
-    leafletMap.invalidateSize();
+    leafletMap.resize();
   } else {
     render();
   }
@@ -4964,8 +4994,8 @@ function closeFullscreenMap() {
   mapFullscreenBtn.title = "Expand map";
   mapFullscreenBtn.setAttribute("aria-label", "Expand map");
   if (wasFullscreen) requestAnimationFrame(() => {
-    leafletMap?.invalidateSize();
-    bikeMap?.invalidateSize();
+    leafletMap?.resize();
+    bikeMap?.resize();
   });
 }
 
@@ -5038,7 +5068,7 @@ mapFullscreenBtn.addEventListener("click", () => {
   mapFullscreenBtn.textContent = expanding ? "×" : "⛶";
   mapFullscreenBtn.title = expanding ? "Close fullscreen map" : "Expand map";
   mapFullscreenBtn.setAttribute("aria-label", mapFullscreenBtn.title);
-  requestAnimationFrame(() => activeMap?.invalidateSize());
+  requestAnimationFrame(() => activeMap?.resize());
 });
 
 document.addEventListener("keydown", (event) => {
