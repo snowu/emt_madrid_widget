@@ -399,6 +399,15 @@ function metresApart(aLat, aLon, bLat, bLon) {
  */
 async function plannerNearby(requestUrl, env, lat, lon, radius, ctx) {
   const cells = cellsCovering(lat, lon, radius);
+  // Reading the map's grid is worth a few requests for the cache sharing, but
+  // not a dozen: a Worker invocation may make only 50 subrequests in total,
+  // and one journey also spends them on routes, boards and incidents. At the
+  // night radius the grid needs twelve cells, which on its own broke that
+  // ceiling — past a handful, a single direct query is cheaper and faster,
+  // and it is cached for a day just the same.
+  if (cells.length > 4) {
+    return cachedNearby(requestUrl, env, lat, lon, radius, ctx, "planner");
+  }
   const results = await Promise.all(cells.map((cell) => withinDeadline(
     cachedNearby(requestUrl, env, cell.lat, cell.lon, NEARBY_CELL_RADIUS, ctx, "planner"),
     6_000, null,
