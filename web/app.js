@@ -42,17 +42,60 @@ import {
 // expected use. It is a browser key, so it ships in this file and is public by
 // nature — CARTO scopes it by domain rather than by secrecy.
 const CARTO_KEY = "cb1_28ep_1_fa139875e4e92c05028f7b23";
-// The keyed endpoint is a different shape from the old anonymous one: the
-// style sits under `rastertiles/` and there is no `{s}` subdomain to shard
-// across. Verified serving z13–z20 and @2x retina.
-const BASEMAP_URL = `https://basemaps.cartocdn.com/rastertiles/dark_nolabels/{z}/{x}/{y}{r}.png${
-  CARTO_KEY ? `?key=${CARTO_KEY}` : ""}`;
+// Vector, because CARTO is retiring raster. `dark-matter-nolabels-gl-style`
+// is the exact equivalent of the old `dark_nolabels` raster style — it is
+// missing from their migration table, but it exists.
+const BASEMAP_STYLE =
+  `https://basemaps.cartocdn.com/gl/dark-matter-nolabels-gl-style/style.json?key=${CARTO_KEY}`;
+// The style declares no attribution on its own source — checked against the
+// style.json — so the free tier's "attribution must stay visible" condition
+// has to be met here or it silently disappears.
+const BASEMAP_ATTRIBUTION = "&copy; OpenStreetMap contributors &copy; CARTO";
 
-function basemap() {
-  return L.tileLayer(BASEMAP_URL, {
-    maxZoom: 20,
-    attribution: "&copy; OpenStreetMap contributors &copy; CARTO",
+/** Every map in the app.
+ *
+ * MapLibre takes [lng, lat], which is the order EMT already hands us, so
+ * coordinates go in unflipped — the opposite of Leaflet, which wanted
+ * [lat, lon] and made a flip necessary at every call site.
+ *
+ * `interactive: false` replaces the six separate options Leaflet needed to
+ * make a map behave as a picture rather than something to navigate.
+ */
+function createMap(container, { center, zoom = 15, interactive = true, controls = false } = {}) {
+  const map = new maplibregl.Map({
+    container,
+    style: BASEMAP_STYLE,
+    center,
+    zoom,
+    interactive,
+    attributionControl: false,
   });
+  map.addControl(new maplibregl.AttributionControl({
+    compact: true,
+    customAttribution: BASEMAP_ATTRIBUTION,
+  }));
+  if (controls) map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-left");
+  return map;
+}
+
+const MADRID = [-3.7038, 40.4168];
+
+/** `myLocation` is [lat, lon] — geolocation's order, and what every distance
+ *  calculation in this file expects. MapLibre wants [lng, lat]. Flip here and
+ *  nowhere else; EMT's own coordinates are already [lon, lat] and go straight
+ *  through untouched. */
+function myLngLat() {
+  return myLocation ? [myLocation[1], myLocation[0]] : MADRID;
+}
+
+/** A DOM element marker, which is how every custom pin in this app is drawn:
+ *  it keeps the stylesheet doing the work instead of restating each pin as GL
+ *  paint properties. */
+function domMarker(html, className, lngLat, options = {}) {
+  const element = document.createElement("div");
+  element.className = className;
+  element.innerHTML = html;
+  return new maplibregl.Marker({ element, ...options }).setLngLat(lngLat);
 }
 
 const API = "https://emt-arrivals.zancato-t.workers.dev";
@@ -1115,27 +1158,29 @@ function setPlacePin(lat, lon, { recenter = true } = {}) {
   const point = [Number(lat), Number(lon)];
   if (!point.every(Number.isFinite)) return;
   placeDraft = { ...(placeDraft ?? {}), lat: point[0], lon: point[1] };
+  const lngLat = [point[1], point[0]];
   if (!placePickerMarker) {
-    placePickerMarker = L.marker(point, { draggable: true }).addTo(placePickerMap);
+    placePickerMarker = new maplibregl.Marker({ draggable: true })
+      .setLngLat(lngLat).addTo(placePickerMap);
     placePickerMarker.on("dragend", () => {
-      const moved = placePickerMarker.getLatLng();
+      const moved = placePickerMarker.getLngLat();
       setPlacePin(moved.lat, moved.lng, { recenter: false });
     });
   } else {
-    placePickerMarker.setLatLng(point);
+    placePickerMarker.setLngLat(lngLat);
   }
-  if (recenter) placePickerMap.setView(point, 17);
+  if (recenter) placePickerMap.jumpTo({ center: lngLat, zoom: 17 });
   placePicked.textContent = `Pin: ${point[0].toFixed(5)}, ${point[1].toFixed(5)}`;
 }
 
 function ensurePlacePicker() {
   if (!placePickerMap) {
-    placePickerMap = L.map("place-picker-map", { zoomControl: true, attributionControl: true });
-    basemap().addTo(placePickerMap);
-    placePickerMap.on("click", ({ latlng }) => setPlacePin(latlng.lat, latlng.lng, { recenter: false }));
+    placePickerMap = createMap("place-picker-map", { center: MADRID, controls: true });
+    placePickerMap.on("click",
+      (event) => setPlacePin(event.lngLat.lat, event.lngLat.lng, { recenter: false }));
   }
   requestAnimationFrame(() => {
-    placePickerMap.invalidateSize();
+    placePickerMap.resize();
     const initial = placeDraft?.lat != null
       ? [placeDraft.lat, placeDraft.lon]
       : myLocation ?? [40.4168, -3.7038];
@@ -3250,27 +3295,24 @@ let addStopMapMarkers = null;
 function renderAddStopMap() {
   if (!addDialog.open || !myLocation) return;
   if (!addStopMap) {
-    addStopMap = L.map(addStopMapEl, { zoomControl: true, attributionControl: false });
-    basemap().addTo(addStopMap);
-    addStopMapMarkers = L.layerGroup().addTo(addStopMap);
+    addStopMap = createMap(addStopMapEl, { center: myLngLat(), zoom: 15, controls: true });
+    addStopMapMarkers = [];
   }
-  addStopMapMarkers.clearLayers();
-  L.circleMarker(myLocation, {
-    radius: 7, color: "#fff", weight: 3, fillColor: "#4ea3ff", fillOpacity: 1,
-  }).bindTooltip("You").addTo(addStopMapMarkers);
+  for (const marker of addStopMapMarkers) marker.remove();
+  addStopMapMarkers = [];
+  const you = domMarker("", "dot-pin you", myLngLat());
+  you.getElement().title = "You";
+  addStopMapMarkers.push(you.addTo(addStopMap));
   const saved = savedIds();
   for (const stop of closestStops()) {
     if (!Array.isArray(stop.coordinates)) continue;
-    L.circleMarker([stop.coordinates[1], stop.coordinates[0]], {
-      radius: 7,
-      color: saved.has(String(stop.stopId)) ? "#ffbf3f" : "#8b93a7",
-      weight: 2,
-      fillColor: "#202631",
-      fillOpacity: 1,
-    }).bindTooltip(`${stop.stopId} · ${stop.name || "Stop"}`).addTo(addStopMapMarkers);
+    const pin = domMarker("", `dot-pin${saved.has(String(stop.stopId)) ? " saved" : ""}`,
+      stop.coordinates);
+    pin.getElement().title = `${stop.stopId} · ${stop.name || "Stop"}`;
+    addStopMapMarkers.push(pin.addTo(addStopMap));
   }
-  addStopMap.setView(myLocation, 15);
-  requestAnimationFrame(() => addStopMap.invalidateSize());
+  addStopMap.jumpTo({ center: myLngLat(), zoom: 15 });
+  requestAnimationFrame(() => addStopMap.resize());
 }
 
 function renderClosestStopsDialog() {
@@ -3495,27 +3537,17 @@ function showSheetMap() {
   sheetMapEl.hidden = !coords;
   sheetNoMap.hidden = !!coords;
   if (!coords) return;
-  const latlng = [coords[1], coords[0]]; // GeoJSON is [lon, lat]
-
+  // GeoJSON order is what MapLibre wants, so it goes straight through.
   requestAnimationFrame(() => {
     if (!sheetMap) {
-      sheetMap = L.map(sheetMapEl, {
-        zoomControl: false,
-        attributionControl: false,
-        // A 150px map inside a dialog is a picture, not something to navigate.
-        dragging: false,
-        scrollWheelZoom: false,
-        doubleClickZoom: false,
-        touchZoom: false,
-        keyboard: false,
-      });
-      basemap().addTo(sheetMap);
-      sheetMarker = L.marker(latlng).addTo(sheetMap);
+      // A 150px map inside a dialog is a picture, not something to navigate.
+      sheetMap = createMap(sheetMapEl, { center: coords, zoom: 17, interactive: false });
+      sheetMarker = new maplibregl.Marker().setLngLat(coords).addTo(sheetMap);
     } else {
-      sheetMarker.setLatLng(latlng);
+      sheetMarker.setLngLat(coords);
     }
-    sheetMap.invalidateSize();
-    sheetMap.setView(latlng, 17);
+    sheetMap.resize();
+    sheetMap.jumpTo({ center: coords, zoom: 17 });
   });
 }
 
@@ -3889,6 +3921,7 @@ let bikeFetchedAt = bikeNear.fetchedAt ?? null;
 let bikeMap = null;
 let bikeMarkers = null;
 let pendingBikePopupId = null;
+let bikePopupControl = null;
 let bikeCell = null;
 let bikeSeq = 0;
 let bikeUserMarker = null;
@@ -4700,25 +4733,16 @@ function showBikeNameEditor(editing) {
 function showBikeSheetMap(station) {
   bikeSheetMapEl.hidden = !station.coordinates;
   if (!station.coordinates) return;
-  const latlng = [station.coordinates[1], station.coordinates[0]];
+  const at = station.coordinates;
   requestAnimationFrame(() => {
     if (!bikeSheetMap) {
-      bikeSheetMap = L.map(bikeSheetMapEl, {
-        zoomControl: false,
-        attributionControl: false,
-        dragging: false,
-        scrollWheelZoom: false,
-        doubleClickZoom: false,
-        touchZoom: false,
-        keyboard: false,
-      });
-      basemap().addTo(bikeSheetMap);
-      bikeSheetMarker = L.marker(latlng).addTo(bikeSheetMap);
+      bikeSheetMap = createMap(bikeSheetMapEl, { center: at, zoom: 17, interactive: false });
+      bikeSheetMarker = new maplibregl.Marker().setLngLat(at).addTo(bikeSheetMap);
     } else {
-      bikeSheetMarker.setLatLng(latlng);
+      bikeSheetMarker.setLngLat(at);
     }
-    bikeSheetMap.invalidateSize();
-    bikeSheetMap.setView(latlng, 17);
+    bikeSheetMap.resize();
+    bikeSheetMap.jumpTo({ center: at, zoom: 17 });
   });
 }
 
@@ -4810,11 +4834,10 @@ document.getElementById("bike-sheet-show-map").addEventListener("click", () => {
 
 function ensureBikeMap() {
   if (bikeMap) return;
-  bikeMap = L.map(bikeMapEl, { tap: false });
-  basemap().addTo(bikeMap);
-  bikeMarkers = L.layerGroup().addTo(bikeMap);
+  bikeMap = createMap(bikeMapEl, { center: myLngLat(), zoom: 15 });
+  // MapLibre has no layer group; the markers are tracked here instead.
+  bikeMarkers = [];
   if (myLocation) bikeUserMarker = addUserMarker(bikeMap, myLocation);
-  bikeMap.setView(myLocation ?? [40.4168, -3.7038], 15);
   bikeMap.on("moveend", () => {
     const c = bikeMap.getCenter();
     loadBikesNear(c.lat, c.lng);
@@ -4852,20 +4875,20 @@ function bikePopup(station) {
 
 function showBikePopupAfterPan(station) {
   pendingBikePopupId = station.id;
-  const target = L.latLng(station.coordinates[1], station.coordinates[0]);
+  const target = station.coordinates;
   const open = () => {
     if (pendingBikePopupId !== station.id) return;
     pendingBikePopupId = null;
-    L.popup({ autoPan: false })
-      .setLatLng(target)
-      .setContent(bikePopup(bikeById.get(station.id) ?? station))
-      .openOn(bikeMap);
+    bikePopupControl = new maplibregl.Popup({ closeButton: false, closeOnClick: true })
+      .setLngLat(target)
+      .setDOMContent(bikePopup(bikeById.get(station.id) ?? station))
+      .addTo(bikeMap);
   };
 
-  bikeMap.closePopup();
-  // Leaflet does not consistently emit moveend when the marker is already at
-  // the centre, so avoid waiting in that case.
-  if (bikeMap.distance(bikeMap.getCenter(), target) < 1) {
+  bikePopupControl?.remove();
+  const centre = bikeMap.getCenter();
+  // Already centred: no move will be emitted, so do not wait for one.
+  if (metresBetweenCoordinates([centre.lng, centre.lat], target) < 1) {
     open();
     return;
   }
@@ -4875,25 +4898,22 @@ function showBikePopupAfterPan(station) {
 
 function rebuildBikeMarkers() {
   if (!bikeMarkers) return;
-  bikeMarkers.clearLayers();
+  for (const marker of bikeMarkers) marker.remove();
+  bikeMarkers = [];
   const savedIdSet = new Set(bikeSaved.map((s) => s.station_id));
   for (const station of bikeNear.stations ?? []) {
     if (!station.coordinates) continue;
     const takeClass = availabilityClass(station.bikes,
       station.inService && station.renting !== false);
     const capacity = station.totalBases || "—";
-    const icon = L.divIcon({
-      className: "bike-pin",
-      iconSize: [54, 30],
-      iconAnchor: [27, 15],
-      html:
-        `<div class="bike-pin-inner${savedIdSet.has(station.id) ? " saved" : ""}" ` +
-        `aria-label="${station.bikes ?? "Unknown"} rentable bikes out of ${capacity} spaces">` +
-        `<span class="${takeClass}">🚲 ${station.bikes ?? "—"}/${capacity}</span></div>`,
-    });
-    L.marker([station.coordinates[1], station.coordinates[0]], { icon })
-      .on("click", () => showBikePopupAfterPan(station))
-      .addTo(bikeMarkers);
+    const marker = domMarker(
+      `<div class="bike-pin-inner${savedIdSet.has(station.id) ? " saved" : ""}" ` +
+      `aria-label="${station.bikes ?? "Unknown"} rentable bikes out of ${capacity} spaces">` +
+      `<span class="${takeClass}">🚲 ${station.bikes ?? "—"}/${capacity}</span></div>`,
+      "bike-pin", station.coordinates);
+    marker.getElement().addEventListener("click", () => showBikePopupAfterPan(station));
+    marker.addTo(bikeMap);
+    bikeMarkers.push(marker);
   }
 }
 
@@ -4937,29 +4957,23 @@ function showSection(next) {
 
 menuBikes.addEventListener("click", () => showSection("bikes"));
 
-function userLocationIcon() {
-  return L.divIcon({
-    className: "user-pin",
-    iconSize: [28, 28],
-    iconAnchor: [14, 14],
-    html: '<span aria-hidden="true">●</span>',
-  });
-}
+
 
 function addUserMarker(map, location) {
-  return L.marker(location, { icon: userLocationIcon(), zIndexOffset: 1000 })
-    .bindTooltip("You are here", { direction: "top", offset: [0, -12] })
-    .addTo(map);
+  const marker = domMarker('<span aria-hidden="true">●</span>', "user-pin",
+    [location[1], location[0]]);
+  marker.getElement().title = "You are here";
+  return marker.addTo(map);
 }
 
 function updateUserMarkers() {
   if (!myLocation) return;
   if (leafletMap) {
-    if (busUserMarker) busUserMarker.setLatLng(myLocation);
+    if (busUserMarker) busUserMarker.setLngLat(myLngLat());
     else busUserMarker = addUserMarker(leafletMap, myLocation);
   }
   if (bikeMap) {
-    if (bikeUserMarker) bikeUserMarker.setLatLng(myLocation);
+    if (bikeUserMarker) bikeUserMarker.setLngLat(myLngLat());
     else bikeUserMarker = addUserMarker(bikeMap, myLocation);
   }
 }

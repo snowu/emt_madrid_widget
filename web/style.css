@@ -442,6 +442,19 @@ button:active { transform: scale(0.97); }
 
 #fab[hidden] { display: none; }
 
+/* Leaflet drew these as SVG circleMarkers; MapLibre draws DOM elements, so
+   the shapes live in CSS now. Same sizes and colours as before. */
+.dot-pin {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid #8b93a7;
+  background: #202631;
+}
+
+.dot-pin.saved { border-color: #ffbf3f; }
+.dot-pin.you { border: 3px solid #fff; background: #4ea3ff; }
+
 .user-pin { background: none; border: none; }
 .user-pin span {
   display: grid;
