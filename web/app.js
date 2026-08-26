@@ -2658,9 +2658,13 @@ function busShownRoute(bus) {
 
 function busRouteTrack(bus) {
   const shown = busShownRoute(bus);
-  // Without a resolved direction the vehicle could be running either way, and
-  // snapping it to the drawn path would invent a position.
-  if (!shown?.snapped) return null;
+  // A resolved direction is not required to place the bus. `DistanceBus` is
+  // measured to the probe stop, and that stop is on the direction being drawn,
+  // so `stopProgress − metres` is arithmetic on EMT's own measurement rather
+  // than a guess about which way the vehicle faces. Withholding the track here
+  // only pushed the marker onto the GPS fix — the one signal that freezes for
+  // minutes while the popup's distance keeps counting down.
+  if (!shown) return null;
   const { code: shownCode, route, direction } = shown;
   const cacheKey = routeKey(shownCode, direction);
   if (routeTrackCache.has(cacheKey)) return routeTrackCache.get(cacheKey);
@@ -2770,12 +2774,10 @@ function busTrackProgress(bus, track, route) {
     // Before the start of the path the bus has not joined this leg yet — it is
     // still finishing the other one, which is not the line drawn on screen.
     if (progress < 0) return null;
-    // N1 at 00:57 on 2026-08-26: GPS sat 7m from the route while DistanceBus
-    // put the same vehicle 1.46km further along it. The first refresh looked
-    // like the marker vanished because it jumped beyond the viewport.
-    if (usableFix && Math.abs(usableFix.progress - progress) > 800) {
-      return usableFix.progress;
-    }
+    // A large disagreement with the GPS fix is not evidence against the
+    // distance — it is the signature of a fix that has gone stale, measured at
+    // 838m on line 27. Preferring the fix there is how a bus came to sit still
+    // while its own countdown ran, then jump when the fix finally caught up.
     return progress;
   }
   // No distance reported: fall back to the fix, stale as it may be.
