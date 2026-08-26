@@ -75,7 +75,14 @@ function createMap(container, { center, zoom = 15, interactive = true, controls 
   // are all created inside dialogs or panes that start hidden. Leaflet needed
   // the same nudge via invalidateSize; miss it and you get a blank map that
   // has successfully loaded its style.
-  map.once("load", () => map.resize());
+  map.once("load", () => {
+    map.resize();
+    // MapLibre renders even the compact attribution expanded to start with.
+    // On a phone-first map the credit belongs behind the ⓘ until asked for —
+    // it stays one tap away, which is what CARTO's terms require.
+    map.getContainer().querySelector(".maplibregl-ctrl-attrib")
+      ?.classList.remove("maplibregl-compact-show");
+  });
   if (controls) map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-left");
   return map;
 }
@@ -1564,6 +1571,7 @@ let busUserMarker = null;
 let selectedRouteKey = null;
 let routeBoardSort = "eta";
 let clearedRoutesUndo = [];
+let clearedRoutesTimer = null;
 let nearbyStops = [];
 let closestWalking = new Map();
 let closestWalkingOrigin = null;
@@ -1896,7 +1904,7 @@ async function applyRoute(code, label, requestedDirection, anchorStopId,
   };
   shownRoutes.set(key, record);
   drawRouteLayers(record);
-  clearedRoutesUndo = [];
+  forgetClearedRoutes();
   renderRouteLegend();
   rebuildLiveBusMarkers();
 
@@ -2071,8 +2079,25 @@ async function toggleNearestStopRoutes() {
   syncMapControls();
 }
 
+/** How long the undo offer stands. It used to stand for ever — nothing
+ *  expired it — so a one-off action left a bar sitting over the board. */
+const UNDO_VISIBLE_MS = 7_000;
+
+function forgetClearedRoutes() {
+  clearTimeout(clearedRoutesTimer);
+  clearedRoutesTimer = null;
+  clearedRoutesUndo = [];
+}
+
 function clearRoutes({ keepUndo = true } = {}) {
-  if (keepUndo) clearedRoutesUndo = [...shownRoutes.values()];
+  if (keepUndo) {
+    clearedRoutesUndo = [...shownRoutes.values()];
+    clearTimeout(clearedRoutesTimer);
+    clearedRoutesTimer = setTimeout(() => {
+      forgetClearedRoutes();
+      renderRouteLegend();
+    }, UNDO_VISIBLE_MS);
+  }
   for (const shown of shownRoutes.values()) removeRouteLayers(shown);
   shownRoutes.clear();
   selectedRouteKey = null;
@@ -2088,7 +2113,7 @@ function undoClearRoutes() {
     drawRouteLayers(shown);
     shownRoutes.set(routeKey(shown.code, shown.direction), shown);
   }
-  clearedRoutesUndo = [];
+  forgetClearedRoutes();
   renderRouteLegend();
   rebuildLiveBusMarkers();
   syncMapControls();
