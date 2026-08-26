@@ -720,7 +720,9 @@ body.map-is-fullscreen { overflow: hidden; }
 .route-board-row:focus-visible, .route-board-remove:focus-visible, .route-board-sort:focus-visible, .route-board-clear:focus-visible, .route-board-undo button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 
 .live-bus-icon { background: none; border: none; transition: opacity 150ms ease; }
-.live-bus-icon svg { width: 40px; height: 40px; overflow: visible; filter: drop-shadow(0 1px 3px rgb(0 0 0 / 0.7)); transition: transform 150ms ease; }
+/* Deliberately large: zoomed out, the bus and its number are the whole point
+   of the view, and zoomed in there is room enough that they rarely collide. */
+.live-bus-icon svg { width: 54px; height: 54px; overflow: visible; filter: drop-shadow(0 1px 3px rgb(0 0 0 / 0.7)); transition: transform 150ms ease; }
 .live-bus-body { stroke: #0b0d12; stroke-width: 2.5; }
 .live-bus-screen { fill: rgb(0 0 0 / 0.45); }
 /* White on a stroke, because the body colour changes with the line and a
