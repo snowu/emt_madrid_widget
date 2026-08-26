@@ -490,7 +490,16 @@ function openWalkingDirections(coordinates) {
 }
 
 const WALKING_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="13" cy="4" r="1.8"></circle><path d="m10.5 8 2.5-1 2.5 2.5 2.5 1"></path><path d="m13 7-2 5 3 2 1.5 5"></path><path d="m11 12-3 3-2 4"></path></svg>';
-const LINES_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 18 9 6l6 12 5-12"></path></svg>';
+// A line with a stop at each end. The old zigzag was meant to read as a route
+// and read as a letter N instead.
+const LINES_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true">'
+  + '<path d="M6 17c0-4 2-5 6-5s6-1 6-5"></path>'
+  + '<circle cx="6" cy="17.5" r="2.2" fill="currentColor" stroke="none"></circle>'
+  + '<circle cx="18" cy="6.5" r="2.2" fill="currentColor" stroke="none"></circle></svg>';
+const REFRESH_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true">'
+  + '<path d="M20 12a8 8 0 1 1-2.4-5.7"></path><path d="M20 4v4.5h-4.5"></path></svg>';
+const REMOVE_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true">'
+  + '<path d="M7 7l10 10M17 7 7 17"></path></svg>';
 const INFO_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v5"></path><circle cx="12" cy="7.6" r=".9" fill="currentColor" stroke="none"></circle></svg>';
 const ROUTE_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s6-5.4 6-11a6 6 0 1 0-12 0c0 5.6 6 11 6 11Z"></path><circle cx="12" cy="10" r="2"></circle></svg>';
 
@@ -730,7 +739,8 @@ function renderSavedStops() {
       card.addEventListener("click", () => openStop(stop));
 
       const refresh = document.createElement("button");
-      refresh.textContent = "↻";
+      refresh.className = "icon-btn";
+      refresh.innerHTML = REFRESH_ICON;
       refresh.title = "Refresh this stop";
       refresh.addEventListener("click", (event) => {
         event.stopPropagation();
@@ -738,7 +748,8 @@ function renderSavedStops() {
       });
 
       const remove = document.createElement("button");
-      remove.textContent = "×";
+      remove.className = "icon-btn danger-icon";
+      remove.innerHTML = REMOVE_ICON;
       remove.title = "Remove this stop";
       remove.addEventListener("click", (event) => {
         event.stopPropagation();
@@ -747,7 +758,7 @@ function renderSavedStops() {
 
       const coordinates = details[stop.stop_id]?.coordinates;
       const walking = document.createElement("button");
-      walking.className = "stop-directions-icon";
+      walking.className = "icon-btn";
       walking.innerHTML = WALKING_ICON;
       walking.title = `Walk to stop ${stop.stop_id}`;
       walking.setAttribute("aria-label", walking.title);
@@ -758,7 +769,7 @@ function renderSavedStops() {
       });
 
       const routes = document.createElement("button");
-      routes.className = "stop-directions-icon";
+      routes.className = "icon-btn";
       routes.innerHTML = LINES_ICON;
       routes.title = `Show the lines running at stop ${stop.stop_id}`;
       routes.setAttribute("aria-label", routes.title);

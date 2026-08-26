@@ -531,11 +531,7 @@ body.map-is-fullscreen { overflow: hidden; }
    known location — is already disabled in the DOM. It has to look it, or it
    reads as a working control that does nothing when pressed. */
 .place-directions:disabled,
-.controls .stop-directions-icon:disabled {
-  opacity: 0.35;
-  color: var(--muted);
-  cursor: not-allowed;
-}
+
 .place-directions svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .place-route { display: grid; grid-template-columns: 3rem minmax(0, 1fr) auto; align-items: center; gap: 0.55rem; margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid var(--separator); color: var(--muted); font-size: 0.75rem; }
 .place-route[hidden] { display: none; }
@@ -616,10 +612,28 @@ body.map-is-fullscreen { overflow: hidden; }
 }
 .meta-line { font-weight: 700; }
 
-.controls { display: flex; gap: 0.35rem; }
+.controls { display: flex; gap: 0.1rem; }
 .controls button { min-width: var(--tap); padding: 0.25rem 0.6rem; }
-.controls .stop-directions-icon { min-width: 34px; width: 34px; min-height: 34px; padding: 0; color: var(--accent); }
-.stop-directions-icon svg, .icon-action svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+/* Card actions are icons, not chips. Four bordered buttons at mixed sizes —
+   two of them text glyphs at 44px — were taking more of the header than the
+   stop's own name. Same box, no frame, the card itself is the tap target that
+   matters. */
+.icon-btn {
+  min-width: 32px;
+  width: 32px;
+  min-height: 32px;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  color: var(--accent);
+}
+
+.icon-btn.danger-icon { color: var(--muted); }
+.icon-btn:active { background: var(--active); }
+.icon-btn:disabled { opacity: 0.35; color: var(--muted); cursor: not-allowed; }
+
+.icon-btn svg, .stop-directions-icon svg, .icon-action svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .icon-action { width: var(--tap); padding: 0; color: var(--accent); }
 
 .stop ul { list-style: none; margin: 0.5rem 0 0; padding: 0; }
