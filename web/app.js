@@ -27,6 +27,29 @@ import {
   TRIP_DIAGNOSTIC_LABELS,
 } from "./trips.js";
 
+/** The basemap, for every map in the app.
+ *
+ * Six call sites had drifted onto two providers — CARTO dark for the two maps
+ * a redesign happened to touch, OpenStreetMap for the four it did not — which
+ * meant a dark bus map sitting next to light bike maps in the same session.
+ * Nobody chose that; it was just where the redesign stopped.
+ *
+ * CARTO began requiring a key in August 2026 and watermarks unauthenticated
+ * tiles. `CARTO_KEY` is the one place to put it. Empty means the tiles still
+ * render, watermarked — a legible degradation rather than a blank map.
+ */
+const CARTO_KEY = "";
+const BASEMAP_URL = `https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png${
+  CARTO_KEY ? `?key=${CARTO_KEY}` : ""}`;
+
+function basemap() {
+  return L.tileLayer(BASEMAP_URL, {
+    maxZoom: 20,
+    subdomains: "abcd",
+    attribution: "&copy; OpenStreetMap contributors &copy; CARTO",
+  });
+}
+
 const API = "https://emt-arrivals.zancato-t.workers.dev";
 const THEME_KEY = "emt:theme";
 const HUB_CARD_LIMIT = 3;
@@ -1103,7 +1126,7 @@ function setPlacePin(lat, lon, { recenter = true } = {}) {
 function ensurePlacePicker() {
   if (!placePickerMap) {
     placePickerMap = L.map("place-picker-map", { zoomControl: true, attributionControl: true });
-    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 }).addTo(placePickerMap);
+    basemap().addTo(placePickerMap);
     placePickerMap.on("click", ({ latlng }) => setPlacePin(latlng.lat, latlng.lng, { recenter: false }));
   }
   requestAnimationFrame(() => {
@@ -2269,11 +2292,7 @@ function popupHtml(stop) {
 function ensureMap() {
   if (leafletMap) return;
   leafletMap = L.map(mapEl, { tap: false });
-  L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png", {
-    maxZoom: 20,
-    subdomains: "abcd",
-    attribution: "&copy; OpenStreetMap contributors &copy; CARTO",
-  }).addTo(leafletMap);
+  basemap().addTo(leafletMap);
 
   // Routes go down first so pins stay clickable on top of them.
   routeLayer = L.layerGroup().addTo(leafletMap);
@@ -3227,7 +3246,7 @@ function renderAddStopMap() {
   if (!addDialog.open || !myLocation) return;
   if (!addStopMap) {
     addStopMap = L.map(addStopMapEl, { zoomControl: true, attributionControl: false });
-    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 }).addTo(addStopMap);
+    basemap().addTo(addStopMap);
     addStopMapMarkers = L.layerGroup().addTo(addStopMap);
   }
   addStopMapMarkers.clearLayers();
@@ -3485,11 +3504,7 @@ function showSheetMap() {
         touchZoom: false,
         keyboard: false,
       });
-      L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png", {
-        maxZoom: 20,
-        subdomains: "abcd",
-      })
-        .addTo(sheetMap);
+      basemap().addTo(sheetMap);
       sheetMarker = L.marker(latlng).addTo(sheetMap);
     } else {
       sheetMarker.setLatLng(latlng);
@@ -4692,8 +4707,7 @@ function showBikeSheetMap(station) {
         touchZoom: false,
         keyboard: false,
       });
-      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 })
-        .addTo(bikeSheetMap);
+      basemap().addTo(bikeSheetMap);
       bikeSheetMarker = L.marker(latlng).addTo(bikeSheetMap);
     } else {
       bikeSheetMarker.setLatLng(latlng);
@@ -4792,10 +4806,7 @@ document.getElementById("bike-sheet-show-map").addEventListener("click", () => {
 function ensureBikeMap() {
   if (bikeMap) return;
   bikeMap = L.map(bikeMapEl, { tap: false });
-  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    maxZoom: 19,
-    attribution: "&copy; OpenStreetMap contributors",
-  }).addTo(bikeMap);
+  basemap().addTo(bikeMap);
   bikeMarkers = L.layerGroup().addTo(bikeMap);
   if (myLocation) bikeUserMarker = addUserMarker(bikeMap, myLocation);
   bikeMap.setView(myLocation ?? [40.4168, -3.7038], 15);
