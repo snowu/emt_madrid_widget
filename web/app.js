@@ -500,6 +500,13 @@ const REFRESH_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true">'
   + '<path d="M20 12a8 8 0 1 1-2.4-5.7"></path><path d="M20 4v4.5h-4.5"></path></svg>';
 const REMOVE_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true">'
   + '<path d="M7 7l10 10M17 7 7 17"></path></svg>';
+
+// The header and the stop sheet were still drawing a ↻ text glyph, which sits
+// on a different baseline and weight from the drawn icons beside it. One
+// refresh mark everywhere, defined once.
+for (const id of ["refresh-all", "sheet-refresh"]) {
+  document.getElementById(id).innerHTML = REFRESH_ICON;
+}
 const INFO_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v5"></path><circle cx="12" cy="7.6" r=".9" fill="currentColor" stroke="none"></circle></svg>';
 const ROUTE_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s6-5.4 6-11a6 6 0 1 0-12 0c0 5.6 6 11 6 11Z"></path><circle cx="12" cy="10" r="2"></circle></svg>';
 
@@ -2876,6 +2883,30 @@ function stopDisplayName(stopId, route) {
   return null;
 }
 
+/** Bring a bus and you into the same view.
+ *
+ * Centring on the bus answers "where is it" but not "how far is it", which is
+ * the question you tapped it to ask. Framing both answers both at a glance —
+ * the gap on screen *is* the distance.
+ *
+ * Capped at zoom 16 so a bus at the end of your street does not slam the map
+ * into a rooftop view, and it only eases rather than jumps: a tap that teleports
+ * the map loses you the context you had.
+ */
+function frameBusWithUser(busLngLat) {
+  if (!leafletMap || !Array.isArray(busLngLat)) return;
+  if (!myLocation) {
+    leafletMap.easeTo({ center: busLngLat, duration: 450 });
+    return;
+  }
+  const bounds = new maplibregl.LngLatBounds(busLngLat, busLngLat).extend(myLngLat());
+  leafletMap.fitBounds(bounds, {
+    padding: { top: 70, bottom: 70, left: 55, right: 55 },
+    maxZoom: 16,
+    duration: 450,
+  });
+}
+
 function liveBusPopup(bus) {
   const wrap = document.createElement("div");
   const color = lineColor(bus.line);
@@ -3029,6 +3060,7 @@ function rebuildLiveBusMarkers() {
       showMapPopup(leafletMap, created.getLngLat().toArray(), `bus:${key}`,
         () => liveBusPopup(created.liveBus));
       if (created.busRouteKey) setSelectedRoute(created.busRouteKey);
+      frameBusWithUser(created.getLngLat().toArray());
     });
     created.addTo(leafletMap);
     liveBusMarkers.set(key, created);

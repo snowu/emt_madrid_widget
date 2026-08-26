@@ -633,7 +633,8 @@ body.map-is-fullscreen { overflow: hidden; }
 .icon-btn:active { background: var(--active); }
 .icon-btn:disabled { opacity: 0.35; color: var(--muted); cursor: not-allowed; }
 
-.icon-btn svg, .stop-directions-icon svg, .icon-action svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.icon-btn svg, .stop-directions-icon svg, .icon-action svg,
+#refresh-all svg, #sheet-refresh svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .icon-action { width: var(--tap); padding: 0; color: var(--accent); }
 
 .stop ul { list-style: none; margin: 0.5rem 0 0; padding: 0; }
