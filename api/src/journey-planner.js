@@ -116,10 +116,19 @@ export function nearbyAccess(stops, location, maxStops = 6) {
 
 /** Keep scarce live-arrival calls useful in dense areas.
  *
- * A merely nearest-first slice can discard a direct line 450 m away because
- * six unrelated stops happen to be closer. Reserve the nearest candidate
- * sharing a line with each destination, then fill the remaining slots by
- * walking distance.
+ * A merely nearest-first slice can discard a direct line 450m away because six
+ * unrelated stops happen to be closer. So slots are reserved for stops that
+ * share a line with the destination — but **one per shared line**, not simply
+ * the nearest two stops that share any of them.
+ *
+ * That distinction is the whole thing at night. A destination served by
+ * 9, 29, 52, 73 and N2 will have several stops within 300m serving 9 and 73,
+ * and they take every reserved slot; the one stop carrying N2 is 1.3km away
+ * and never gets considered. At 01:00 the day lines are asleep and N2 is the
+ * only line running, so the hub reports "No route" while a direct bus exists.
+ *
+ * Reserving per line costs nothing by day — it just means each line the
+ * destination is served by gets one chance to be boarded.
  */
 export function prioritizeAccessStops(candidates, destinationGroups, maxStops = 6) {
   const selected = [];
@@ -131,11 +140,20 @@ export function prioritizeAccessStops(candidates, destinationGroups, maxStops = 
     selected.push(stop);
   };
   for (const destinations of destinationGroups ?? []) {
-    const destinationLines = (destinations ?? []).flatMap((stop) => stop.lines ?? []);
-    (candidates ?? []).filter((candidate) => (candidate.lines ?? [])
-      .some((line) => destinationLines.some((destinationLine) => linesMatch(line, destinationLine))))
-      .slice(0, 2)
-      .forEach(add);
+    const seen = new Set();
+    for (const destinationLine of (destinations ?? []).flatMap((stop) => stop.lines ?? [])) {
+      const identity = lineIdentity(destinationLine);
+      if (!identity || seen.has(identity)) continue;
+      seen.add(identity);
+      // Two per line, not one: a line's two directions are different platforms,
+      // often across the street from each other, and only one of them is going
+      // your way. `candidates` arrives sorted by walking distance.
+      (candidates ?? [])
+        .filter((candidate) => (candidate.lines ?? [])
+          .some((line) => linesMatch(line, destinationLine)))
+        .slice(0, 2)
+        .forEach(add);
+    }
   }
   for (const candidate of candidates ?? []) add(candidate);
   return selected;
