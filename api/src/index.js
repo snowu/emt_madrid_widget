@@ -357,20 +357,28 @@ function cellCentre(index) {
   return (index + 0.5) * NEARBY_CELL;
 }
 
-/** Every cell a circle of `metres` around a point can reach into. */
+/** Every cell a circle of `metres` around a point can reach into.
+ *
+ * Walking the whole range, not just the four corners of the bounding box.
+ * Corners are only sufficient while the box spans at most two cells per axis,
+ * which held at the daytime 700m and stopped holding the moment the night
+ * radius went to 2km: the box then spans three cells across, the middle ones
+ * are never sampled, and one of the cells missed is the one the rider is
+ * standing in. Journeys came back empty because the nearest stops were never
+ * read at all.
+ */
 function cellsCovering(lat, lon, metres) {
   const dLat = metres / 111_320;
   const dLon = metres / (111_320 * Math.cos((lat * Math.PI) / 180));
-  const cells = new Map();
-  for (const la of [lat - dLat, lat + dLat]) {
-    for (const lo of [lon - dLon, lon + dLon]) {
-      const latIndex = Math.floor(la / NEARBY_CELL);
-      const lonIndex = Math.floor(lo / NEARBY_CELL);
-      cells.set(`${latIndex}:${lonIndex}`,
-        { lat: cellCentre(latIndex), lon: cellCentre(lonIndex) });
+  const cells = [];
+  for (let la = Math.floor((lat - dLat) / NEARBY_CELL);
+    la <= Math.floor((lat + dLat) / NEARBY_CELL); la += 1) {
+    for (let lo = Math.floor((lon - dLon) / NEARBY_CELL);
+      lo <= Math.floor((lon + dLon) / NEARBY_CELL); lo += 1) {
+      cells.push({ lat: cellCentre(la), lon: cellCentre(lo) });
     }
   }
-  return [...cells.values()];
+  return cells;
 }
 
 function metresApart(aLat, aLon, bLat, bLon) {
