@@ -2155,6 +2155,21 @@ function paintLineChip(node, l, drawn) {
  *  moves it back. Either way the marker holding the open popup is destroyed
  *  and the popup goes with it, which makes the star read as "dismiss" rather
  *  than as a toggle. Reopen it on whichever layer now owns the stop. */
+/** Open a popup without letting Leaflet pan to it — a pan fires moveend,
+ *  which reloads nearby stops and rebuilds the very pins being restored.
+ *
+ * `openPopup({autoPan: false})` is not a Leaflet API: it reads its argument as
+ * a LatLng and throws "Cannot read properties of null (reading 'lat')". The
+ * option belongs on the popup, not the call.
+ */
+function openPopupInPlace(layer) {
+  const popup = layer.getPopup?.();
+  const previous = popup?.options.autoPan;
+  if (popup) popup.options.autoPan = false;
+  layer.openPopup();
+  if (popup) popup.options.autoPan = previous;
+}
+
 function reopenStopPopup(stopId) {
   const id = String(stopId);
   for (const layer of [markers, nearbyLayer]) {
@@ -2163,7 +2178,7 @@ function reopenStopPopup(stopId) {
       if (String(child.stopId ?? child.nearbyStop?.stopId) === id) found = child;
     });
     if (found) {
-      found.openPopup({ autoPan: false });
+      openPopupInPlace(found);
       return;
     }
   }
@@ -2197,11 +2212,13 @@ function savedStopStar(s) {
         renderNearbyPins(); // the saved stop drops out of the nearby halo
       }
       statusEl.textContent = "";
-      // The popup now belongs to the other layer, and its star has flipped.
-      reopenStopPopup(s.stopId);
     } catch {
       star.disabled = false;
+      return;
     }
+    // Outside the catch: the save succeeded, and a failure to restore the
+    // popup must not be reported — or silently swallowed — as a failed save.
+    reopenStopPopup(s.stopId);
   });
   return star;
 }
@@ -2301,7 +2318,7 @@ function rebuildMarkers() {
     marker.stopId = stop.stop_id; // for popup refresh ticks
     marker.addTo(markers);
     // Reopening must not pan: a pan reloads nearby stops and rebuilds again.
-    if (stop.stop_id === reopen) marker.openPopup({ autoPan: false });
+    if (stop.stop_id === reopen) openPopupInPlace(marker);
   }
 }
 

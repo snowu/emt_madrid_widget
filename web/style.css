@@ -736,17 +736,12 @@ body.map-is-fullscreen { overflow: hidden; }
 
 .leaflet-popup-content h3 {
   margin: 0;
-  /* Room for the close button, which floats over the top-right corner. */
-  padding-right: 1.1rem;
   font-size: 1rem;
 }
 
-.leaflet-popup-close-button {
-  color: var(--muted) !important;
-  padding: 0.35rem 0.45rem 0 0 !important;
-}
-
-.leaflet-popup-close-button:hover { color: var(--fg) !important; }
+/* No close button. A tap on the map closes the popup already, so on a phone
+   the × is dead weight — and it sat exactly where the header's actions go. */
+.leaflet-popup-close-button { display: none; }
 
 /* The same three-column rhythm the list cards use, so a stop reads the same
    way whether it is on a card or in a popup. */
@@ -771,42 +766,39 @@ body.map-is-fullscreen { overflow: hidden; }
 /* A nearby stop popup: header carries the save star, then one tappable row
    per line. Chip height is derived from its own font size — em padding and a
    fixed line-height — so the two cannot drift apart. */
-.pop-head { display: flex; align-items: baseline; gap: 0.3rem; }
-.pop-head h3 { flex: 1; min-width: 0; overflow-wrap: anywhere; padding-right: 0; }
+.pop-head { display: flex; align-items: center; gap: 0.15rem; }
+.pop-head h3 { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 
-.leaflet-popup-content .pop-star {
-  flex: none;
-  width: 24px;
-  min-height: 0;
-  margin: 0;
-  padding: 0;
-  border: none;
-  background: transparent;
-  color: var(--star);
-  font-size: 1.15rem;
-  line-height: 1;
-}
-
+/* One box for both actions, so a text glyph and an SVG line up instead of
+   sitting on their own baselines. */
+.leaflet-popup-content .pop-star,
 .leaflet-popup-content .pop-info {
   flex: none;
-  width: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
   min-height: 0;
   margin: 0;
   padding: 0;
   border: none;
   background: transparent;
-  /* Neutral: the star is the coloured action here, not this one. */
-  color: var(--muted);
   line-height: 1;
 }
 
+.leaflet-popup-content .pop-star { color: var(--star); font-size: 1.05rem; }
+
+/* Neutral: the star is the coloured action here, not this one. */
+.leaflet-popup-content .pop-info { color: var(--muted); }
+
 .leaflet-popup-content .pop-info svg {
+  display: block;
   width: 17px;
   height: 17px;
   fill: none;
   stroke: currentColor;
   stroke-width: 1.7;
-  vertical-align: middle;
 }
 
 .leaflet-popup-content .line-chip {
