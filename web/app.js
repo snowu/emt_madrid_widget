@@ -2007,7 +2007,7 @@ function focusMapOn(coordinates) {
   showView("map");
   if (!leafletMap || !Array.isArray(coordinates)) return;
   const zoom = Math.max(leafletMap.getZoom(), NEARBY_MIN_ZOOM);
-  leafletMap.setView([coordinates[1], coordinates[0]], zoom);
+  leafletMap.jumpTo({ center: coordinates, zoom });
 }
 
 /** Card control: show me what is running at this stop, on the map. */
@@ -2484,42 +2484,55 @@ function rebuildMarkers() {
 
 /** A bus, seen from above.
  *
- * It used to be a 44px badge with wheels, a number and a separate arrow —
- * legible, but it sat on the map rather than in it, and at any real zoom it
- * dwarfed the street it was driving down. This is a vehicle on the road
- * instead: small, oriented, and quiet enough that the route stays the subject.
+ * It used to be a 44px badge with wheels and a separate arrow — legible, but
+ * it sat on top of the map rather than in it. This is a vehicle on the road:
+ * oriented by the path's own tangent, so the body points the way and no arrow
+ * is needed, with a darker band at the leading end saying which end is front.
  *
- * Heading comes from the path's own tangent, so the body points the way and
- * the arrow is redundant. The line's colour carries its identity — the same
- * colour as its route, its chips and its legend entry.
+ * The line number runs along the body's long axis, which is the only place a
+ * five-character label like SE833 fits at this size. It is flipped through
+ * 180° whenever the heading would otherwise leave it upside down, so it is
+ * never read backwards — the trade is that a bus heading north or south reads
+ * vertically.
  */
 function liveBusIcon(bus) {
   const ns = "http://www.w3.org/2000/svg";
   const svg = document.createElementNS(ns, "svg");
-  svg.setAttribute("viewBox", "0 0 44 44");
+  svg.setAttribute("viewBox", "0 0 56 56");
   svg.setAttribute("aria-hidden", "true");
+  const bearing = Number.isFinite(bus.bearing) ? Number(bus.bearing) : 0;
   const vehicle = document.createElementNS(ns, "g");
-  if (Number.isFinite(bus.bearing)) {
-    vehicle.setAttribute("transform", `rotate(${Number(bus.bearing)} 22 22)`);
-  }
+  vehicle.setAttribute("transform", `rotate(${bearing} 28 28)`);
+
   const body = document.createElementNS(ns, "rect");
   body.setAttribute("class", "live-bus-body");
-  body.setAttribute("x", "15.5");
-  body.setAttribute("y", "7");
-  body.setAttribute("width", "13");
-  body.setAttribute("height", "30");
-  body.setAttribute("rx", "6.5");
+  body.setAttribute("x", "18");
+  body.setAttribute("y", "6");
+  body.setAttribute("width", "20");
+  body.setAttribute("height", "44");
+  body.setAttribute("rx", "9");
   body.setAttribute("fill", lineColor(bus.line));
-  // A darker band at the leading end: enough to read as a vehicle from above,
-  // and it says which way it faces without drawing an arrow.
+
   const screen = document.createElementNS(ns, "rect");
   screen.setAttribute("class", "live-bus-screen");
-  screen.setAttribute("x", "17.5");
-  screen.setAttribute("y", "10");
-  screen.setAttribute("width", "9");
-  screen.setAttribute("height", "6.5");
-  screen.setAttribute("rx", "3");
-  vehicle.append(body, screen);
+  screen.setAttribute("x", "20.5");
+  screen.setAttribute("y", "9");
+  screen.setAttribute("width", "15");
+  screen.setAttribute("height", "8");
+  screen.setAttribute("rx", "4");
+
+  // Along the body, and never upside down: the label sits at bearing − 90,
+  // so add half a turn whenever that lands in the unreadable half.
+  const onScreen = (((bearing - 90) % 360) + 360) % 360;
+  const label = onScreen > 90 && onScreen < 270 ? 90 : -90;
+  const number = document.createElementNS(ns, "text");
+  number.setAttribute("class", "live-bus-number");
+  number.setAttribute("x", "28");
+  number.setAttribute("y", "32");
+  number.setAttribute("transform", `rotate(${label} 28 32)`);
+  number.textContent = bus.line;
+
+  vehicle.append(body, screen, number);
   svg.append(vehicle);
   return svg;
 }
@@ -3252,7 +3265,9 @@ function renderNearbyPins() {
       if (saved.has(s.stopId) || !Array.isArray(s.coordinates)) continue;
       // GeoJSON order is [lon, lat]; Leaflet wants [lat, lon].
       const at = s.coordinates;
-      if (!bounds.contains([at[1], at[0]])) continue;
+      // [lon, lat] already — MapLibre's order. The Leaflet-era flip that used
+      // to live here judged every stop out of bounds, so none were ever drawn.
+      if (!bounds.contains(at)) continue;
       wanted.add(s.stopId);
       if (nearbyPins.has(s.stopId)) continue;
       const pin = stopPin(at, { saved: false }).addTo(leafletMap);
@@ -4865,7 +4880,7 @@ document.getElementById("bike-sheet-show-map").addEventListener("click", () => {
   showView("map");
   showSection("bikes");
   requestAnimationFrame(() => {
-    bikeMap?.setView([station.coordinates[1], station.coordinates[0]], 18);
+    bikeMap?.jumpTo({ center: station.coordinates, zoom: 18 });
   });
 });
 
@@ -5053,8 +5068,8 @@ function applyLocation(position, { recenter = false, forceNearby = false } = {})
   if (recenter) {
     // Hidden maps can be recentered safely; their size is corrected when they
     // become visible. Background updates never disturb a map the user panned.
-    leafletMap?.setView(myLocation, 16);
-    bikeMap?.setView(myLocation, 16);
+    leafletMap?.jumpTo({ center: myLngLat(), zoom: 16 });
+    bikeMap?.jumpTo({ center: myLngLat(), zoom: 16 });
   }
   render();
   renderBikes();
