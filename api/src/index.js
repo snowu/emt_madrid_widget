@@ -328,6 +328,38 @@ function prioritizedRouteCodes(originStops, destinationGroups, max = 20) {
   return ordered;
 }
 
+/** Cap how long one upstream read may hold up a journey.
+ *
+ * A journey reads 20–30 boards in parallel and is only as quick as its slowest
+ * one. `emtFetch` already aborts a single EMT call at 8s, but the planner need
+ * not wait even that long: dropping one stop costs a candidate, while waiting
+ * costs the whole plan — the page gives up at 25s. Measured on live traffic,
+ * journeys that returned took 16.2s and the rest were cancelled at 25s, with
+ * 14–25ms of CPU. All of that was waiting.
+ */
+function withinDeadline(promise, ms, fallback = null) {
+  let timer;
+  return Promise.race([
+    Promise.resolve(promise).catch(() => fallback),
+    new Promise((resolve) => { timer = setTimeout(() => resolve(fallback), ms); }),
+  ]).finally(() => clearTimeout(timer));
+}
+
+/** The one read a journey cannot do without.
+ *
+ * Everything after this is isolated per stop, but the origin's stop list is
+ * not: without it there is no plan at all. EMT times out often enough that a
+ * single flaky call should not lose the journey, so it gets one more try.
+ */
+async function plannerNearby(requestUrl, env, lat, lon, radius, ctx) {
+  try {
+    return await cachedNearby(requestUrl, env, lat, lon, radius, ctx);
+  } catch (error) {
+    if (error?.kind !== "upstream") throw error;
+    return cachedNearby(requestUrl, env, lat, lon, radius, ctx);
+  }
+}
+
 async function journeys(request, body, env, ctx) {
   const origin = plannerLocation(body?.origin, "origin");
   if (!Array.isArray(body?.destinations) || body.destinations.length < 1 || body.destinations.length > 3) {
@@ -339,10 +371,10 @@ async function journeys(request, body, env, ctx) {
     ...plannerLocation(destination, `destination ${index + 1}`),
     radius: Math.min(700, Math.max(200, Number(destination.destinationRadiusM) || 700)),
   }));
-  const originRaw = await cachedNearby(request.url, env, origin.lat, origin.lon, 700, ctx);
+  const originRaw = await plannerNearby(request.url, env, origin.lat, origin.lon, 700, ctx);
   const originCandidates = nearbyAccess(originRaw, origin, 50);
   const destinationStops = await Promise.all(destinations.map(async (destination) =>
-    nearbyAccess(await cachedNearby(request.url, env, destination.lat, destination.lon,
+    nearbyAccess(await plannerNearby(request.url, env, destination.lat, destination.lon,
       destination.radius, ctx), destination, 6)));
   const originStops = prioritizeAccessStops(
     originCandidates,
@@ -372,11 +404,8 @@ async function journeys(request, body, env, ctx) {
   // isolated: one bad stop must not hold or reject the entire journey.
   const liveStopIds = originStops.map((stop) => String(stop.stopId));
   const live = new Map(await Promise.all(liveStopIds.map(async (stopId) => {
-    try {
-      return [stopId, await cachedPlannerArrivals(request.url, env, stopId, ctx)];
-    } catch {
-      return [stopId, null];
-    }
+    return [stopId,
+      await withinDeadline(cachedPlannerArrivals(request.url, env, stopId, ctx), 5_000)];
   })));
   const activeOriginStops = stopsWithLiveLines(originStops, live);
 
@@ -419,11 +448,8 @@ async function journeys(request, body, env, ctx) {
       .slice(0, 3)
       .map((option) => String(option.transfer.toStop.stopId))))].slice(0, 3);
     const transferLive = new Map(await Promise.all(transferStopIds.map(async (stopId) => {
-      try {
-        return [stopId, await cachedPlannerArrivals(request.url, env, stopId, ctx)];
-      } catch {
-        return [stopId, null];
-      }
+      return [stopId,
+        await withinDeadline(cachedPlannerArrivals(request.url, env, stopId, ctx), 5_000)];
     })));
     for (const item of planned) {
       item.options = item.options.filter((option) => {
@@ -439,12 +465,10 @@ async function journeys(request, body, env, ctx) {
     [option.firstLeg?.line, option.secondLeg?.line].filter(Boolean))))]
     .slice(0, JOURNEY_INCIDENT_LINE_LIMIT);
   const incidentsByLine = new Map(await Promise.all(incidentCodes.map(async (code) => {
-    try {
-      return [code, (await cachedIncidents(request.url, env, code, ctx)).incidents ?? []];
-    } catch {
-      // Incident data improves ranking, but must never make live journeys fail.
-      return [code, []];
-    }
+    // Incident data improves ranking, but must never make live journeys fail —
+    // and 119 of them timed out in a day, each holding a plan for 8 seconds.
+    const payload = await withinDeadline(cachedIncidents(request.url, env, code, ctx), 3_000);
+    return [code, payload?.incidents ?? []];
   })));
   for (const item of planned) {
     for (const option of item.options) {
