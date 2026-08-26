@@ -38,14 +38,19 @@ import {
  * tiles. `CARTO_KEY` is the one place to put it. Empty means the tiles still
  * render, watermarked — a legible degradation rather than a blank map.
  */
-const CARTO_KEY = "";
-const BASEMAP_URL = `https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png${
+// Free tier, non-commercial: 5M tile requests a month against roughly 100k of
+// expected use. It is a browser key, so it ships in this file and is public by
+// nature — CARTO scopes it by domain rather than by secrecy.
+const CARTO_KEY = "eyJhbGciOiJIUzI1NiJ9.eyJhIjoiYWNfaGY2ZXU3ZmIiLCJqdGkiOiJmNmEwZDk2NyJ9._6EKPzJpn62xgW1ItBNBJ28nkj2btwQutk8njTzbB-s";
+// The keyed endpoint is a different shape from the old anonymous one: the
+// style sits under `rastertiles/` and there is no `{s}` subdomain to shard
+// across. Verified serving z13–z20 and @2x retina.
+const BASEMAP_URL = `https://basemaps.cartocdn.com/rastertiles/dark_nolabels/{z}/{x}/{y}{r}.png${
   CARTO_KEY ? `?key=${CARTO_KEY}` : ""}`;
 
 function basemap() {
   return L.tileLayer(BASEMAP_URL, {
     maxZoom: 20,
-    subdomains: "abcd",
     attribution: "&copy; OpenStreetMap contributors &copy; CARTO",
   });
 }
