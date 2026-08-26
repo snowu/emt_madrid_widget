@@ -442,6 +442,35 @@ button:active { transform: scale(0.97); }
 
 #fab[hidden] { display: none; }
 
+/* Leaflet drew these as SVG circleMarkers; MapLibre draws DOM elements, so
+   the shapes live in CSS now. Same sizes and colours as before. */
+.stop-pin {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1.5px solid #9fb0c8;
+  background: #0e1117;
+  opacity: 0.85;
+  cursor: pointer;
+}
+
+.stop-pin.saved {
+  border: 2px solid #eaf1ff;
+  background: #4ea3ff;
+  opacity: 1;
+}
+
+.dot-pin {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid #8b93a7;
+  background: #202631;
+}
+
+.dot-pin.saved { border-color: #ffbf3f; }
+.dot-pin.you { border: 3px solid #fff; background: #4ea3ff; }
+
 .user-pin { background: none; border: none; }
 .user-pin span {
   display: grid;
@@ -688,8 +717,6 @@ body.map-is-fullscreen { overflow: hidden; }
 .route-board-undo button { min-height: 30px; margin-left: auto; padding: 0.15rem 0.35rem; border: 0; background: transparent; color: var(--accent); font-size: 0.8rem; font-weight: 700; }
 .route-board-row:focus-visible, .route-board-remove:focus-visible, .route-board-sort:focus-visible, .route-board-clear:focus-visible, .route-board-undo button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 
-/* Leaflet gives divIcons a white background by default. */
-.route-arrow { background: none; border: none; }
 .live-bus-icon { background: none; border: none; transition: opacity 150ms ease; }
 .live-bus-icon svg { width: 44px; height: 44px; overflow: visible; filter: drop-shadow(0 2px 3px rgb(0 0 0 / 0.55)); transition: transform 150ms ease; }
 .live-bus-body { stroke: #fff; stroke-width: 2; }
@@ -712,42 +739,42 @@ body.map-is-fullscreen { overflow: hidden; }
 /* Leaflet's own popup is a white box with square-ish corners and a drop
    shadow that belongs to another design. Only the frame is restyled here —
    the contents reuse the card vocabulary from the list. */
-.leaflet-popup-content-wrapper {
+/* One box, not two: Leaflet split the frame and the padding across a wrapper
+   and an inner div, MapLibre uses a single element for both. */
+.maplibregl-popup-content {
   background: var(--card);
   color: var(--fg);
   border: 1px solid var(--line);
   border-radius: 14px;
   box-shadow: 0 12px 32px rgb(0 0 0 / 0.32);
-  padding: 1px;
+  padding: 0.8rem 0.9rem;
+  min-width: 11.5rem;
+  font: 0.95rem/1.4 system-ui, sans-serif;
 }
 
-.leaflet-popup-tip {
+.maplibregl-popup-tip {
   background: var(--card);
   border-right: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
   box-shadow: none;
 }
 
-.leaflet-popup-content {
-  margin: 0.8rem 0.9rem;
-  min-width: 11.5rem;
-  font: 0.95rem/1.4 system-ui, sans-serif;
-}
-
-.leaflet-popup-content h3 {
+.maplibregl-popup-content h3 {
   margin: 0;
   font-size: 1rem;
 }
 
-/* No close button. A tap on the map closes the popup already, so on a phone
-   the × is dead weight — and it sat exactly where the header's actions go. */
-.leaflet-popup-close-button { display: none; }
+/* No close button — a tap on the map closes the popup already, and on a phone
+   the × was dead weight sitting exactly where the header's actions go. It is
+   also switched off in JS; this covers MapLibre putting one back. */
+.maplibregl-popup-close-button { display: none; }
+
 
 /* The same three-column rhythm the list cards use, so a stop reads the same
    way whether it is on a card or in a popup. */
-.leaflet-popup-content ul { list-style: none; margin: 0.5rem 0 0; padding: 0; }
+.maplibregl-popup-content ul { list-style: none; margin: 0.5rem 0 0; padding: 0; }
 
-.leaflet-popup-content li {
+.maplibregl-popup-content li {
   display: grid;
   grid-template-columns: minmax(3ch, auto) minmax(0, 1fr) auto;
   align-items: baseline;
@@ -756,12 +783,12 @@ body.map-is-fullscreen { overflow: hidden; }
   border-bottom: 1px solid var(--separator);
 }
 
-.leaflet-popup-content li:last-child { border-bottom: none; }
-.leaflet-popup-content li .eta { grid-column: 3; text-align: right; font-size: 1.05rem; }
+.maplibregl-popup-content li:last-child { border-bottom: none; }
+.maplibregl-popup-content li .eta { grid-column: 3; text-align: right; font-size: 1.05rem; }
 /* "Nothing due" is prose, not a row: it needs the whole width. */
-.leaflet-popup-content li.muted { display: block; border-bottom: none; }
-.leaflet-popup-content .stop-num { margin: 0.15rem 0 0; font-size: 0.75rem; color: var(--muted); }
-.leaflet-popup-content .age { margin: 0.5rem 0 0; font-size: 0.75rem; }
+.maplibregl-popup-content li.muted { display: block; border-bottom: none; }
+.maplibregl-popup-content .stop-num { margin: 0.15rem 0 0; font-size: 0.75rem; color: var(--muted); }
+.maplibregl-popup-content .age { margin: 0.5rem 0 0; font-size: 0.75rem; }
 
 /* A nearby stop popup: header carries the save star, then one tappable row
    per line. Chip height is derived from its own font size — em padding and a
@@ -771,8 +798,8 @@ body.map-is-fullscreen { overflow: hidden; }
 
 /* One box for both actions, so a text glyph and an SVG line up instead of
    sitting on their own baselines. */
-.leaflet-popup-content .pop-star,
-.leaflet-popup-content .pop-info {
+.maplibregl-popup-content .pop-star,
+.maplibregl-popup-content .pop-info {
   flex: none;
   display: inline-flex;
   align-items: center;
@@ -787,12 +814,12 @@ body.map-is-fullscreen { overflow: hidden; }
   line-height: 1;
 }
 
-.leaflet-popup-content .pop-star { color: var(--star); font-size: 1.05rem; }
+.maplibregl-popup-content .pop-star { color: var(--star); font-size: 1.05rem; }
 
 /* Neutral: the star is the coloured action here, not this one. */
-.leaflet-popup-content .pop-info { color: var(--muted); }
+.maplibregl-popup-content .pop-info { color: var(--muted); }
 
-.leaflet-popup-content .pop-info svg {
+.maplibregl-popup-content .pop-info svg {
   display: block;
   width: 17px;
   height: 17px;
@@ -801,7 +828,7 @@ body.map-is-fullscreen { overflow: hidden; }
   stroke-width: 1.7;
 }
 
-.leaflet-popup-content .line-chip {
+.maplibregl-popup-content .line-chip {
   min-height: 0;
   padding: 0.12em 0.55em;
   font-size: 0.78rem;
@@ -810,7 +837,7 @@ body.map-is-fullscreen { overflow: hidden; }
 
 .pop-lines { margin-top: 0.35rem; }
 
-.leaflet-popup-content .pop-line {
+.maplibregl-popup-content .pop-line {
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -825,7 +852,7 @@ body.map-is-fullscreen { overflow: hidden; }
   text-align: left;
 }
 
-.leaflet-popup-content .pop-line:last-child { border-bottom: none; }
+.maplibregl-popup-content .pop-line:last-child { border-bottom: none; }
 
 /* The lines with nothing coming: one wrapped row of bare chips, no borders,
    no countdown column to leave empty. */
@@ -837,7 +864,7 @@ body.map-is-fullscreen { overflow: hidden; }
   padding-top: 0.35rem;
 }
 
-.leaflet-popup-content .pop-chip {
+.maplibregl-popup-content .pop-chip {
   min-height: 0;
   margin: 0;
   padding: 0;
@@ -847,11 +874,11 @@ body.map-is-fullscreen { overflow: hidden; }
 }
 
 .pop-idle .eta { margin-left: auto; font-size: 0.95rem; }
-.leaflet-popup-content .pop-line:active { background: var(--active); }
-.leaflet-popup-content .pop-line .eta { margin-left: auto; font-size: 0.95rem; }
-.leaflet-popup-content .pop-empty { margin: 0.4rem 0 0; font-size: 0.9rem; }
+.maplibregl-popup-content .pop-line:active { background: var(--active); }
+.maplibregl-popup-content .pop-line .eta { margin-left: auto; font-size: 0.95rem; }
+.maplibregl-popup-content .pop-empty { margin: 0.4rem 0 0; font-size: 0.9rem; }
 
-.leaflet-popup-content button {
+.maplibregl-popup-content button {
   margin-top: 0.6rem;
   min-height: 38px;
   padding: 0.35rem 0.75rem;
@@ -883,7 +910,7 @@ body.map-is-fullscreen { overflow: hidden; }
 
 /* Stop names run long in Madrid. Wrapping reads; truncating to
    "Plaza de Cast..." with room to spare does not. */
-.leaflet-popup-content li .bus-where {
+.maplibregl-popup-content li .bus-where {
   grid-column: 1 / 3;
   min-width: 0;
   overflow-wrap: anywhere;

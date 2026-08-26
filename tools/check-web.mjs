@@ -30,9 +30,12 @@ const dom = new JSDOM(readFileSync(join(web, "index.html"), "utf8"), {
 });
 const { window } = dom;
 
-// Leaflet and the Supabase SDK arrive from CDN <script> tags that are not
+// MapLibre GL and the Supabase SDK arrive from CDN <script> tags that are not
 // fetched here. Only the surface app.js touches needs to exist, and it has to
-// tolerate any property access or call, at any depth.
+// tolerate any property access or call, at any depth. MapLibre additionally
+// wants a WebGL context that jsdom has no way to provide, so it is stubbed
+// wholesale rather than loaded — this check is about whether the module
+// evaluates, not about rendering a frame.
 const chainable = () => new Proxy(function stub() {}, {
   get: (_, key) => (key === "then" ? undefined : chainable()),
   apply: () => chainable(),
@@ -47,7 +50,7 @@ Object.defineProperty(window.HTMLMetaElement.prototype, "media", {
   configurable: true,
 });
 
-window.L = chainable();
+window.maplibregl = chainable();
 window.supabase = { createClient: () => chainable() };
 window.fetch = () => Promise.reject(new Error("offline in smoke check"));
 window.navigator.geolocation = { getCurrentPosition() {}, watchPosition() {}, clearWatch() {} };
@@ -56,7 +59,7 @@ if (!window.matchMedia) {
 }
 
 for (const key of ["window", "document", "localStorage", "navigator", "location",
-  "requestAnimationFrame", "cancelAnimationFrame", "matchMedia", "L", "supabase",
+  "requestAnimationFrame", "cancelAnimationFrame", "matchMedia", "maplibregl", "supabase",
   "fetch", "CustomEvent", "Event", "HTMLElement", "getComputedStyle"]) {
   if (window[key] === undefined) continue;
   // Some of these (navigator, and location on newer Node) are getter-only
