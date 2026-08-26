@@ -41,7 +41,7 @@ import {
 // Free tier, non-commercial: 5M tile requests a month against roughly 100k of
 // expected use. It is a browser key, so it ships in this file and is public by
 // nature — CARTO scopes it by domain rather than by secrecy.
-const CARTO_KEY = "eyJhbGciOiJIUzI1NiJ9.eyJhIjoiYWNfaGY2ZXU3ZmIiLCJqdGkiOiJmNmEwZDk2NyJ9._6EKPzJpn62xgW1ItBNBJ28nkj2btwQutk8njTzbB-s";
+const CARTO_KEY = "cb1_28ep_1_fa139875e4e92c05028f7b23";
 // The keyed endpoint is a different shape from the old anonymous one: the
 // style sits under `rastertiles/` and there is no `{s}` subdomain to shard
 // across. Verified serving z13–z20 and @2x retina.
