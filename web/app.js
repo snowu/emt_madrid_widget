@@ -2309,6 +2309,28 @@ function openPopupStopId(layer, key) {
   return open;
 }
 
+/** One pin shape for every stop, saved or not.
+ *
+ * They used to be different objects: Leaflet's default 25×41 teardrop for a
+ * saved stop and a small circle for the rest. The teardrop anchors its popup
+ * above the icon's tip, the circle anchors at its centre — so saving or
+ * unsaving a stop made the open popup jump by the height of a marker.
+ * Identical geometry, different paint.
+ *
+ * The basemap is CARTO dark_nolabels whatever the app's theme, so these are
+ * painted for a dark ground: a bright disc for a stop that is yours, a hollow
+ * ring for one that is not. The old grey-on-near-black blob read as neither.
+ */
+const STOP_PIN_RADIUS = 7;
+
+function stopPin(latlng, { saved }) {
+  return L.circleMarker(latlng, saved
+    ? { radius: STOP_PIN_RADIUS, color: "#eaf1ff", weight: 2,
+      fillColor: "#4ea3ff", fillOpacity: 1 }
+    : { radius: STOP_PIN_RADIUS, color: "#9fb0c8", weight: 1.5,
+      fillColor: "#0e1117", fillOpacity: 0.85 });
+}
+
 function rebuildMarkers() {
   if (!markers) return;
   const reopen = openPopupStopId(markers, "stopId");
@@ -2317,7 +2339,7 @@ function rebuildMarkers() {
     const coords = details[stop.stop_id]?.coordinates;
     if (!coords) continue;
     // GeoJSON order is [lon, lat]; Leaflet wants [lat, lon].
-    const marker = L.marker([coords[1], coords[0]]);
+    const marker = stopPin([coords[1], coords[0]], { saved: true });
     marker.bindPopup(() => popupHtml(stop));
     marker.stopId = stop.stop_id; // for popup refresh ticks
     marker.addTo(markers);
@@ -3103,13 +3125,7 @@ function renderNearbyPins() {
         existing.nearbyStop = s;
         continue;
       }
-      const pin = L.circleMarker(at, {
-        radius: 7,
-        color: "#8b93a7",
-        weight: 2,
-        fillColor: "#3a4150",
-        fillOpacity: 0.9,
-      })
+      const pin = stopPin(at, { saved: false })
         .bindPopup(() => nearbyPopupHtml(s))
         .addTo(nearbyLayer);
       pin.nearbyStop = s; // for popup refresh ticks
