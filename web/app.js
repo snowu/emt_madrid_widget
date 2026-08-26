@@ -574,6 +574,22 @@ function placeRouteRow(option, card, { primary = false } = {}) {
   origin.textContent = `Stop ${option.originStop.stopId} · ${Math.round(walkMetres)} m walk`;
   const detail = document.createElement("small");
   detail.textContent = connection;
+  // The one after, when there is one. Same reasoning as the stop cards showing
+  // two arrivals: the useful question is not only "can I make this bus" but
+  // "what happens if I don't" — and at night, when the next N-line may be half
+  // an hour behind, that is the difference between leaving now and finishing
+  // the drink.
+  const following = (option.firstLeg.arrivals ?? [])
+    .filter((seconds) => seconds > (wait ?? -1))
+    .slice(0, 2);
+  if (following.length) {
+    const later = document.createElement("span");
+    later.className = "route-later";
+    later.dataset.fetchedAt = String(option.firstLeg.fetchedAt ?? journeyPayload.generatedAt);
+    later.dataset.seconds = following.join(",");
+    later.textContent = ` · then ${following.map((s) => fmtCountdown(s)).join(", ")}`;
+    detail.append(later);
+  }
   if (option.incidents?.length) {
     const warning = document.createElement("span");
     warning.className = "route-incident";
@@ -3958,6 +3974,13 @@ function tickStopList() {
       const card = eta.closest(".place-card");
       if (card) setPlaceReachability(card, remaining, eta.dataset.walkSeconds);
     }
+  }
+  // Keep the "then …" list counting down with everything else.
+  for (const later of listEl.querySelectorAll(".route-later[data-seconds]")) {
+    const elapsed = Math.floor((Date.now() - Number(later.dataset.fetchedAt)) / 1000);
+    const times = later.dataset.seconds.split(",").map(Number)
+      .map((seconds) => fmtCountdown(seconds - elapsed));
+    later.textContent = ` · then ${times.join(", ")}`;
   }
   for (const age of listEl.querySelectorAll(".age[data-fetched-at]")) {
     age.textContent = `updated ${fmtAge(Number(age.dataset.fetchedAt))}`;

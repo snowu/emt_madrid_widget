@@ -542,6 +542,7 @@ body.map-is-fullscreen { overflow: hidden; }
 .place-directions svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .place-route { display: grid; grid-template-columns: 3rem minmax(0, 1fr) auto; align-items: center; gap: 0.55rem; margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid var(--separator); color: var(--muted); font-size: 0.75rem; }
 .place-route[hidden] { display: none; }
+.route-later { color: var(--muted); font-variant-numeric: tabular-nums; }
 .place-route-expandable { cursor: pointer; }
 .place-route-expandable::after { content: "⌄"; position: absolute; right: 0.15rem; bottom: -0.3rem; color: var(--muted); font-size: 0.7rem; }
 .place-route-expandable { position: relative; }

@@ -462,6 +462,28 @@ function transferRadius() {
   return isNight() ? NIGHT_TRANSFER_RADIUS : DAY_TRANSFER_RADIUS;
 }
 
+/** How many transfer stops are worth a board read before ranking.
+ *
+ * An option whose transfer stop is never read is not merely unranked — it is
+ * discarded, because "no live arrivals for the second leg" and "we never
+ * asked" are the same thing to the filter. By day three is plenty. At night
+ * the running line is rarely the nearest one: for Hortaleza→General Perón the
+ * only viable second leg, S10, ranked sixth by walking distance behind four
+ * day lines that were asleep.
+ */
+const DAY_TRANSFER_CHECKS = 3;
+const NIGHT_TRANSFER_CHECKS = 8;
+const DAY_ROUTE_BUDGET = 10;
+const NIGHT_ROUTE_BUDGET = 14;
+
+function transferChecks() {
+  return isNight() ? NIGHT_TRANSFER_CHECKS : DAY_TRANSFER_CHECKS;
+}
+
+function routeBudget() {
+  return isNight() ? NIGHT_ROUTE_BUDGET : DAY_ROUTE_BUDGET;
+}
+
 async function journeys(request, body, env, ctx) {
   const origin = plannerLocation(body?.origin, "origin");
   if (!Array.isArray(body?.destinations) || body.destinations.length < 1 || body.destinations.length > 3) {
@@ -516,7 +538,7 @@ async function journeys(request, body, env, ctx) {
   // Active lines get the scarce route slots first; static lines remain loaded
   // for the fallback used when EMT supplied no live boards at all.
   const plannerOrigins = activeOriginStops.length ? activeOriginStops : originStops;
-  const routeCodes = prioritizedRouteCodes(plannerOrigins, destinationStops, 10);
+  const routeCodes = prioritizedRouteCodes(plannerOrigins, destinationStops, routeBudget());
   const routeEntries = await Promise.all(routeCodes.map(async (code) =>
     [code, await cachedRoute(request.url, env, code, ctx)]));
   const routes = new Map(routeEntries);
@@ -550,10 +572,18 @@ async function journeys(request, body, env, ctx) {
 
   let transferStopIds = [];
   if (activeOriginStops.length) {
-    transferStopIds = [...new Set(planned.flatMap((item) => item.options
-      .filter((option) => option.type === "one_transfer")
-      .slice(0, 3)
-      .map((option) => String(option.transfer.toStop.stopId))))].slice(0, 3);
+    // One stop per distinct second leg, so the budget is not spent verifying
+    // three variants of the same line while the one line actually running goes
+    // unchecked and is therefore thrown away.
+    const perLine = new Map();
+    for (const item of planned) {
+      for (const option of item.options) {
+        if (option.type !== "one_transfer") continue;
+        const code = String(option.secondLeg?.line ?? "");
+        if (code && !perLine.has(code)) perLine.set(code, String(option.transfer.toStop.stopId));
+      }
+    }
+    transferStopIds = [...new Set(perLine.values())].slice(0, transferChecks());
     const transferLive = new Map(await Promise.all(transferStopIds.map(async (stopId) => {
       return [stopId,
         await withinDeadline(cachedPlannerArrivals(request.url, env, stopId, ctx), 5_000)];
