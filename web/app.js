@@ -430,6 +430,17 @@ function formatDistance(metres) {
  * as on the map and in the arrival rows — a plain grey run of numbers is the
  * one place the colours were missing.
  */
+/** "How far away is it", written the same way everywhere.
+ *
+ * Saved stops carried the ◎ mark while hubs and bike stations printed a bare
+ * number, so the same fact looked like three different fields depending on
+ * which card you were reading.
+ */
+function distanceLabel(metres) {
+  const text = formatDistance(metres);
+  return text ? `◎ ${text}` : null;
+}
+
 function stopMetaNode(stopId) {
   const wrap = document.createDocumentFragment();
   wrap.append(`Nº ${stopId}`);
@@ -441,8 +452,8 @@ function stopMetaNode(stopId) {
     label.style.color = lineColor(line.label);
     wrap.append(label);
   }
-  const distance = formatDistance(metresFromCurrent(details[stopId]?.coordinates));
-  if (distance) wrap.append(` · ◎ ${distance}`);
+  const distance = distanceLabel(metresFromCurrent(details[stopId]?.coordinates));
+  if (distance) wrap.append(` · ${distance}`);
   return wrap;
 }
 
@@ -595,7 +606,7 @@ function placeCard(place) {
   title.textContent = place.name;
   const distance = document.createElement("span");
   distance.className = "muted";
-  distance.textContent = formatDistance(placeDistance(place)) || "—";
+  distance.textContent = distanceLabel(placeDistance(place)) ?? "—";
   const planned = journeyFor(place.id);
   const options = planned?.options?.slice(0, 3) ?? [];
   const option = options[0];
@@ -3357,7 +3368,7 @@ function nearbyStopCard(stop) {
     const meta = document.createElement("small");
     const lineLabels = (stop.lines ?? []).map(normaliseLine).map((line) => line.label).filter(Boolean);
     const walk = closestWalking.get(String(stop.stopId));
-    meta.textContent = `Nº ${stop.stopId}${walk?.metres != null ? ` · ${formatDistance(walk.metres)}` : ""}${lineLabels.length ? ` · ${lineLabels.join(" · ")}` : ""}`;
+    meta.textContent = `Nº ${stop.stopId}${walk?.metres != null ? ` · ${distanceLabel(walk.metres)}` : ""}${lineLabels.length ? ` · ${lineLabels.join(" · ")}` : ""}`;
     head.append(name, meta);
     const actions = document.createElement("div");
     const directions = document.createElement("button");
@@ -4551,7 +4562,7 @@ function distanceToStation(station) {
 }
 
 function distanceText(station) {
-  return formatDistance(distanceToStation(station));
+  return distanceLabel(distanceToStation(station));
 }
 
 function bikeTitle(station, saved) {
