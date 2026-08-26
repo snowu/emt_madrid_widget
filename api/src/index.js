@@ -49,6 +49,13 @@ import {
 // Short-lived, high-traffic data belongs in the Cache API, not KV. Cache API
 // operations do not consume the Workers KV daily operation allowance.
 const ARRIVALS_CACHE_TTL = 4;
+// The planner reads 20–30 boards per journey. At the map's 4-second TTL every
+// one of those was a guaranteed cold EMT call on every refresh — the reason
+// hubs crawled, and where most of the AbortErrors came from. A hub
+// recommendation does not need four-second ETAs: half a minute practically
+// never changes which route wins. Its own namespace keeps the live map's
+// freshness contract untouched.
+const PLANNER_ARRIVALS_CACHE_TTL = 30;
 // Bump when a cached payload's *shape* changes: old entries would otherwise
 // keep serving the old shape until their TTL runs out (a week, for detail).
 const CACHE_VERSION = "v5";
@@ -156,6 +163,13 @@ async function edgeCachedJson(requestUrl, key, ttl, load, ctx, env, endpoint = "
   } finally {
     if (edgeLoads.get(loadKey) === operation) edgeLoads.delete(loadKey);
   }
+}
+
+/** Arrivals for journey planning: same upstream, longer memory, and tagged
+ *  separately so metrics show planner load apart from live-map polling. */
+async function cachedPlannerArrivals(requestUrl, env, stopId, ctx) {
+  return edgeCachedJson(requestUrl, `arrivals-plan/${encodeURIComponent(stopId)}`,
+    PLANNER_ARRIVALS_CACHE_TTL, () => getArrivals(env, stopId), ctx, env, "arrivals-plan");
 }
 
 async function cachedArrivals(requestUrl, env, stopId, ctx) {
@@ -359,7 +373,7 @@ async function journeys(request, body, env, ctx) {
   const liveStopIds = originStops.map((stop) => String(stop.stopId));
   const live = new Map(await Promise.all(liveStopIds.map(async (stopId) => {
     try {
-      return [stopId, await cachedArrivals(request.url, env, stopId, ctx)];
+      return [stopId, await cachedPlannerArrivals(request.url, env, stopId, ctx)];
     } catch {
       return [stopId, null];
     }
@@ -406,7 +420,7 @@ async function journeys(request, body, env, ctx) {
       .map((option) => String(option.transfer.toStop.stopId))))].slice(0, 3);
     const transferLive = new Map(await Promise.all(transferStopIds.map(async (stopId) => {
       try {
-        return [stopId, await cachedArrivals(request.url, env, stopId, ctx)];
+        return [stopId, await cachedPlannerArrivals(request.url, env, stopId, ctx)];
       } catch {
         return [stopId, null];
       }
