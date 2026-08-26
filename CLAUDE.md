@@ -639,13 +639,13 @@ is most stale), and manually per-card or all at once.
    Saved stations are optional — if `bike_stations` was never created, the page
    says so once and the rest of the section still works.
 
-12. **Search range follows Madrid's clock.** By day, 700m: there is a bus,
-   metro or bike within 300–500m of anywhere in the city, so looking wider
-   only surfaces worse options. From 23:00 to 06:00 the network thins to night
+12. **Bus stop search range follows Madrid's clock.** By day, 700m: there is a
+   bus, metro or bike within 300–500m of anywhere in the city, so looking wider
+   only surfaces worse options. From 23:00 to 06:00 bus service thins to night
    lines and the arithmetic inverts — a 25-minute walk can beat a 40-minute
-   wait — so journey origins, journey destinations and BiciMAD stations all
-   search 2km instead. The bike list says "night range 2 km" rather than
-   silently changing what it contains. The hour comes from
+   wait — so journey origins and destinations search 2km instead. **Bus stops
+   only.** BiciMAD keeps a fixed 700m at every hour: docks do not thin out
+   overnight, and there are often more bikes free then. The hour comes from
    `Intl.DateTimeFormat` on `Europe/Madrid`, never a UTC offset, because the
    rule is about the city's service and has to survive DST.
 13. **Live buses only for a route you asked to see.** A vehicle's position
