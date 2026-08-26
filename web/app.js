@@ -4022,7 +4022,36 @@ nearestRoutesBtn.addEventListener("click", async () => {
   }
 });
 
-const BIKE_RADIUS = 700;
+/** How far to look for something to catch, on Madrid's clock.
+ *
+ * By day there is a bus, a metro or a bike within 300–500m of anywhere in the
+ * city, so a wider search only surfaces worse options. After 23:00 the network
+ * thins to night lines and the arithmetic inverts: a 25-minute walk can beat a
+ * 40-minute wait, and on a Madrid summer night that is a real choice rather
+ * than a hardship. The app's job is to put the option in front of you.
+ *
+ * Madrid's timezone explicitly, not the device's — the rule is about the
+ * city's night service, and it has to survive DST.
+ */
+const DAY_ACCESS_RADIUS = 700;
+const NIGHT_ACCESS_RADIUS = 2000;
+const NIGHT_FROM_HOUR = 23;
+const NIGHT_UNTIL_HOUR = 6;
+
+function madridHour(now = new Date()) {
+  return Number(new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/Madrid", hour: "2-digit", hour12: false,
+  }).format(now));
+}
+
+function nightRange() {
+  const hour = madridHour();
+  return hour >= NIGHT_FROM_HOUR || hour < NIGHT_UNTIL_HOUR;
+}
+
+function accessRadius() {
+  return nightRange() ? NIGHT_ACCESS_RADIUS : DAY_ACCESS_RADIUS;
+}
 
 let section = "buses";
 let bikeSaved = [];
@@ -4716,10 +4745,13 @@ function renderBikes() {
 /** Counts carry their age, and say when they are the rougher kind. */
 function bikeAgeText() {
   if (!bikeFetchedAt) return "never updated";
-  const age = `updated ${fmtAge(bikeFetchedAt)}`;
-  return bikeNear.source === "mobilitylabs"
-    ? `${age} · counts include broken bikes (operator feed unreachable)`
-    : age;
+  let age = `updated ${fmtAge(bikeFetchedAt)}`;
+  if (bikeNear.source === "mobilitylabs") {
+    age += " · counts include broken bikes (operator feed unreachable)";
+  }
+  // Say so, rather than silently changing what the list contains.
+  if (nightRange()) age += ` · night range ${NIGHT_ACCESS_RADIUS / 1000} km`;
+  return age;
 }
 
 function sectionHeading(text) {
@@ -4734,7 +4766,9 @@ async function loadBikesNear(lat, lon, { force = false } = {}) {
   if (!force && cell === bikeCell && Date.now() - (bikeFetchedAt ?? 0) < 45_000) return;
   const seq = ++bikeSeq;
   try {
-    const query = new URLSearchParams({ lat: String(lat), lon: String(lon), radius: String(BIKE_RADIUS) });
+    const query = new URLSearchParams({
+      lat: String(lat), lon: String(lon), radius: String(accessRadius()),
+    });
     if (bikeSaved.length) query.set("ids", bikeSaved.map((row) => row.station_id).join(","));
     const payload = await api(`/bikes/nearby?${query}`);
     if (seq !== bikeSeq) return;

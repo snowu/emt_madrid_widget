@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hubwise map directions</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 24px; min-height: 100vh; background: #07090d; color: #f8fafc; }
+    .intro { max-width: 1330px; margin: 0 auto 18px; display:flex; align-items:end; justify-content:space-between; gap:24px; }
+    h1 { font-size: 20px; margin: 0 0 4px; letter-spacing:-.02em; }
+    .intro p { margin: 0; color:#8e99ab; font-size:13px; }
+    .hint { font-size:12px; color:#647085; white-space:nowrap; }
+    .gallery { display:grid; grid-template-columns:repeat(3, minmax(360px, 430px)); justify-content:center; gap:18px; }
+    .concept > header { display:flex; align-items:center; justify-content:space-between; margin:0 5px 9px; }
+    .concept h2 { margin:0; font-size:14px; }
+    .concept header span { color:#778398; font-size:11px; }
+    .phone { height:820px; position:relative; overflow:hidden; border:1px solid #2a303c; border-radius:30px; background:#0c1016; box-shadow:0 24px 70px #0009; }
+    .topbar { position:absolute; inset:0 0 auto; z-index:900; height:78px; display:grid; grid-template-columns:46px 1fr auto; align-items:center; gap:10px; padding:15px 14px 10px; background:linear-gradient(#0c1016 60%, transparent); }
+    button { font:inherit; color:inherit; }
+    .icon { width:42px; height:42px; border:1px solid #29313e; border-radius:14px; background:#171c25; display:grid; place-items:center; }
+    .mode { justify-self:end; display:flex; padding:3px; border:1px solid #29313e; border-radius:14px; background:#171c25; }
+    .mode span { padding:9px 15px; border-radius:10px; color:#7f8999; font-size:13px; }
+    .mode .on { background:#63affb; color:#07111c; font-weight:800; }
+    .map { position:absolute; inset:68px 10px 78px; border-radius:20px; background:#151a21; }
+    .map svg { width:100%; height:100%; display:block; border-radius:inherit; }
+    .road-major { fill:none; stroke:#3a424c; stroke-width:10; stroke-linecap:round; }
+    .road-major-core { fill:none; stroke:#252c35; stroke-width:6; stroke-linecap:round; }
+    .road-minor { fill:none; stroke:#2a313a; stroke-width:3; stroke-linecap:round; }
+    .block { fill:#1b2129; stroke:#242b34; stroke-width:1; }
+    .park { fill:#172820; stroke:#284035; }
+    .route-halo { fill:none; stroke:#090c10; stroke-width:9; opacity:.72; stroke-linecap:round; stroke-linejoin:round; }
+    .route-line { fill:none; stroke:var(--route); stroke-width:5; stroke-linecap:round; stroke-linejoin:round; }
+    .map-stop { fill:#768395; stroke:white; stroke-width:2.5; }
+    .map-attribution { position:absolute; z-index:2; right:8px; bottom:6px; color:#697586; font-size:8px; }
+    .bus-pin { background:transparent; border:0; }
+    .bus { position:relative; width:42px; height:48px; transform:rotate(var(--bearing)); filter:drop-shadow(0 4px 5px #0009); }
+    /* Flat map glyph: the shallow nose is the direction cue, not a separate arrow. */
+    .bus .body { position:absolute; inset:3px 7px 3px; clip-path:polygon(50% 0,100% 13%,100% 88%,82% 100%,18% 100%,0 88%,0 13%); background:white; }
+    .bus .body::after { content:""; position:absolute; inset:2px; clip-path:inherit; background:var(--line); }
+    .bus .glass { position:absolute; z-index:2; left:12px; top:9px; width:18px; height:5px; border-radius:3px; background:#10202e; opacity:.9; }
+    .bus .number { position:absolute; z-index:3; inset:18px 0 auto; text-align:center; font-size:11px; font-weight:950; text-shadow:0 1px 2px #000; transform:rotate(calc(-1 * var(--bearing))); }
+    .bus .wheel { display:none; }
+    .stop { width:12px; height:12px; border:3px solid white; border-radius:50%; background:#64748b; box-shadow:0 2px 7px #0009; }
+    .floating-tools { position:absolute; z-index:1000; right:22px; bottom:152px; display:grid; gap:8px; }
+    .floating-tools button { width:46px; height:46px; border:1px solid #334050; border-radius:16px; background:#151b24e8; box-shadow:0 7px 20px #0008; font-size:18px; }
+    .bottomnav { position:absolute; z-index:1100; left:10px; right:10px; bottom:10px; height:61px; padding:4px; display:grid; grid-template-columns:repeat(3,1fr); gap:3px; border:1px solid #2b323f; border-radius:19px; background:#161b24ee; backdrop-filter:blur(18px); }
+    .bottomnav span { display:grid; place-items:center; border-radius:15px; color:#7f8999; font-size:13px; }
+    .bottomnav .on { background:#5baafb; color:#06111d; font-weight:800; }
+    .routes { position:absolute; z-index:1000; }
+    .eyebrow { text-transform:uppercase; letter-spacing:.1em; color:#788498; font-size:10px; font-weight:800; }
+    .route-row { display:flex; align-items:center; gap:8px; min-width:0; }
+    .badge { min-width:42px; height:32px; display:grid; place-items:center; padding:0 9px; border-radius:10px; background:color-mix(in srgb,var(--c) 18%,#161b24); color:var(--c); border:1px solid color-mix(in srgb,var(--c) 65%,transparent); font-size:13px; font-weight:900; }
+    .route-copy { flex:1; min-width:0; }
+    .route-copy b { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; }
+    .route-copy small { color:#7f8a9b; font-size:10px; }
+    .close { color:#697488; font-size:18px; }
+    .a .map { bottom:251px; }
+    .a .routes { left:10px; right:10px; bottom:79px; padding:13px 14px; border:1px solid #2b3340; border-radius:20px; background:#111720f5; box-shadow:0 -8px 35px #0007; }
+    .handle { width:36px; height:4px; margin:0 auto 10px; border-radius:2px; background:#384252; }
+    .sheet-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:9px; }
+    .sheet-head b { font-size:13px; } .sheet-head button { border:0; background:none; color:#6eb6ff; font-size:11px; }
+    .a .route-list { display:grid; grid-template-columns:1fr 1fr; gap:8px 12px; }
+    .a .route-row:nth-child(n+5) { display:none; }
+    .b .routes { left:23px; right:23px; bottom:91px; padding:10px; border:1px solid #324052; border-radius:18px; background:#111720e8; box-shadow:0 10px 30px #0009; backdrop-filter:blur(16px); }
+    .b .route-list { display:flex; gap:7px; overflow:hidden; }
+    .b .pill { flex:0 0 auto; display:flex; align-items:center; gap:7px; padding:7px 10px; border:1px solid color-mix(in srgb,var(--c) 60%,#334); border-radius:999px; background:#0d1219; color:var(--c); font-size:11px; font-weight:800; }
+    .b .more { color:#95a1b3; border-color:#384252; }
+    .b .map { bottom:79px; }
+    .b .floating-tools { bottom:164px; }
+    .c .map { bottom:78px; }
+    .c .routes { left:19px; right:19px; bottom:92px; display:grid; gap:7px; pointer-events:none; }
+    .c .route-card { display:grid; grid-template-columns:auto 1fr auto; align-items:center; gap:9px; padding:8px 10px; border:1px solid #344154; border-radius:14px; background:#111720ed; box-shadow:0 7px 22px #0008; backdrop-filter:blur(14px); pointer-events:auto; }
+    .c .route-card:nth-child(n+4) { display:none; }
+    .c .route-card small { display:block; color:#7f8a9b; font-size:9px; }
+    .c .route-card b { display:block; max-width:230px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:11px; }
+    .c .route-card .badge { height:29px; min-width:38px; border-radius:9px; }
+    .c .floating-tools { bottom:229px; }
+    @media (max-width:1180px) { .gallery { grid-template-columns:minmax(360px,430px); } .hint { display:none; } }
+  </style>
+</head>
+<body>
+  <div class="intro"><div><h1>Hubwise — map UI directions</h1><p>Same live transit layer, three ways to tame the route controls.</p></div><div class="hint">Maps are interactive · zoom and pan to judge density</div></div>
+  <main class="gallery">
+    <section class="concept a"><header><h2>A · Route drawer</h2><span>best for 4+ lines</span></header><div class="phone">
+      <div class="topbar"><button class="icon">☰</button><span></span><div class="mode"><span>List</span><span class="on">Map</span></div></div><div class="map" id="map-a"></div>
+      <div class="floating-tools"><button>◎</button></div>
+      <section class="routes"><div class="handle"></div><div class="sheet-head"><b>7 routes on map</b><button>Clear all</button></div><div class="route-list"></div></section>
+      <nav class="bottomnav"><span class="on">Hubwise</span><span>Stops</span><span>BiciMAD</span></nav>
+    </div></section>
+    <section class="concept b"><header><h2>B · Floating rail</h2><span>maximum map</span></header><div class="phone">
+      <div class="topbar"><button class="icon">☰</button><span></span><div class="mode"><span>List</span><span class="on">Map</span></div></div><div class="map" id="map-b"></div>
+      <div class="floating-tools"><button>◎</button></div>
+      <section class="routes"><div class="route-list"></div></section>
+      <nav class="bottomnav"><span class="on">Hubwise</span><span>Stops</span><span>BiciMAD</span></nav>
+    </div></section>
+    <section class="concept c"><header><h2>C · Route cards</h2><span>most glanceable</span></header><div class="phone">
+      <div class="topbar"><button class="icon">☰</button><span></span><div class="mode"><span>List</span><span class="on">Map</span></div></div><div class="map" id="map-c"></div>
+      <div class="floating-tools"><button>◎</button></div>
+      <section class="routes"><div class="route-list"></div></section>
+      <nav class="bottomnav"><span class="on">Hubwise</span><span>Stops</span><span>BiciMAD</span></nav>
+    </div></section>
+  </main>
+  <script>
+    const routes = [
+      ['70','Plaza de Castilla','#e3ac65'],['N1','Plaza de Cibeles','#58dc6b'],['107','Hortaleza','#f07445'],
+      ['129','Manoteras','#a68bdc'],['5','Estación de Chamartín','#35ed6b'],['174','Plaza de Castilla','#5388ff'],['43','Estrecho','#ff6666']
+    ];
+    const paths=['M75 545 C120 470 138 390 172 300 S230 125 272 40','M96 570 C135 480 151 397 184 300 S242 125 282 35','M30 502 C110 450 161 375 203 291 S278 150 377 88','M54 70 C132 151 168 232 200 319 S263 472 360 552'];
+    const buses=[[146,414,'70','#e3ac65',-14],[190,311,'129','#a68bdc',8],[237,215,'174','#5388ff',18],[281,128,'5','#35ed6b',-16],[115,474,'107','#f07445',42]];
+    function busSvg(x,y,line,color,bearing){return `<g transform="translate(${x} ${y}) rotate(${bearing})" filter="url(#shadow)"><path d="M0-22 13-17 15-11 15 17 10 22-10 22-15 17-15-11-13-17Z" fill="white"/><path d="M0-19 11-15 12-10 12 16 8 19-8 19-12 16-12-10-11-15Z" fill="${color}"/><path d="M-8-12Q0-16 8-12V-8H-8Z" fill="#10202e"/><text transform="rotate(${-bearing})" x="0" y="5" text-anchor="middle" fill="white" font-size="10" font-weight="900" font-family="system-ui">${line}</text></g>`}
+    function buildMap(id) {
+      const blocks=[]; for(let y=25;y<580;y+=74) for(let x=18;x<400;x+=78) blocks.push(`<rect class="block" x="${x}" y="${y}" width="57" height="49" rx="4" transform="rotate(${(x+y)%3-1} ${x+28} ${y+24})"/>`);
+      const roads=['M15 118H395','M10 204H408','M18 287H397','M8 378H405','M22 466H398','M72 5V595','M151 0V600','M237 0V600','M324 0V600','M0 558 410 35','M-20 390 370-20'];
+      const routeMarkup=paths.map((d,i)=>`<path class="route-halo" d="${d}"/><path class="route-line" style="--route:${routes[i][2]}" d="${d}"/>`).join('');
+      const stops=[[118,466],[154,391],[185,318],[214,252],[245,174],[277,100],[90,505],[205,292],[306,153]].map(([x,y])=>`<circle class="map-stop" cx="${x}" cy="${y}" r="5"/>`).join('');
+      document.getElementById(`map-${id}`).innerHTML=`<svg viewBox="0 0 420 600" preserveAspectRatio="xMidYMid slice" aria-label="Stylized street-only map"><defs><filter id="shadow"><feDropShadow dx="0" dy="3" stdDeviation="3" flood-opacity=".8"/></filter></defs><rect width="420" height="600" fill="#141920"/>${blocks.join('')}<path class="park" d="M260 325 405 315 420 470 308 493 276 430Z"/>${roads.map((d,i)=>`<path class="${i>8?'road-major':'road-minor'}" d="${d}"/>${i>8?`<path class="road-major-core" d="${d}"/>`:''}`).join('')}${routeMarkup}${stops}${buses.map(b=>busSvg(...b)).join('')}</svg><span class="map-attribution">street-only concept</span>`;
+    }
+    ['a','b','c'].forEach(buildMap);
+    document.querySelector('.a .route-list').innerHTML=routes.map(([n,d,c])=>`<div class="route-row" style="--c:${c}"><span class="badge">${n}</span><span class="route-copy"><b>${d}</b><small>live route</small></span><span class="close">×</span></div>`).join('');
+    document.querySelector('.b .route-list').innerHTML=routes.slice(0,3).map(([n,d,c])=>`<span class="pill" style="--c:${c}">${n} · ${d} ×</span>`).join('')+'<span class="pill more">+4</span>';
+    document.querySelector('.c .route-list').innerHTML=routes.map(([n,d,c])=>`<div class="route-card" style="--c:${c}"><span class="badge">${n}</span><span><b>Towards ${d}</b><small>tap to focus route</small></span><span class="close">×</span></div>`).join('');
+  </script>
+</body>
+</html>

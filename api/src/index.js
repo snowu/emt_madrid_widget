@@ -409,6 +409,33 @@ async function plannerNearby(requestUrl, env, lat, lon, radius, ctx) {
   return cachedNearby(requestUrl, env, lat, lon, radius, ctx, "planner");
 }
 
+// Madrid's own clock, which is the one the rider is living in — and it moves
+// with DST, so it cannot be derived from a UTC offset.
+function madridHour(now = new Date()) {
+  return Number(new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/Madrid", hour: "2-digit", hour12: false,
+  }).format(now));
+}
+
+/** How far a rider is plausibly willing to walk to catch something.
+ *
+ * By day, 700m: there is a bus, a metro or a bike within 300–500m of anywhere
+ * in Madrid, so casting wider only offers worse options. After 23:00 the
+ * network thins to night lines and the arithmetic inverts — a 25-minute walk
+ * can beat waiting 40 minutes, and on a summer night it is not a hardship.
+ * The app's job is to show that the option exists and let the rider judge it.
+ */
+const DAY_ACCESS_RADIUS = 700;
+const NIGHT_ACCESS_RADIUS = 2000;
+const NIGHT_FROM_HOUR = 23;
+const NIGHT_UNTIL_HOUR = 6;
+
+function accessRadius() {
+  const hour = madridHour();
+  return hour >= NIGHT_FROM_HOUR || hour < NIGHT_UNTIL_HOUR
+    ? NIGHT_ACCESS_RADIUS : DAY_ACCESS_RADIUS;
+}
+
 async function journeys(request, body, env, ctx) {
   const origin = plannerLocation(body?.origin, "origin");
   if (!Array.isArray(body?.destinations) || body.destinations.length < 1 || body.destinations.length > 3) {
@@ -418,9 +445,11 @@ async function journeys(request, body, env, ctx) {
     id: String(destination.id ?? index),
     name: String(destination.name ?? "Destination").slice(0, 80),
     ...plannerLocation(destination, `destination ${index + 1}`),
-    radius: Math.min(700, Math.max(200, Number(destination.destinationRadiusM) || 700)),
+    radius: Math.min(accessRadius(),
+      Math.max(200, Number(destination.destinationRadiusM) || 700)),
   }));
-  const originRaw = await plannerNearby(request.url, env, origin.lat, origin.lon, 700, ctx);
+  const originRaw = await plannerNearby(
+    request.url, env, origin.lat, origin.lon, accessRadius(), ctx);
   const originCandidates = nearbyAccess(originRaw, origin, 50);
   const destinationStops = await Promise.all(destinations.map(async (destination) =>
     nearbyAccess(await plannerNearby(request.url, env, destination.lat, destination.lon,

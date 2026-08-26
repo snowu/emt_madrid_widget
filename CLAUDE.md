@@ -639,18 +639,27 @@ is most stale), and manually per-card or all at once.
    Saved stations are optional — if `bike_stations` was never created, the page
    says so once and the rest of the section still works.
 
-12. **Live buses only for a route you asked to see.** A vehicle's position
+12. **Search range follows Madrid's clock.** By day, 700m: there is a bus,
+   metro or bike within 300–500m of anywhere in the city, so looking wider
+   only surfaces worse options. From 23:00 to 06:00 the network thins to night
+   lines and the arithmetic inverts — a 25-minute walk can beat a 40-minute
+   wait — so journey origins, journey destinations and BiciMAD stations all
+   search 2km instead. The bike list says "night range 2 km" rather than
+   silently changing what it contains. The hour comes from
+   `Intl.DateTimeFormat` on `Europe/Madrid`, never a UTC offset, because the
+   rule is about the city's service and has to survive DST.
+13. **Live buses only for a route you asked to see.** A vehicle's position
    rides along in every arrival, so buses can be drawn on the map for free —
    but only where the page already knows the path they run on. Selecting a
    line direction turns them on for that line and that direction alone;
    clearing the route removes them and stops the polling. Showing every
    visible line at once was tried and abandoned: the geometry fetches alone
    made the map unusable.
-13. **Buses are placed by distance, not by their GPS fix**, and glide between
+14. **Buses are placed by distance, not by their GPS fix**, and glide between
    polls along the compiled path — see the arrivals notes above for why the fix
    is unusable. Heading comes from the path's own tangent, since two fixes
    minutes apart say nothing about which way a bus points.
-14. **A bus popup answers "where is it going".** Destination leads, because
+15. **A bus popup answers "where is it going".** Destination leads, because
    that is the question. Then the stop this estimate belongs to — the stop the
    route was opened from, so the one you are standing at — with a ticking
    countdown and the metres left to run. The vehicle number is an EMT fleet id
@@ -658,7 +667,7 @@ is most stale), and manually per-card or all at once.
    way to tell two buses of a line apart, and it sits at the bottom, muted.
    There is no "show route" button: a bus is only ever visible *because* its
    route is drawn, so that button could only ever hide what it offered.
-15. **Routes are reachable from the cards, not just the map.** A saved stop
+16. **Routes are reachable from the cards, not just the map.** A saved stop
    card draws every line *running* at that stop, each in the direction that
    stop serves; a hub card draws the legs of the journey it is recommending,
    whose lines and `toA`/`toB` directions the planner already resolved. The
@@ -677,7 +686,7 @@ is most stale), and manually per-card or all at once.
    time; that is about responsiveness, not quota, since twenty parallel route
    requests stall the map while they land. `toggleRoute` flips a direction,
    `ensureRoute` only ever draws, and `applyRoute` is the shared body.
-16. **Nearby stops are cached by grid cell, not fetched as a disc.** A disc
+17. **Nearby stops are cached by grid cell, not fetched as a disc.** A disc
    around the map centre covers a shrinking slice of the viewport as you zoom
    out, and re-centring replaced the whole set — so pins jumped and blinked
    out while panning. The page instead tiles a fixed 0.02° grid (2226m of
@@ -687,10 +696,10 @@ is most stale), and manually per-card or all at once.
    localStorage entry for 24h. A dense central cell is ~124 stops ≈ 29KB;
    forty cells are kept, oldest evicted first. Pins are added and removed one
    at a time rather than by clearing the layer.
-17. **Below zoom 14 there are no nearby pins at all.** The viewport is then
+18. **Below zoom 14 there are no nearby pins at all.** The viewport is then
    several cells across and thousands of dots wide, which is neither useful
    nor cheap. Saved stops and drawn routes are unaffected.
-18. **One probe stop per displayed direction, every 5s.** A stop's arrivals
+19. **One probe stop per displayed direction, every 5s.** A stop's arrivals
    only ever describe buses still heading *for* it, so polling the stop the
    route was opened from is exactly "what is coming to me" — buses already
    past it are somebody else's problem. Cycling to the other direction reuses
