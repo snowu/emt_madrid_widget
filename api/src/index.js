@@ -430,10 +430,28 @@ const NIGHT_ACCESS_RADIUS = 2000;
 const NIGHT_FROM_HOUR = 23;
 const NIGHT_UNTIL_HOUR = 6;
 
-function accessRadius() {
+/** How far apart two stops may be and still count as one interchange.
+ *
+ * By day 200m keeps transfers to what is genuinely the same interchange. At
+ * night the same reasoning as the access radius applies, and the numbers are
+ * concrete: the closest N1 stop to any S10 stop is 496m — République
+ * Argentina to Nuevos Ministerios — so a 200m gate rejects the only sensible
+ * way across town at 01:00, which is the pairing Google offers first.
+ */
+const DAY_TRANSFER_RADIUS = 200;
+const NIGHT_TRANSFER_RADIUS = 600;
+
+function isNight() {
   const hour = madridHour();
-  return hour >= NIGHT_FROM_HOUR || hour < NIGHT_UNTIL_HOUR
-    ? NIGHT_ACCESS_RADIUS : DAY_ACCESS_RADIUS;
+  return hour >= NIGHT_FROM_HOUR || hour < NIGHT_UNTIL_HOUR;
+}
+
+function accessRadius() {
+  return isNight() ? NIGHT_ACCESS_RADIUS : DAY_ACCESS_RADIUS;
+}
+
+function transferRadius() {
+  return isNight() ? NIGHT_TRANSFER_RADIUS : DAY_TRANSFER_RADIUS;
 }
 
 async function journeys(request, body, env, ctx) {
@@ -495,10 +513,12 @@ async function journeys(request, body, env, ctx) {
     [code, await cachedRoute(request.url, env, code, ctx)]));
   const routes = new Map(routeEntries);
   const planned = destinations.map((destination, index) => {
+    const transferRadiusM = transferRadius();
     const active = planJourney({
       originStops: activeOriginStops,
       destinationStops: destinationStops[index],
       routes,
+      transferRadiusM,
     });
     return {
       destination,
@@ -506,6 +526,7 @@ async function journeys(request, body, env, ctx) {
         originStops,
         destinationStops: destinationStops[index],
         routes,
+        transferRadiusM,
       }),
     };
   });

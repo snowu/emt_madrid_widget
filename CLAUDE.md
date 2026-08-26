@@ -648,6 +648,13 @@ is most stale), and manually per-card or all at once.
    overnight, and there are often more bikes free then. The hour comes from
    `Intl.DateTimeFormat` on `Europe/Madrid`, never a UTC offset, because the
    rule is about the city's service and has to survive DST.
+
+   The **transfer radius** moves with it: 200m by day, 600m at night. Two
+   stops only count as one interchange if they are within that distance, and
+   at night the numbers are concrete — the closest N1 stop to any S10 stop is
+   496m (República Argentina to Nuevos Ministerios). A 200m gate rejects that
+   pairing, which is the one Google offers first for a 01:00 crossing, and the
+   hub then reports "No route" while four options exist.
 13. **Live buses only for a route you asked to see.** A vehicle's position
    rides along in every arrival, so buses can be drawn on the map for free —
    but only where the page already knows the path they run on. Selecting a
