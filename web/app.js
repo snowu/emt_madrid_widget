@@ -1813,6 +1813,10 @@ function drawRouteLayers(shown) {
     id: `${sourceId}-stops`,
     type: "circle",
     source: `${sourceId}-stops`,
+    // Every stop on a city-length line is noise at overview zoom, where the
+    // shape of the route is the thing you are reading. Same threshold the
+    // nearby pins use, so stops appear and disappear together.
+    minzoom: NEARBY_MIN_ZOOM,
     paint: {
       "circle-radius": 4,
       "circle-color": "#12141a",
@@ -2478,32 +2482,45 @@ function rebuildMarkers() {
   }
 }
 
+/** A bus, seen from above.
+ *
+ * It used to be a 44px badge with wheels, a number and a separate arrow —
+ * legible, but it sat on the map rather than in it, and at any real zoom it
+ * dwarfed the street it was driving down. This is a vehicle on the road
+ * instead: small, oriented, and quiet enough that the route stays the subject.
+ *
+ * Heading comes from the path's own tangent, so the body points the way and
+ * the arrow is redundant. The line's colour carries its identity — the same
+ * colour as its route, its chips and its legend entry.
+ */
 function liveBusIcon(bus) {
   const ns = "http://www.w3.org/2000/svg";
   const svg = document.createElementNS(ns, "svg");
   svg.setAttribute("viewBox", "0 0 44 44");
   svg.setAttribute("aria-hidden", "true");
-  const arrow = document.createElementNS(ns, "path");
-  arrow.setAttribute("class", "live-bus-direction");
-  arrow.setAttribute("d", "M22 1 28 9H16Z");
-  arrow.setAttribute("transform", `rotate(${Number(bus.bearing ?? 0)} 22 22)`);
-  if (!Number.isFinite(bus.bearing)) arrow.setAttribute("opacity", "0");
+  const vehicle = document.createElementNS(ns, "g");
+  if (Number.isFinite(bus.bearing)) {
+    vehicle.setAttribute("transform", `rotate(${Number(bus.bearing)} 22 22)`);
+  }
   const body = document.createElementNS(ns, "rect");
   body.setAttribute("class", "live-bus-body");
-  body.setAttribute("x", "7"); body.setAttribute("y", "11");
-  body.setAttribute("width", "30"); body.setAttribute("height", "25"); body.setAttribute("rx", "6");
+  body.setAttribute("x", "15.5");
+  body.setAttribute("y", "7");
+  body.setAttribute("width", "13");
+  body.setAttribute("height", "30");
+  body.setAttribute("rx", "6.5");
   body.setAttribute("fill", lineColor(bus.line));
-  const number = document.createElementNS(ns, "text");
-  number.setAttribute("x", "22"); number.setAttribute("y", "27");
-  number.setAttribute("class", "live-bus-number");
-  number.textContent = bus.line;
-  for (const x of [12, 32]) {
-    const wheel = document.createElementNS(ns, "circle");
-    wheel.setAttribute("class", "live-bus-wheel");
-    wheel.setAttribute("cx", String(x)); wheel.setAttribute("cy", "36"); wheel.setAttribute("r", "3");
-    svg.append(wheel);
-  }
-  svg.append(body, number, arrow);
+  // A darker band at the leading end: enough to read as a vehicle from above,
+  // and it says which way it faces without drawing an arrow.
+  const screen = document.createElementNS(ns, "rect");
+  screen.setAttribute("class", "live-bus-screen");
+  screen.setAttribute("x", "17.5");
+  screen.setAttribute("y", "10");
+  screen.setAttribute("width", "9");
+  screen.setAttribute("height", "6.5");
+  screen.setAttribute("rx", "3");
+  vehicle.append(body, screen);
+  svg.append(vehicle);
   return svg;
 }
 
