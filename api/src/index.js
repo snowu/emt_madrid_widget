@@ -169,12 +169,12 @@ async function edgeCachedJson(requestUrl, key, ttl, load, ctx, env, endpoint = "
  *  separately so metrics show planner load apart from live-map polling. */
 async function cachedPlannerArrivals(requestUrl, env, stopId, ctx) {
   return edgeCachedJson(requestUrl, `arrivals-plan/${encodeURIComponent(stopId)}`,
-    PLANNER_ARRIVALS_CACHE_TTL, () => getArrivals(env, stopId), ctx, env, "arrivals-plan");
+    PLANNER_ARRIVALS_CACHE_TTL, () => getArrivals(env, stopId, "planner"), ctx, env, "arrivals-plan");
 }
 
 async function cachedArrivals(requestUrl, env, stopId, ctx) {
   return edgeCachedJson(requestUrl, `arrivals/${encodeURIComponent(stopId)}`, ARRIVALS_CACHE_TTL,
-    () => getArrivals(env, stopId), ctx, env, "arrivals");
+    () => getArrivals(env, stopId, "map"), ctx, env, "arrivals");
 }
 
 async function cachedStopDetail(requestUrl, env, stopId, ctx) {
@@ -225,10 +225,10 @@ function grid3(n) {
   return Number(n).toFixed(3);
 }
 
-async function cachedNearby(requestUrl, env, lat, lon, radius, ctx) {
+async function cachedNearby(requestUrl, env, lat, lon, radius, ctx, caller = "map") {
   const key = `nearby-v2/${grid3(lon)}/${grid3(lat)}/${radius}`;
   return edgeCachedJson(requestUrl, key, NEARBY_CACHE_TTL,
-    () => getNearbyStops(env, { lat, lon, radius }), ctx, env, "nearby");
+    () => getNearbyStops(env, { lat, lon, radius }, caller), ctx, env, "nearby");
 }
 
 async function geocodeMadrid(requestUrl, query, ctx) {
@@ -345,19 +345,68 @@ function withinDeadline(promise, ms, fallback = null) {
   ]).finally(() => clearTimeout(timer));
 }
 
-/** The one read a journey cannot do without.
+// The page's nearby cache, mirrored. web/app.js tiles a fixed 0.02° grid and
+// covers each cell with one radius-1400 search from its centre; the worker
+// keys nearby by position *and* radius, so a planner asking for radius 700
+// missed every entry the map had just paid for. Two disjoint key spaces for
+// the same stops — and the planner's cold misses are what made journeys fail.
+const NEARBY_CELL = 0.02;
+const NEARBY_CELL_RADIUS = 1400;
+
+function cellCentre(index) {
+  return (index + 0.5) * NEARBY_CELL;
+}
+
+/** Every cell a circle of `metres` around a point can reach into. */
+function cellsCovering(lat, lon, metres) {
+  const dLat = metres / 111_320;
+  const dLon = metres / (111_320 * Math.cos((lat * Math.PI) / 180));
+  const cells = new Map();
+  for (const la of [lat - dLat, lat + dLat]) {
+    for (const lo of [lon - dLon, lon + dLon]) {
+      const latIndex = Math.floor(la / NEARBY_CELL);
+      const lonIndex = Math.floor(lo / NEARBY_CELL);
+      cells.set(`${latIndex}:${lonIndex}`,
+        { lat: cellCentre(latIndex), lon: cellCentre(lonIndex) });
+    }
+  }
+  return [...cells.values()];
+}
+
+function metresApart(aLat, aLon, bLat, bLon) {
+  const x = (bLon - aLon) * Math.cos((aLat * Math.PI) / 180);
+  const y = bLat - aLat;
+  return Math.sqrt(x * x + y * y) * 111_320;
+}
+
+/** Stops within `radius` of a point, read from the grid the map keeps warm.
  *
- * Everything after this is isolated per stop, but the origin's stop list is
- * not: without it there is no plan at all. EMT times out often enough that a
- * single flaky call should not lose the journey, so it gets one more try.
+ * Cells are a superset of what was asked for, so the radius still has to be
+ * applied here — `nearbyAccess` only sorts and slices, and a destination with
+ * a tight geofence would otherwise silently widen.
+ *
+ * Everything downstream of this is isolated per stop, but the origin's stop
+ * list is not: without it there is no plan at all. So a cold grid falls back
+ * to the direct query rather than returning nothing.
  */
 async function plannerNearby(requestUrl, env, lat, lon, radius, ctx) {
-  try {
-    return await cachedNearby(requestUrl, env, lat, lon, radius, ctx);
-  } catch (error) {
-    if (error?.kind !== "upstream") throw error;
-    return cachedNearby(requestUrl, env, lat, lon, radius, ctx);
+  const cells = cellsCovering(lat, lon, radius);
+  const results = await Promise.all(cells.map((cell) => withinDeadline(
+    cachedNearby(requestUrl, env, cell.lat, cell.lon, NEARBY_CELL_RADIUS, ctx, "planner"),
+    6_000, null,
+  )));
+  const found = new Map();
+  for (const stops of results) {
+    for (const stop of stops ?? []) {
+      const at = stop.coordinates;
+      if (!Array.isArray(at)) continue;
+      if (metresApart(lat, lon, at[1], at[0]) > radius) continue;
+      found.set(String(stop.stopId), stop);
+    }
   }
+  if (found.size > 0 || results.some(Boolean)) return [...found.values()];
+  // Every cell failed. One direct attempt beats losing the journey outright.
+  return cachedNearby(requestUrl, env, lat, lon, radius, ctx, "planner");
 }
 
 async function journeys(request, body, env, ctx) {

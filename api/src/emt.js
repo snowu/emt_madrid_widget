@@ -37,7 +37,11 @@ function raiseForCode(code) {
  * openapi.emtmadrid.es with an HTTP 5xx (525-class, workerd#776); a single
  * retry gets through. A 4xx is an answer, not a blip — pass it through.
  */
-export async function emtFetch(url, init = {}, env = null) {
+/** `caller` names which feature made this call — the live map, the journey
+ *  planner — because the endpoint name comes from EMT's own URL and cannot
+ *  tell two callers of the same endpoint apart. Without it, diagnosing which
+ *  feature is spending the quota is guesswork. */
+export async function emtFetch(url, init = {}, env = null, caller = "") {
   const fetchWithDeadline = async () => {
     const started = Date.now();
     const controller = new AbortController();
@@ -46,6 +50,7 @@ export async function emtFetch(url, init = {}, env = null) {
       const response = await fetch(url, { ...init, signal: controller.signal });
       recordUpstreamMetric(env, {
         endpoint: emtEndpoint(url),
+        caller,
         outcome: response.ok ? "ok" : "http_error",
         duration: Date.now() - started,
         status: response.status,
@@ -54,6 +59,7 @@ export async function emtFetch(url, init = {}, env = null) {
     } catch (error) {
       recordUpstreamMetric(env, {
         endpoint: emtEndpoint(url),
+        caller,
         outcome: error.name === "AbortError" ? "timeout" : "network_error",
         error: error.name ?? "error",
         duration: Date.now() - started,
@@ -133,7 +139,7 @@ export async function getToken(env, { force = false } = {}) {
   }
 }
 
-async function requestArrivals(env, stopId, token) {
+async function requestArrivals(env, stopId, token, caller) {
   const res = await emtFetch(`${BASE}v2/transport/busemtmad/stops/${stopId}/arrives/`, {
     method: "POST",
     headers: { accessToken: token, "content-type": "application/json" },
@@ -141,7 +147,7 @@ async function requestArrivals(env, stopId, token) {
       stopId: String(stopId),
       Text_EstimationsRequired_YN: "Y",
     }),
-  }, env);
+  }, env, caller);
   if (!res.ok) throw new EmtError("upstream", `EMT arrivals HTTP ${res.status}`);
   return res.json();
 }
@@ -169,15 +175,15 @@ function parseArrivals(body) {
 }
 
 /** Fetch the next arrivals for one stop, re-logging in once if the token is stale. */
-export async function getArrivals(env, stopId) {
+export async function getArrivals(env, stopId, caller = "") {
   let token = await getToken(env);
-  let body = await requestArrivals(env, stopId, token);
+  let body = await requestArrivals(env, stopId, token, caller);
 
   // Code 80 is both "stop not found" and "invalid token" — indistinguishable
   // here, so retry once with a fresh token before believing the stop is bad.
   if (body.code === "80") {
     token = await getToken(env, { force: true });
-    body = await requestArrivals(env, stopId, token);
+    body = await requestArrivals(env, stopId, token, caller);
   }
 
   // Both are success: "00" carries estimations; "01" is
@@ -425,26 +431,27 @@ export async function getLineRoute(env, line) {
   };
 }
 
-async function requestNearby(env, lat, lon, radius, token) {
+async function requestNearby(env, lat, lon, radius, token, caller) {
   const res = await emtFetch(
     `${BASE}v2/transport/busemtmad/stops/arroundxy/${lon}/${lat}/${radius}/`,
     // v2 only: v1 answers "no records" for this family regardless of input.
     { method: "GET", headers: { accessToken: token } },
     env,
+    caller,
   );
   if (!res.ok) throw new EmtError("upstream", `EMT area search HTTP ${res.status}`);
   return res.json();
 }
 
 /** Stops within `radius` metres of a point. */
-export async function getNearbyStops(env, { lat, lon, radius = 500 }) {
+export async function getNearbyStops(env, { lat, lon, radius = 500 }, caller = "") {
   const r = Math.min(3000, Math.max(50, Number(radius) || 500));
   let token = await getToken(env);
-  let body = await requestNearby(env, lat, lon, r, token);
+  let body = await requestNearby(env, lat, lon, r, token, caller);
 
   if (body.code === "80") {
     token = await getToken(env, { force: true });
-    body = await requestNearby(env, lat, lon, r, token);
+    body = await requestNearby(env, lat, lon, r, token, caller);
   }
 
   // Like arrivals, area search uses 01 for a valid empty result. This is

@@ -66,14 +66,19 @@ console.log(`Errors          ${Math.round(errors).toLocaleString()}`);
 console.log(`Observed        ${observed}`);
 console.log(`Daily pace      ~${Math.round(dailyPace).toLocaleString()} (${(dailyPace / 20_000 * 100).toFixed(1)}%)`);
 
+// Endpoint names come from EMT's own URL, so two features hitting the same
+// endpoint look identical. `caller` is what tells the live map's polling apart
+// from journey planning — without it, "arrivals: 9,642" says nothing about
+// which feature to go and fix.
 const endpoints = new Map();
 for (const row of upstream) {
-  endpoints.set(row.endpoint, (endpoints.get(row.endpoint) || 0) + Number(row.upstream_calls || 0));
+  const name = row.caller ? `${row.endpoint} (${row.caller})` : row.endpoint;
+  endpoints.set(name, (endpoints.get(name) || 0) + Number(row.upstream_calls || 0));
 }
 if (endpoints.size) {
   console.log("\nUpstream by endpoint");
   for (const [name, count] of [...endpoints].sort((a, b) => b[1] - a[1])) {
-    console.log(`${name.padEnd(16)} ${Math.round(count).toLocaleString()}`);
+    console.log(`${name.padEnd(24)} ${Math.round(count).toLocaleString()}`);
   }
 }
 
