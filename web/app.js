@@ -2187,11 +2187,15 @@ function reopenStopPopup(stopId) {
 /** What a stop popup lets you do to it. The star is always offered; the sheet
  *  is only worth opening for a saved stop, since that is where its name is
  *  edited and its full board lives. */
+/** What a stop popup lets you do to it: save it, and open it.
+ *
+ * Both are offered whether or not the stop is saved. The sheet is worth
+ * opening either way — it holds the full board, the line hours and a bigger
+ * map — it just has nothing to rename or remove until the stop is yours.
+ */
 function stopPopupActions(seed) {
   const saved = stops.find((row) => row.stop_id === String(seed.stopId));
-  const actions = [savedStopStar(seed)];
-  if (saved) actions.push(stopInfoButton(saved));
-  return actions;
+  return [savedStopStar(seed), stopInfoButton(seed, saved)];
 }
 
 function savedStopStar(s) {
@@ -3028,17 +3032,24 @@ function popupHead(title, ...actions) {
   return head;
 }
 
-function stopInfoButton(stop) {
+function stopInfoButton(seed, saved) {
+  const stopId = String(saved?.stop_id ?? seed.stopId);
   const info = document.createElement("button");
   info.type = "button";
   info.className = "pop-info";
   info.innerHTML = INFO_ICON;
-  info.title = `Open stop ${stop.stop_id}`;
+  info.title = `Open stop ${stopId}`;
   info.setAttribute("aria-label", info.title);
   info.addEventListener("click", (event) => {
     event.stopPropagation();
+    // An area-search record knows the name, position and lines that EMT's
+    // detail table may not. Seed them, or an unsaved stop opens blank.
+    if (seed?.coordinates || seed?.lines) {
+      mergeNearbyDetails([seed], { onlySaved: false });
+    }
     leafletMap.closePopup();
-    openStop(stop);
+    // A stop with no row of its own still has everything the sheet reads.
+    openStop(saved ?? { stop_id: stopId, label: null, id: null });
   });
   return info;
 }
@@ -3343,6 +3354,8 @@ const sheetAge = document.getElementById("sheet-age");
 const sheetLabel = document.getElementById("sheet-label");
 const sheetName = document.getElementById("sheet-name");
 const sheetEdit = document.getElementById("sheet-edit");
+const sheetRemove = document.getElementById("sheet-remove");
+const sheetStar = document.getElementById("sheet-star");
 const sheetSave = document.getElementById("sheet-save");
 const sheetService = document.getElementById("sheet-service");
 const sheetServiceWrap = document.getElementById("sheet-service-wrap");
@@ -3352,6 +3365,48 @@ let sheetStop = null;
 let sheetMap = null;
 let sheetMarker = null;
 
+/** Which of the sheet's controls apply right now.
+ *
+ * Renaming and removing need a saved row to act on; everything else the sheet
+ * shows is public and works for any stop. Saving from in here must not close
+ * the sheet — it is the same stop either way, it just gained a name you can
+ * edit and a row you can delete.
+ */
+function syncSheetOwnership() {
+  const owned = sheetStop?.id != null;
+  sheetEdit.hidden = !owned;
+  sheetRemove.hidden = !owned;
+  sheetStar.textContent = owned ? "★" : "☆";
+  sheetStar.title = owned ? "Remove from saved stops" : "Save this stop";
+  sheetStar.setAttribute("aria-label", sheetStar.title);
+  if (sheetStop) {
+    sheetHeading.textContent = stopTitle(sheetStop);
+    sheetLabel.value = sheetStop.label ?? "";
+  }
+}
+
+async function toggleSheetSaved() {
+  const stop = sheetStop;
+  if (!stop) return;
+  sheetStar.disabled = true;
+  try {
+    if (stop.id != null) {
+      await deleteStop(stop.id);
+      sheetStop = { stop_id: stop.stop_id, label: null, id: null };
+    } else {
+      // The nearby record carries the name and position EMT's detail table
+      // may be missing for this stop.
+      sheetStop = await addStopById(String(stop.stop_id), null,
+        nearbyStop(stop.stop_id) ?? null);
+    }
+    syncSheetOwnership();
+  } catch {
+    // addStopById and deleteStop already explain themselves in the status bar.
+  } finally {
+    sheetStar.disabled = false;
+  }
+}
+
 function openStop(stop) {
   sheetStop = stop;
   sheetHeading.textContent = stopTitle(stop);
@@ -3359,6 +3414,7 @@ function openStop(stop) {
   sheetLabel.value = stop.label ?? "";
   sheetLabel.placeholder = details[stop.stop_id]?.name || "EMT's name";
   sheetDirections.hidden = !details[stop.stop_id]?.coordinates;
+  syncSheetOwnership();
   showNameEditor(false);
   renderSheetArrivals();
   renderSheetService();
@@ -3534,10 +3590,12 @@ function showNameEditor(editing) {
 }
 
 sheetEdit.addEventListener("click", () => showNameEditor(true));
+sheetStar.addEventListener("click", toggleSheetSaved);
 
 sheetForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const stop = sheetStop;
+  if (stop?.id == null) return; // nothing to rename until the stop is saved
   const label = sheetLabel.value.trim();
   if (label === (stop.label ?? "")) {
     stopDialog.close();
@@ -3571,8 +3629,9 @@ sheetDirections.addEventListener("click", () => {
 document.getElementById("sheet-refresh").addEventListener("click", () =>
   refreshStop(sheetStop.stop_id, { force: true })
 );
-document.getElementById("sheet-remove").addEventListener("click", async () => {
+sheetRemove.addEventListener("click", async () => {
   const id = sheetStop.id;
+  if (id == null) return;
   stopDialog.close();
   await deleteStop(id);
 });

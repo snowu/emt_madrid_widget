@@ -915,14 +915,29 @@ body.map-is-fullscreen { overflow: hidden; }
 
 #sheet-map[hidden] { display: none; }
 
-.sheet-title-row {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 0.5rem;
+.sheet-star {
+  border: none;
+  background: transparent;
+  color: var(--star);
+  font-size: 1.25rem;
+  line-height: 1;
+  min-height: 0;
+  width: 32px;
+  padding: 0;
+  margin: 0;
+  flex: none;
 }
 
-#stop-dialog h2 { overflow-wrap: anywhere; }
+.sheet-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.35rem;
+}
+
+/* The heading takes the slack so the actions stay together on the right;
+   space-between across three children would fling them apart. */
+#stop-dialog h2 { overflow-wrap: anywhere; flex: 1; min-width: 0; }
 
 /* The name is text until asked otherwise — an input here would take focus on
    open and throw the phone keyboard up over the arrivals. */
