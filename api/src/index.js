@@ -60,7 +60,10 @@ const NEARBY_CACHE_TTL = 24 * 3600;
 const TIMETABLE_CACHE_TTL = 24 * 3600;
 // Route geometry changes when EMT redraws a line — a week is generous.
 const ROUTE_CACHE_TTL = 7 * 24 * 3600;
-const INCIDENT_CACHE_TTL = 120;
+// A disruption lasts hours, not seconds. At two minutes every hub refresh
+// refetched incidents for every line it was recommending — 753 upstream calls
+// in a day, a third of them failing, and those failures land in the planner.
+const INCIDENT_CACHE_TTL = 15 * 60;
 const GEOCODE_CACHE_TTL = 30 * 24 * 3600;
 const WALKING_CACHE_TTL = 7 * 24 * 3600;
 // One operator-feed read serves the whole city and every area for 45 seconds.

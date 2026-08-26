@@ -1293,6 +1293,11 @@ async function refreshAll({ force = false } = {}) {
 
 async function refreshMapArrivals() {
   if (!leafletMap || mapEl.hidden || shownRoutes.size === 0) return;
+  // A backgrounded tab still runs its interval. Left on the map view in a
+  // pocket, this polled EMT every five seconds for as long as the phone was
+  // asleep — most of a 20,000/day quota, spent on buses nobody was watching.
+  // visibilitychange refreshes on the way back, so nothing is lost by waiting.
+  if (document.visibilityState !== "visible") return;
   const bounds = leafletMap.getBounds().pad(0.25);
   const stopIds = new Set();
   // A stop's arrivals only ever describe buses still heading for it, so the
@@ -2961,6 +2966,23 @@ async function loadPreviewArrivals(stopId, { force = false } = {}) {
  * larger target, which is the point — a 22px chip is a poor thing to ask a
  * thumb to hit.
  */
+/** Whether a line is inside its service window right now.
+ *
+ * EMT lists every line a stop serves *today*, which at 10:00 still includes
+ * the night buses with their 00:00–05:15 hours. They are not stale and not
+ * wrong — they are just not something you can board. Hours it does not know
+ * mean "show it": absence of evidence is not a closed line.
+ */
+function lineRunningNow(line) {
+  const from = line.from ? minutesOf(line.from) : null;
+  const to = line.to ? minutesOf(line.to) : null;
+  if (from == null || to == null) return true;
+  const now = new Date();
+  const minutes = now.getHours() * 60 + now.getMinutes();
+  // A window whose end is before its start crosses midnight.
+  return from <= to ? minutes >= from && minutes <= to : minutes >= from || minutes <= to;
+}
+
 function lineRowList(stopId, lines, payload) {
   // Soonest countdown per line, keyed by identity so a board naming "N19"
   // still answers for a stop list carrying 519.
@@ -2997,7 +3019,8 @@ function lineRowList(stopId, lines, payload) {
 
   const running = entries.filter((l) => secondsFor(l) != null)
     .sort((a, b) => secondsFor(a) - secondsFor(b));
-  const idle = entries.filter((l) => secondsFor(l) == null);
+  // A bus on the board beats any timetable; otherwise the window decides.
+  const idle = entries.filter((l) => secondsFor(l) == null && lineRunningNow(l));
 
   const body = document.createElement("div");
   body.className = "pop-lines";
@@ -3009,7 +3032,7 @@ function lineRowList(stopId, lines, payload) {
     row.append(eta);
     body.append(row);
   }
-  if (idle.length) {
+  if (idle.length || running.length === 0) {
     const rest = document.createElement("div");
     rest.className = "pop-idle";
     for (const l of idle) rest.append(lineControl(l, stopId, "pop-chip"));
