@@ -47,10 +47,10 @@ const CARTO_KEY = "cb1_28ep_1_fa139875e4e92c05028f7b23";
 // missing from their migration table, but it exists.
 const BASEMAP_STYLE =
   `https://basemaps.cartocdn.com/gl/dark-matter-nolabels-gl-style/style.json?key=${CARTO_KEY}`;
-// The style declares no attribution on its own source — checked against the
-// style.json — so the free tier's "attribution must stay visible" condition
-// has to be met here or it silently disappears.
-const BASEMAP_ATTRIBUTION = "&copy; OpenStreetMap contributors &copy; CARTO";
+// Attribution comes from the source's TileJSON, which MapLibre fetches and
+// renders — verified live as "© CARTO, © OpenStreetMap contributors", which
+// satisfies the free tier's condition. Adding our own on top only duplicated
+// it. The style.json's inline source carries none, which is what misled me.
 
 /** Every map in the app.
  *
@@ -70,10 +70,12 @@ function createMap(container, { center, zoom = 15, interactive = true, controls 
     interactive,
     attributionControl: false,
   });
-  map.addControl(new maplibregl.AttributionControl({
-    compact: true,
-    customAttribution: BASEMAP_ATTRIBUTION,
-  }));
+  map.addControl(new maplibregl.AttributionControl({ compact: true }));
+  // A GL map asks for no tiles until its container has a real size, and these
+  // are all created inside dialogs or panes that start hidden. Leaflet needed
+  // the same nudge via invalidateSize; miss it and you get a blank map that
+  // has successfully loaded its style.
+  map.once("load", () => map.resize());
   if (controls) map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-left");
   return map;
 }
