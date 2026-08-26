@@ -3374,7 +3374,6 @@ let sheetMarker = null;
  */
 function syncSheetOwnership() {
   const owned = sheetStop?.id != null;
-  sheetEdit.hidden = !owned;
   sheetRemove.hidden = !owned;
   sheetStar.textContent = owned ? "★" : "☆";
   sheetStar.title = owned ? "Remove from saved stops" : "Save this stop";
@@ -3383,6 +3382,9 @@ function syncSheetOwnership() {
     sheetHeading.textContent = stopTitle(sheetStop);
     sheetLabel.value = sheetStop.label ?? "";
   }
+  // Closing the editor is what reconciles the pencil with ownership, so this
+  // is also how a just-saved stop gets its rename control back.
+  showNameEditor(false);
 }
 
 async function toggleSheetSaved() {
@@ -3414,8 +3416,7 @@ function openStop(stop) {
   sheetLabel.value = stop.label ?? "";
   sheetLabel.placeholder = details[stop.stop_id]?.name || "EMT's name";
   sheetDirections.hidden = !details[stop.stop_id]?.coordinates;
-  syncSheetOwnership();
-  showNameEditor(false);
+  syncSheetOwnership(); // also closes the name editor and settles the pencil
   renderSheetArrivals();
   renderSheetService();
   stopDialog.showModal();
@@ -3582,11 +3583,21 @@ function renderSheetService() {
 
 /** The name shows as a heading until the pencil is tapped: focusing an input
  *  on open would raise the phone keyboard over everything worth reading. */
+/** The name editor, and the pencil that opens it.
+ *
+ * Both depend on the stop being saved: there is no row to rename otherwise.
+ * That check has to live here rather than beside the call, because closing the
+ * editor is also what puts the pencil back — `sheetEdit.hidden = editing`
+ * cheerfully un-hid it for a stop that had nothing to rename, handing you an
+ * editor whose Save could only ever do nothing.
+ */
 function showNameEditor(editing) {
-  sheetName.hidden = !editing;
-  sheetSave.hidden = !editing;
-  sheetEdit.hidden = editing;
-  if (editing) sheetLabel.focus();
+  const owned = sheetStop?.id != null;
+  const open = editing && owned;
+  sheetName.hidden = !open;
+  sheetSave.hidden = !open;
+  sheetEdit.hidden = open || !owned;
+  if (open) sheetLabel.focus();
 }
 
 sheetEdit.addEventListener("click", () => showNameEditor(true));
