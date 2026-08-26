@@ -1541,9 +1541,9 @@ async function healStubs() {
 /* ---- List / Map views ------------------------------------------------- */
 
 let leafletMap = null;
-let markers = null; // L.LayerGroup — saved stops
-let nearbyLayer = null; // L.LayerGroup — unsaved stops around the view
-let liveBusLayer = null; // L.LayerGroup — vehicles reported by live arrivals
+// MapLibre has no layer groups; each collection is its own registry.
+const savedPins = new Map(); // stopId → Marker
+let liveBusLayerReady = false;
 const liveBusMarkers = new Map();
 let busMapRefreshAt = 0;
 let busUserMarker = null;
@@ -2229,39 +2229,6 @@ function paintLineChip(node, l, drawn) {
 
 /** The star the stop cards use, doing the same job in a popup for a row less
  *  than a full-width "Add this stop" button. */
-/** Saving moves a stop from the nearby layer to the saved one, and unsaving
- *  moves it back. Either way the marker holding the open popup is destroyed
- *  and the popup goes with it, which makes the star read as "dismiss" rather
- *  than as a toggle. Reopen it on whichever layer now owns the stop. */
-/** Open a popup without letting Leaflet pan to it — a pan fires moveend,
- *  which reloads nearby stops and rebuilds the very pins being restored.
- *
- * `openPopup({autoPan: false})` is not a Leaflet API: it reads its argument as
- * a LatLng and throws "Cannot read properties of null (reading 'lat')". The
- * option belongs on the popup, not the call.
- */
-function openPopupInPlace(layer) {
-  const popup = layer.getPopup?.();
-  const previous = popup?.options.autoPan;
-  if (popup) popup.options.autoPan = false;
-  layer.openPopup();
-  if (popup) popup.options.autoPan = previous;
-}
-
-function reopenStopPopup(stopId) {
-  const id = String(stopId);
-  for (const layer of [markers, nearbyLayer]) {
-    let found = null;
-    layer?.eachLayer((child) => {
-      if (String(child.stopId ?? child.nearbyStop?.stopId) === id) found = child;
-    });
-    if (found) {
-      openPopupInPlace(found);
-      return;
-    }
-  }
-}
-
 /** What a stop popup lets you do to it. The star is always offered; the sheet
  *  is only worth opening for a saved stop, since that is where its name is
  *  edited and its full board lives. */
@@ -2341,47 +2308,79 @@ function popupHtml(stop) {
 
 function ensureMap() {
   if (leafletMap) return;
-  leafletMap = L.map(mapEl, { tap: false });
-  basemap().addTo(leafletMap);
-
-  // Routes go down first so pins stay clickable on top of them.
-  routeLayer = L.layerGroup().addTo(leafletMap);
-  markers = L.layerGroup().addTo(leafletMap);
-  nearbyLayer = L.layerGroup().addTo(leafletMap);
-  liveBusLayer = L.layerGroup().addTo(leafletMap);
+  leafletMap = createMap(mapEl, { center: myLngLat(), zoom: 13 });
+  // Route geometry is added as GL layers once the style has loaded; markers
+  // are DOM and can be attached immediately.
+  leafletMap.on("load", () => {
+    liveBusLayerReady = true;
+    for (const shown of shownRoutes.values()) drawRouteLayers(shown);
+    rebuildLiveBusMarkers();
+  });
   if (myLocation) busUserMarker = addUserMarker(leafletMap, myLocation);
   rebuildMarkers();
-  rebuildLiveBusMarkers();
   leafletMap.on("moveend", loadNearby);
+  // A tap on the map itself dismisses whatever popup is open.
+  leafletMap.on("click", () => closeMapPopup());
 
   // Fit once, on the first build, when all pins are known.
-  const points = stops
-    .map((s) => details[s.stop_id]?.coordinates)
-    .filter(Boolean)
-    .map(([lon, lat]) => [lat, lon]);
+  const points = stops.map((s) => details[s.stop_id]?.coordinates).filter(Boolean);
   if (points.length > 0) {
-    leafletMap.fitBounds(L.latLngBounds(points).pad(0.35));
-  } else if (points.length === 0 && stops.length > 0) {
+    const bounds = points.reduce(
+      (box, at) => box.extend(at), new maplibregl.LngLatBounds(points[0], points[0]));
+    leafletMap.fitBounds(bounds, { padding: 48, animate: false });
+  } else if (stops.length > 0) {
     // Madrid centre; details may still be resolving.
-    leafletMap.setView([40.4168, -3.7038], 12);
+    leafletMap.jumpTo({ center: MADRID, zoom: 12 });
   }
   loadNearby();
 }
 
-/** Which stop's popup is open, so a rebuild can put it back.
+/** MapLibre shows one popup per map and keeps it independent of any marker.
  *
- * Saved pins are rebuilt whenever nearby detail lands, and clearing the layer
- * destroys the marker the popup belongs to. Reopening keeps a tap on a line
- * chip from dismissing the popup that chip lives in. Nearby pins no longer
- * need this: they are added and removed one at a time.
+ * Leaflet bound a popup to each marker, so every rebuild destroyed whichever
+ * one was open and a tick had to scan layers to find it again — the source of
+ * a long run of "the popup closed by itself" bugs. Here the map owns the
+ * popup and the function that redraws it, so rebuilding pins cannot disturb
+ * it and the countdown re-render is one call.
  */
-function openPopupStopId(layer, key) {
-  let open = null;
-  layer?.eachLayer((child) => {
-    if (child.isPopupOpen?.()) open = child[key];
+let mapPopup = null;
+let mapPopupKey = null;
+let mapPopupRender = null;
+
+function showMapPopup(map, lngLat, key, render) {
+  closeMapPopup();
+  mapPopupKey = key;
+  mapPopupRender = render;
+  mapPopup = new maplibregl.Popup({ closeButton: false, closeOnClick: true, maxWidth: "290px" })
+    .setLngLat(lngLat)
+    .setDOMContent(render())
+    .addTo(map);
+  mapPopup.on("close", () => {
+    if (mapPopupKey !== key) return;
+    mapPopup = null;
+    mapPopupKey = null;
+    mapPopupRender = null;
   });
-  return open;
 }
+
+function closeMapPopup() {
+  mapPopup?.remove();
+  mapPopup = null;
+  mapPopupKey = null;
+  mapPopupRender = null;
+}
+
+/** Redraw the open popup so its countdowns tick like the cards. */
+function tickPopups() {
+  if (mapEl.hidden || !mapPopup || !mapPopupRender) return;
+  mapPopup.setDOMContent(mapPopupRender());
+}
+
+/** After saving or unsaving, the open popup is showing stale actions. */
+function reopenStopPopup() {
+  tickPopups();
+}
+
 
 /** One pin shape for every stop, saved or not.
  *
@@ -2397,28 +2396,24 @@ function openPopupStopId(layer, key) {
  */
 const STOP_PIN_RADIUS = 7;
 
-function stopPin(latlng, { saved }) {
-  return L.circleMarker(latlng, saved
-    ? { radius: STOP_PIN_RADIUS, color: "#eaf1ff", weight: 2,
-      fillColor: "#4ea3ff", fillOpacity: 1 }
-    : { radius: STOP_PIN_RADIUS, color: "#9fb0c8", weight: 1.5,
-      fillColor: "#0e1117", fillOpacity: 0.85 });
+function stopPin(lngLat, { saved }) {
+  return domMarker("", `stop-pin${saved ? " saved" : ""}`, lngLat);
 }
 
 function rebuildMarkers() {
-  if (!markers) return;
-  const reopen = openPopupStopId(markers, "stopId");
-  markers.clearLayers();
+  if (!leafletMap) return;
+  for (const marker of savedPins.values()) marker.remove();
+  savedPins.clear();
   for (const stop of stops) {
     const coords = details[stop.stop_id]?.coordinates;
     if (!coords) continue;
-    // GeoJSON order is [lon, lat]; Leaflet wants [lat, lon].
-    const marker = stopPin([coords[1], coords[0]], { saved: true });
-    marker.bindPopup(() => popupHtml(stop));
-    marker.stopId = stop.stop_id; // for popup refresh ticks
-    marker.addTo(markers);
-    // Reopening must not pan: a pan reloads nearby stops and rebuilds again.
-    if (stop.stop_id === reopen) openPopupInPlace(marker);
+    // EMT gives [lon, lat], which is the order MapLibre wants.
+    const marker = stopPin(coords, { saved: true }).addTo(leafletMap);
+    marker.getElement().addEventListener("click", (event) => {
+      event.stopPropagation();
+      showMapPopup(leafletMap, coords, `stop:${stop.stop_id}`, () => popupHtml(stop));
+    });
+    savedPins.set(stop.stop_id, marker);
   }
 }
 
@@ -2942,33 +2937,6 @@ function rebuildLiveBusMarkers() {
 }
 
 /** Re-render any open popup so its countdown ticks like the list. */
-function tickPopups() {
-  if (mapEl.hidden) return;
-  markers?.eachLayer((marker) => {
-    if (marker.isPopupOpen()) {
-      marker.setPopupContent(popupHtml(stops.find((s) => s.stop_id === marker.stopId)));
-    }
-  });
-  for (const layer of [nearbyLayer, routeLayer]) {
-    // Route stops live one level down, inside their line's group.
-    layer?.eachLayer((child) => tickUnsavedPopup(child));
-  }
-  liveBusLayer?.eachLayer((marker) => {
-    if (marker.liveBus && marker.isPopupOpen()) {
-      marker.setPopupContent(liveBusPopup(marker.liveBus));
-    }
-  });
-}
-
-function tickUnsavedPopup(layer) {
-  if (layer.eachLayer && !layer.nearbyStop) {
-    layer.eachLayer(tickUnsavedPopup);
-    return;
-  }
-  if (layer.nearbyStop && layer.isPopupOpen?.()) {
-    layer.setPopupContent(nearbyPopupHtml(layer.nearbyStop));
-  }
-}
 
 function showView(view) {
   const isMap = view === "map";
@@ -3199,7 +3167,7 @@ const nearbyPins = new Map(); // stopId → circleMarker
  * that was already correct got rebuilt for nothing.
  */
 function renderNearbyPins() {
-  if (!nearbyLayer || !leafletMap) return;
+  if (!leafletMap) return;
   const visible = !mapEl.hidden && shownRoutes.size === 0
     && leafletMap.getZoom() >= NEARBY_MIN_ZOOM;
   const bounds = visible ? leafletMap.getBounds().pad(0.2) : null;
@@ -3209,24 +3177,21 @@ function renderNearbyPins() {
     for (const s of nearbyStops) {
       if (saved.has(s.stopId) || !Array.isArray(s.coordinates)) continue;
       // GeoJSON order is [lon, lat]; Leaflet wants [lat, lon].
-      const at = [s.coordinates[1], s.coordinates[0]];
-      if (!bounds.contains(at)) continue;
+      const at = s.coordinates;
+      if (!bounds.contains([at[1], at[0]])) continue;
       wanted.add(s.stopId);
-      const existing = nearbyPins.get(s.stopId);
-      if (existing) {
-        existing.nearbyStop = s;
-        continue;
-      }
-      const pin = stopPin(at, { saved: false })
-        .bindPopup(() => nearbyPopupHtml(s))
-        .addTo(nearbyLayer);
-      pin.nearbyStop = s; // for popup refresh ticks
+      if (nearbyPins.has(s.stopId)) continue;
+      const pin = stopPin(at, { saved: false }).addTo(leafletMap);
+      pin.getElement().addEventListener("click", (event) => {
+        event.stopPropagation();
+        showMapPopup(leafletMap, at, `stop:${s.stopId}`, () => nearbyPopupHtml(s));
+      });
       nearbyPins.set(s.stopId, pin);
     }
   }
   for (const [stopId, pin] of nearbyPins) {
     if (wanted.has(stopId)) continue;
-    nearbyLayer.removeLayer(pin);
+    pin.remove();
     nearbyPins.delete(stopId);
   }
 }
