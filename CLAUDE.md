@@ -639,13 +639,17 @@ is most stale), and manually per-card or all at once.
    Saved stations are optional — if `bike_stations` was never created, the page
    says so once and the rest of the section still works.
 
-12. **Bus stop search range follows Madrid's clock.** By day, 700m: there is a
-   bus, metro or bike within 300–500m of anywhere in the city, so looking wider
-   only surfaces worse options. From 23:00 to 06:00 bus service thins to night
-   lines and the arithmetic inverts — a 25-minute walk can beat a 40-minute
-   wait — so journey origins and destinations search 2km instead. **Bus stops
-   only.** BiciMAD keeps a fixed 700m at every hour: docks do not thin out
-   overnight, and there are often more bikes free then. The hour comes from
+12. **Bus stop search range follows Madrid's clock.** By day, 800m: there is a
+   bus, metro or bike within 300–500m of anywhere in the city and every stop is
+   served often enough that the nearest one wins, so looking wider only offers a
+   longer walk to the same bus. From 00:00 to 06:00 the day lines have stopped,
+   the network is night lines only and the arithmetic inverts — a 25-minute walk
+   can beat a 40-minute wait — so journey origins and destinations search 2km
+   instead. The window opens at midnight, not 23:00: at 23:00 most day lines are
+   still running. `isNight()` handles both a wrapping and a non-wrapping window,
+   because with `NIGHT_FROM_HOUR = 0` the bare `||` it used to have is true at
+   every hour of the day. **Bus stops only.** BiciMAD keeps a fixed 700m at
+   every hour: docks do not thin out overnight, and there are often more bikes free then. The hour comes from
    `Intl.DateTimeFormat` on `Europe/Madrid`, never a UTC offset, because the
    rule is about the city's service and has to survive DST.
 

@@ -437,14 +437,19 @@ function madridHour(now = new Date()) {
 /** How far a rider is plausibly willing to walk to catch something.
  *
  * By day, 700m: there is a bus, a metro or a bike within 300–500m of anywhere
- * in Madrid, so casting wider only offers worse options. After 23:00 the
- * network thins to night lines and the arithmetic inverts — a 25-minute walk
- * can beat waiting 40 minutes, and on a summer night it is not a hardship.
- * The app's job is to show that the option exists and let the rider judge it.
+ * in Madrid, so casting wider only offers worse options: by day every stop is
+ * served often enough that the nearest one wins, and a farther stop is just a
+ * longer walk to the same bus.
+ *
+ * After midnight the day lines have stopped, the network is night lines only,
+ * and the arithmetic inverts — a 25-minute walk can beat waiting 40 minutes,
+ * and on a summer night it is not a hardship. The app's job is to show that
+ * the option exists and let the rider judge it. The window opens at 00:00
+ * rather than 23:00 because at 23:00 most day lines are still running.
  */
-const DAY_ACCESS_RADIUS = 700;
+const DAY_ACCESS_RADIUS = 800;
 const NIGHT_ACCESS_RADIUS = 2000;
-const NIGHT_FROM_HOUR = 23;
+const NIGHT_FROM_HOUR = 0;
 const NIGHT_UNTIL_HOUR = 6;
 
 /** How far apart two stops may be and still count as one interchange.
@@ -460,7 +465,13 @@ const NIGHT_TRANSFER_RADIUS = 600;
 
 function isNight() {
   const hour = madridHour();
-  return hour >= NIGHT_FROM_HOUR || hour < NIGHT_UNTIL_HOUR;
+  // The window used to start at 23:00 and wrap past midnight, so this was an
+  // `||`. It no longer wraps, and `hour >= 0 || hour < 6` is true at every
+  // hour of the day — handle both shapes rather than leave that waiting for
+  // whoever moves the boundary back.
+  return NIGHT_FROM_HOUR < NIGHT_UNTIL_HOUR
+    ? hour >= NIGHT_FROM_HOUR && hour < NIGHT_UNTIL_HOUR
+    : hour >= NIGHT_FROM_HOUR || hour < NIGHT_UNTIL_HOUR;
 }
 
 function accessRadius() {
