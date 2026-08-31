@@ -268,10 +268,25 @@ function bestTransfers(originLines, destinationLines, routes, thresholdM) {
 export function planJourney({ originStops, destinationStops, routes, transferRadiusM = 200, limit = 8 }) {
   const originLines = linesAt(originStops);
   const destinationLines = linesAt(destinationStops);
-  return [...bestDirect(originLines, destinationLines, routes),
-    ...bestTransfers(originLines, destinationLines, routes, transferRadiusM)]
-    .sort((a, b) => a.score - b.score)
-    .slice(0, limit);
+  const byScore = (a, b) => a.score - b.score;
+  const directs = [...bestDirect(originLines, destinationLines, routes)].sort(byScore);
+  const transfers = [...bestTransfers(originLines, destinationLines, routes, transferRadiusM)]
+    .sort(byScore);
+  // Directs ahead of transfers, rather than one pool sorted by `score`.
+  //
+  // `score` is walking metres plus 420 per stop ridden. It is a reasonable
+  // guess at which candidates deserve a slot, but it knows nothing about when
+  // the next bus actually comes — that is what the live ranking in the caller
+  // is for, and everything cut here never reaches it. A direct ride is always
+  // rankable there, because its boarding stop's board was already read; a
+  // transfer needs a second board that only `transferChecks()` of them ever
+  // get, so most arrive unrankable and sort last anyway.
+  //
+  // Sorting the two together let six untimeable transfers take the slots that
+  // the 29 at Arturo Soria needed: 431m from the door and direct to the
+  // destination, cut at rank 9 of 8 by its longer ride, while the option that
+  // won boarded 670m away and left 14 minutes later.
+  return [...directs, ...transfers].slice(0, limit);
 }
 
 export function uniqueLineCodes(stops) {

@@ -51,6 +51,40 @@ describe("journey planner", () => {
     expect(result.map((item) => item.stopId)).toEqual(["near", "far"]);
   });
 
+  it("keeps a direct ride that scores worse than the transfers filling the limit", () => {
+    // Reproduces the 29 at Arturo Soria: direct to the destination from 431m
+    // away, but a longer ride than several transfers, so a single pool sorted
+    // by `score` cut it at rank 9 of 8 — before the live-time ranking that
+    // would have chosen it ever saw it.
+    const board = { ...stop("board-29", -3.6664, 40.4677, ["29"]), distanceM: 431 };
+    const arrive = { ...stop("arrive-29", -3.6790, 40.4470, ["29"]), distanceM: 294 };
+    const swap = stop("swap", -3.6700, 40.4600);
+    const interchange = { ...stop("interchange", -3.6791, 40.4471, ["T"]), distanceM: 300 };
+    // Eight short hops, each one transfer away from the destination, all of
+    // them scoring better than the long direct ride.
+    const hops = Array.from({ length: 8 }, (_, i) =>
+      ({ ...stop(`hop-${i}`, -3.6650, 40.4670, [`H${i}`]), distanceM: 100 + i }));
+    const routes = new Map([
+      ["29", route("29", [board, ...Array.from({ length: 11 }, (_, i) =>
+        stop(`mid-${i}`, -3.667 - i / 1000, 40.466 - i / 1000)), arrive])],
+      ["T", route("T", [swap, interchange])],
+      ...hops.map((hop, i) => [`H${i}`, route(`H${i}`, [hop, swap])]),
+    ]);
+    const options = planJourney({
+      originStops: [board, ...hops],
+      destinationStops: [arrive, interchange],
+      routes,
+      limit: 8,
+    });
+    const direct = options.find((option) => option.type === "direct");
+    expect(direct?.originStop.stopId).toBe("board-29");
+    // ...and it survived despite scoring worse than the transfers that filled
+    // the rest of the limit.
+    const transfers = options.filter((option) => option.type === "one_transfer");
+    expect(transfers.length).toBeGreaterThan(0);
+    expect(Math.min(...transfers.map((option) => option.score))).toBeLessThan(direct.score);
+  });
+
   it("preserves a farther direct-line stop before filling by distance", () => {
     const candidates = [
       { stopId: "near-1", distanceM: 50, lines: [{ line: "29" }] },

@@ -653,6 +653,18 @@ is most stale), and manually per-card or all at once.
    `Intl.DateTimeFormat` on `Europe/Madrid`, never a UTC offset, because the
    rule is about the city's service and has to survive DST.
 
+   **Direct rides are never cut for transfers.** `planJourney` scores a
+   candidate as walking metres plus 420 per stop ridden, then keeps the best
+   `limit` (8). That heuristic decides what survives to the caller's *real*
+   ranking by live arrival times — so anything it cuts is never timed at all.
+   A direct ride is always rankable there, because its boarding stop's board
+   was already read; a transfer needs a second board that only
+   `transferChecks()` of them get, so most are unrankable and sort last
+   anyway. Sorting both kinds in one pool let six untimeable transfers take
+   the slots the 29 at Arturo Soria needed — 431m from the door and direct,
+   cut at rank 9 of 8 for having a longer ride, while the winner boarded 670m
+   away and left 14 minutes later. Directs are now emitted ahead of transfers.
+
    The **transfer radius** moves with it: 200m by day, 600m at night. Two
    stops only count as one interchange if they are within that distance, and
    at night the numbers are concrete — the closest N1 stop to any S10 stop is
