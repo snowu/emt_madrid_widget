@@ -78,6 +78,10 @@ const BIKES_CACHE_TTL = 45;
 // Names and positions only change when a station is built or moved.
 const BIKE_INFO_CACHE_TTL = 24 * 3600;
 const JOURNEY_ORIGIN_STOP_LIMIT = 8;
+// The pedestrian matrix takes at most 25 destinations in one call.
+const WALKING_MATRIX_LIMIT = 25;
+// Below this the gate stops filtering and simply takes the nearest on foot.
+const JOURNEY_MIN_ORIGIN_STOPS = 3;
 const JOURNEY_INCIDENT_LINE_LIMIT = 4;
 // Cards want the next bus and the one after it; the stop sheet wants the board.
 const DEFAULT_ARRIVALS = 2;
@@ -504,6 +508,22 @@ function routeBudget() {
   return isNight() ? NIGHT_ROUTE_BUDGET : DAY_ROUTE_BUDGET;
 }
 
+/** Candidates the radius actually reaches, measured the way they are walked.
+ *
+ * Never down to nothing: in a sparse corner every stop can route past the
+ * gate, and an honest long walk is a better answer than "No route". Stops the
+ * router had no distance for keep their place rather than being punished for
+ * it.
+ */
+function walkingReachable(candidates, radius) {
+  const byWalk = [...candidates].sort((a, b) =>
+    (a.walkMetres ?? a.distanceM) - (b.walkMetres ?? b.distanceM));
+  const within = byWalk.filter((stop) =>
+    !Number.isFinite(stop.walkMetres) || stop.walkMetres <= radius);
+  return within.length >= JOURNEY_MIN_ORIGIN_STOPS ? within
+    : byWalk.slice(0, JOURNEY_MIN_ORIGIN_STOPS);
+}
+
 async function journeys(request, body, env, ctx) {
   const origin = plannerLocation(body?.origin, "origin");
   if (!Array.isArray(body?.destinations) || body.destinations.length < 1 || body.destinations.length > 3) {
@@ -522,20 +542,26 @@ async function journeys(request, body, env, ctx) {
   const destinationStops = await Promise.all(destinations.map(async (destination) =>
     nearbyAccess(await plannerNearby(request.url, env, destination.lat, destination.lon,
       destination.radius, ctx), destination, 6)));
-  const originStops = prioritizeAccessStops(
-    originCandidates,
-    destinationStops,
-    JOURNEY_ORIGIN_STOP_LIMIT,
-  );
+
+  // Walk the candidates *before* choosing among them, not after.
+  //
+  // The radius is a straight line and feet follow streets. Around Arturo
+  // Soria that ratio is close to 2:1 — stop 2030 is 609m across the map and
+  // 1260m on foot — so an 800m search was offering boardings 1256m away,
+  // which is not the deal the radius makes. Routing the candidates first
+  // costs the same single matrix call it always did, and lets the stops that
+  // are genuinely out of range lose their slot instead of taking one and
+  // then being thrown away.
+  const routable = originCandidates.slice(0, WALKING_MATRIX_LIMIT);
   let walkingRouted = false;
   try {
     const matrix = await walkingMatrix(request.url, {
       origin,
-      destinations: originStops.map((stop) => ({
+      destinations: routable.map((stop) => ({
         lat: stop.coordinates?.[1], lon: stop.coordinates?.[0],
       })),
     }, ctx);
-    for (const [index, stop] of originStops.entries()) {
+    for (const [index, stop] of routable.entries()) {
       const route = matrix.routes[index];
       if (!Number.isFinite(route?.metres) || !Number.isFinite(route?.seconds)) continue;
       stop.walkMetres = route.metres;
@@ -544,8 +570,14 @@ async function journeys(request, body, env, ctx) {
     }
   } catch {
     // Journey planning remains available if the public pedestrian router is
-    // temporarily down. Without routed timing the UI deliberately stays neutral.
+    // temporarily down. Without routed timing the UI deliberately stays
+    // neutral, and the gate below falls back to the straight-line radius.
   }
+  const originStops = prioritizeAccessStops(
+    walkingReachable(walkingRouted ? routable : originCandidates, accessRadius()),
+    destinationStops,
+    JOURNEY_ORIGIN_STOP_LIMIT,
+  );
   // Read all candidate boarding boards first. Individual EMT failures are
   // isolated: one bad stop must not hold or reject the entire journey.
   const liveStopIds = originStops.map((stop) => String(stop.stopId));

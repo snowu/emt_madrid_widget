@@ -653,6 +653,23 @@ is most stale), and manually per-card or all at once.
    `Intl.DateTimeFormat` on `Europe/Madrid`, never a UTC offset, because the
    rule is about the city's service and has to survive DST.
 
+   **The gate is applied to the distance actually walked.** The radius is a
+   straight line and feet follow streets; around Arturo Soria that ratio is
+   close to 2:1 — stop 2030 is 609m across the map and 1260m on foot. An 800m
+   search was therefore offering boardings 1256m away, which is not the deal
+   the radius makes. The pedestrian matrix now routes the 25 nearest
+   candidates *before* `prioritizeAccessStops` chooses among them, so a stop
+   that is out of range loses its slot instead of taking one and then being
+   discarded — same single matrix call it always cost. `walkingReachable()`
+   never filters down to nothing: in a sparse corner every stop can route past
+   the gate, and an honest long walk beats "No route", so below
+   `JOURNEY_MIN_ORIGIN_STOPS` it simply takes the nearest on foot. Stops the
+   router had no distance for keep their place, and if the router is down the
+   gate falls back to the straight-line radius.
+
+   The walk at the *destination* end is still straight-line, so a hub behind a
+   motorway reads as closer than it walks.
+
    **Direct rides are never cut for transfers.** `planJourney` scores a
    candidate as walking metres plus 420 per stop ridden, then keeps the best
    `limit` (8). That heuristic decides what survives to the caller's *real*
