@@ -63,6 +63,52 @@ export function estimateJourneySeconds(option) {
   return Math.round(secondDeparture + secondRide + destinationWalk);
 }
 
+/** What the journey *feels* like, for ranking only — never shown as an ETA.
+ *
+ * Time on a bus and time on foot are not the same minute. Walking is the part
+ * people avoid, in August especially, so it is weighted above riding: without
+ * this, ranking on raw predicted arrival happily recommends a stop 300m
+ * further away to save two minutes, which is not a trade anyone makes.
+ *
+ * `estimatedSeconds` stays the honest prediction and is what the card shows.
+ */
+const WALK_AVERSION = 1.6;
+
+export function rankJourneySeconds(option) {
+  if (option?.estimatedSeconds == null) return null;
+  const originWalk = Number.isFinite(option.originStop?.walkSeconds)
+    ? option.originStop.walkSeconds
+    : Number(option.originStop?.distanceM ?? 0) / WALK_METRES_PER_SECOND;
+  const onFoot = originWalk
+    + Number(option.destinationStop?.distanceM ?? 0) / WALK_METRES_PER_SECOND
+    + Number(option.transfer?.walkM ?? 0) / WALK_METRES_PER_SECOND;
+  return Math.round(option.estimatedSeconds + onFoot * (WALK_AVERSION - 1));
+}
+
+/** Order options the way the rider would choose between them.
+ *
+ * A direct ride outranks every transfer, whatever the clock says. A transfer
+ * is a second fare — about €0.70 without a subscription — and getting off,
+ * walking, and waiting again is worse than staying on a bus already going
+ * where you are going, even when it arrives a few minutes sooner. No Madrid
+ * ride is long enough for that to backfire badly: by day a leg is 15–20
+ * minutes, and at night the wider search radius is what buys the choice.
+ *
+ * Incidents and timing order each group internally, so a disrupted direct
+ * falls behind a clean direct — just never behind a transfer.
+ */
+export function compareJourneyOptions(a, b) {
+  const transfer = (option) => Number(option.type !== "direct");
+  const disrupted = (option) => Number((option.incidents?.length ?? 0) > 0);
+  const untimed = (option) => Number(option.rankSeconds == null);
+  return transfer(a) - transfer(b)
+    || disrupted(a) - disrupted(b)
+    || untimed(a) - untimed(b)
+    || (a.rankSeconds ?? Number.POSITIVE_INFINITY)
+      - (b.rankSeconds ?? Number.POSITIVE_INFINITY)
+    || a.score - b.score;
+}
+
 /** Collapse candidates that represent the same journey as experienced by the user.
  * Different nearby destination stops can otherwise produce duplicate legs. */
 export function deduplicateJourneyOptions(options) {

@@ -38,6 +38,8 @@ import {
   boardHasLine,
   deduplicateJourneyOptions,
   estimateJourneySeconds,
+  rankJourneySeconds,
+  compareJourneyOptions,
   linesMatch,
   nearbyAccess,
   planJourney,
@@ -666,11 +668,9 @@ async function journeys(request, body, env, ctx) {
         ...(incidentsByLine.get(option.secondLeg?.line) ?? []),
       ].map((incident) => [incident.id, incident])).values()];
       option.estimatedSeconds = estimateJourneySeconds(option);
+      option.rankSeconds = rankJourneySeconds(option);
     }
-    item.options.sort((a, b) => Number(a.incidents.length > 0) - Number(b.incidents.length > 0)
-      || (a.estimatedSeconds ?? Number.POSITIVE_INFINITY)
-        - (b.estimatedSeconds ?? Number.POSITIVE_INFINITY)
-      || a.score - b.score);
+    item.options.sort(compareJourneyOptions);
     item.options = deduplicateJourneyOptions(item.options);
   }
   return {

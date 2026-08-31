@@ -5,8 +5,10 @@ import {
   estimateJourneySeconds,
   linesMatch,
   nearbyAccess,
+  compareJourneyOptions,
   planJourney,
   prioritizeAccessStops,
+  rankJourneySeconds,
   stopsWithLiveLines,
 } from "../src/journey-planner.js";
 
@@ -49,6 +51,31 @@ describe("journey planner", () => {
       stop("far", -3.70, 40.42), stop("near", -3.7001, 40.4001),
     ], { lat: 40.4, lon: -3.7 });
     expect(result.map((item) => item.stopId)).toEqual(["near", "far"]);
+  });
+
+  it("ranks a direct ride above a faster transfer", () => {
+    const direct = { type: "direct", incidents: [], rankSeconds: 34 * 60, score: 9000 };
+    const transfer = { type: "one_transfer", incidents: [], rankSeconds: 21 * 60, score: 1000 };
+    expect([transfer, direct].sort(compareJourneyOptions)[0]).toBe(direct);
+  });
+
+  it("still prefers a clean direct over a disrupted one, and both over transfers", () => {
+    const clean = { type: "direct", incidents: [], rankSeconds: 40 * 60, score: 9000 };
+    const disrupted = { type: "direct", incidents: [{ id: 1 }], rankSeconds: 10 * 60, score: 100 };
+    const transfer = { type: "one_transfer", incidents: [], rankSeconds: 5 * 60, score: 10 };
+    expect([transfer, disrupted, clean].sort(compareJourneyOptions))
+      .toEqual([clean, disrupted, transfer]);
+  });
+
+  it("weights walking above riding when ranking, without touching the shown ETA", () => {
+    // Same predicted arrival, but one boards 300m further away. The nearer
+    // stop must win: nobody walks an extra 300m to arrive at the same time.
+    const near = { estimatedSeconds: 1800, originStop: { walkSeconds: 200, distanceM: 260 },
+      destinationStop: { distanceM: 100 } };
+    const far = { estimatedSeconds: 1800, originStop: { walkSeconds: 430, distanceM: 560 },
+      destinationStop: { distanceM: 100 } };
+    expect(rankJourneySeconds(near)).toBeLessThan(rankJourneySeconds(far));
+    expect(near.estimatedSeconds).toBe(1800);
   });
 
   it("keeps a direct ride that scores worse than the transfers filling the limit", () => {

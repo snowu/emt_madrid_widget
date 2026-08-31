@@ -670,6 +670,22 @@ is most stale), and manually per-card or all at once.
    The walk at the *destination* end is still straight-line, so a hub behind a
    motorway reads as closer than it walks.
 
+   **A direct ride outranks every transfer, whatever the clock says.** A
+   transfer is a second fare — about €0.70 without a subscription — and
+   getting off, walking and waiting again is worse than staying on a bus
+   already going where you are going, even when it arrives a few minutes
+   sooner. No Madrid ride is long enough for that to backfire badly: by day a
+   leg is 15–20 minutes, and at night the wider search radius is what buys the
+   choice instead. `compareJourneyOptions()` is that order — transfers last,
+   then incidents, then time — and it is a *preference*, not a measurement, so
+   it lives beside the estimator rather than inside it.
+
+   Ranking uses `rankJourneySeconds()`, not the predicted arrival: walking is
+   weighted `WALK_AVERSION` (1.6×) above riding, because ranking on raw
+   arrival recommends a stop 300m further to save two minutes, which is not a
+   trade anyone makes. `estimatedSeconds` stays the honest prediction and is
+   what the card shows.
+
    **Direct rides are never cut for transfers.** `planJourney` scores a
    candidate as walking metres plus 420 per stop ridden, then keeps the best
    `limit` (8). That heuristic decides what survives to the caller's *real*
