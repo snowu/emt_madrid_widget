@@ -59,6 +59,17 @@ describe("journey planner", () => {
     expect([transfer, direct].sort(compareJourneyOptions)[0]).toBe(direct);
   });
 
+  it("falls back to transfers, ranked normally, when no direct exists", () => {
+    // Directs-first is a hard tier, so the case where there is no direct at
+    // all has to keep working: the night N1 -> S10 crossing has none, and
+    // "no direct" must mean "rank the transfers", never "no route".
+    const slow = { type: "one_transfer", incidents: [], rankSeconds: 40 * 60, score: 100 };
+    const quick = { type: "one_transfer", incidents: [], rankSeconds: 12 * 60, score: 9000 };
+    const untimed = { type: "one_transfer", incidents: [], rankSeconds: null, score: 1 };
+    expect([untimed, slow, quick].sort(compareJourneyOptions))
+      .toEqual([quick, slow, untimed]);
+  });
+
   it("still prefers a clean direct over a disrupted one, and both over transfers", () => {
     const clean = { type: "direct", incidents: [], rankSeconds: 40 * 60, score: 9000 };
     const disrupted = { type: "direct", incidents: [{ id: 1 }], rankSeconds: 10 * 60, score: 100 };
