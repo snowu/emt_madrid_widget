@@ -627,20 +627,18 @@ function placeRouteRow(option, card, { primary = false } = {}) {
     if (primary) setPlaceReachability(card, wait - elapsed, option.originStop.walkSeconds);
   }
   route.append(first, copy, eta);
-  if (!primary) {
-    const directions = document.createElement("button");
-    directions.className = "place-route-directions";
-    directions.type = "button";
-    directions.title = `Walk to stop ${option.originStop.stopId}`;
-    directions.setAttribute("aria-label", directions.title);
-    directions.innerHTML = WALKING_ICON;
-    directions.disabled = !option.originStop.coordinates;
-    directions.addEventListener("click", (event) => {
-      event.stopPropagation();
-      openWalkingDirections(option.originStop.coordinates);
-    });
-    route.insertBefore(directions, eta);
-  }
+  const directions = document.createElement("button");
+  directions.className = "place-route-directions";
+  directions.type = "button";
+  directions.title = `Walk to stop ${option.originStop.stopId}`;
+  directions.setAttribute("aria-label", directions.title);
+  directions.innerHTML = WALKING_ICON;
+  directions.disabled = !option.originStop.coordinates;
+  directions.addEventListener("click", (event) => {
+    event.stopPropagation();
+    openWalkingDirections(option.originStop.coordinates);
+  });
+  route.insertBefore(directions, eta);
   return route;
 }
 
@@ -657,15 +655,6 @@ function placeCard(place) {
   const planned = journeyFor(place.id);
   const options = planned?.options?.slice(0, 3) ?? [];
   const option = options[0];
-  const stopDirections = document.createElement("button");
-  stopDirections.className = "place-directions";
-  stopDirections.type = "button";
-  stopDirections.title = option ? `Walk to stop ${option.originStop.stopId}` : "No boarding stop available";
-  stopDirections.setAttribute("aria-label", stopDirections.title);
-  stopDirections.innerHTML = WALKING_ICON;
-  stopDirections.disabled = !option?.originStop?.coordinates;
-  stopDirections.addEventListener("click", () => openWalkingDirections(option?.originStop?.coordinates));
-
   const fullRoute = document.createElement("button");
   fullRoute.className = "place-directions place-transit-directions";
   fullRoute.type = "button";
@@ -680,19 +669,19 @@ function placeCard(place) {
   const legs = document.createElement("button");
   legs.className = "place-directions";
   legs.type = "button";
-  legs.title = option ? `Show this route to ${place.name} on the map` : "No route to draw";
+  legs.title = options.length ? `Show all routes to ${place.name} on the map` : "No routes to draw";
   legs.setAttribute("aria-label", legs.title);
   legs.innerHTML = LINES_ICON;
-  legs.disabled = !option;
+  legs.disabled = options.length === 0;
   legs.addEventListener("click", async () => {
     legs.disabled = true;
     try {
-      await showJourneyRoutes(option, place.name);
+      await showJourneyRoutes(options, place.name);
     } finally {
       legs.disabled = false;
     }
   });
-  heading.append(title, distance, stopDirections, fullRoute, legs);
+  heading.append(title, distance, fullRoute, legs);
   card.append(heading);
 
   let route;
@@ -2090,14 +2079,14 @@ async function showRoutesForStop(stopId, label) {
 /** Hub card control: draw the legs this journey actually tells you to take.
  *  The planner already resolved each leg's line and direction, so nothing is
  *  inferred here. */
-async function showJourneyRoutes(option, placeName) {
-  if (!option) return;
-  const legs = [
+async function showJourneyRoutes(options, placeName) {
+  if (!options?.length) return;
+  const legs = options.flatMap((option) => [
     { leg: option.firstLeg, stopId: option.originStop?.stopId },
     { leg: option.secondLeg, stopId: option.transfer?.toStop?.stopId },
-  ].filter(({ leg }) => leg?.line);
+  ]).filter(({ leg }) => leg?.line);
   if (legs.length === 0) return;
-  focusMapOn(option.originStop?.coordinates);
+  focusMapOn(options[0].originStop?.coordinates);
   for (const [index, { leg, stopId }] of legs.entries()) {
     statusEl.textContent = `Drawing ${placeName}: ${leg.label} (${index + 1}/${legs.length})…`;
     await ensureRoute(leg.line, leg.label, leg.direction ?? null, stopId ?? null);
