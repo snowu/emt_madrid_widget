@@ -523,7 +523,7 @@ body.map-is-fullscreen { overflow: hidden; }
 .place-card.reachability-tight { border-color: color-mix(in srgb, var(--warning) 65%, var(--line)); background: color-mix(in srgb, var(--card) 92%, var(--warning)); }
 .place-card.reachability-missed { border-color: color-mix(in srgb, var(--danger) 58%, var(--line)); background: color-mix(in srgb, var(--card) 94%, var(--danger)); }
 .place-card-heading { display: grid; grid-template-columns: minmax(0, 1fr) auto 32px 32px 32px; align-items: center; gap: 0.1rem; }
-.place-card-heading h2 { margin: 0; overflow-wrap: anywhere; font-size: 1rem; }
+.place-card-heading h2 { display: flex; align-items: center; gap: 0.4rem; margin: 0; overflow-wrap: anywhere; font-size: 1rem; }
 .place-card-heading > span { font-size: 0.72rem; white-space: nowrap; }
 /* Frameless, like the stop cards: three bordered chips in a row read as
    heavier than the hub's own name. */
@@ -544,10 +544,15 @@ body.map-is-fullscreen { overflow: hidden; }
 .place-route[hidden] { display: none; }
 .route-later { color: var(--muted); font-variant-numeric: tabular-nums; }
 .place-route-expandable { cursor: pointer; }
-.place-route-expandable::after { content: "⌄"; position: absolute; right: 0.15rem; bottom: -0.3rem; color: var(--muted); font-size: 0.7rem; }
 .place-route-expandable { position: relative; }
-.place-route-expandable[aria-expanded="true"]::after { content: "⌃"; }
+.place-card.has-alternatives { position: relative; padding-bottom: 0.3rem; }
+.place-card.has-alternatives::after { content: "⌄"; position: absolute; right: 0.35rem; bottom: 0.05rem; color: var(--muted); font-size: 0.7rem; pointer-events: none; }
+.place-card.has-alternatives.routes-expanded::after { content: "⌃"; }
 .place-route-alternative { margin-top: 0.35rem; padding-top: 0.45rem; }
+.place-route-alternative { grid-template-columns: 3rem minmax(0, 1fr) auto 32px; }
+.place-route-directions { width: 32px; min-height: 32px; padding: 0; border-color: transparent; border-radius: 8px; background: transparent; color: var(--accent); }
+.place-route-directions svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.place-route-directions:disabled { opacity: 0.35; color: var(--muted); }
 .place-route-status { grid-column: 1 / -1; white-space: nowrap; }
 .place-route p { margin: 0; }
 .place-route p b { color: var(--fg); }
@@ -609,10 +614,18 @@ body.map-is-fullscreen { overflow: hidden; }
 
 .head { display: flex; align-items: center; justify-content: space-between; }
 .title h2 {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
   font-size: 1rem;
   margin: 0;
   overflow-wrap: anywhere;
 }
+.freshness-dot { width: 0.45rem; height: 0.45rem; flex: none; border-radius: 50%; background: var(--muted); }
+.freshness-dot.fresh { background: var(--success); box-shadow: 0 0 0 2px color-mix(in srgb, var(--success) 12%, transparent); }
+.freshness-dot.aging { background: var(--warning); box-shadow: 0 0 0 2px color-mix(in srgb, var(--warning) 12%, transparent); }
+.freshness-dot.stale { background: var(--danger); box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger) 12%, transparent); }
+.freshness-dot.unknown { background: var(--muted); }
 .stop-num {
   margin: 0.1rem 0 0;
   font-size: 0.75rem;
@@ -1267,6 +1280,8 @@ body[data-bus-list-mode="stops"] .title h2,
 }
 
 .place-route-alternative { margin-top: 0; }
+.place-route-alternative { grid-template-columns: 2.5rem minmax(0, 1fr) auto 28px; }
+.place-route-directions { width: 28px; min-height: 28px; border-radius: 5px; }
 .place-route p b { font-size: 0.72rem; }
 .place-route p small { color: var(--muted); font-size: 0.63rem; }
 .place-line { min-height: 29px; border-radius: 5px; font-size: 0.9rem; }

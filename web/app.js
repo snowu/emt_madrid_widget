@@ -490,6 +490,23 @@ function fmtAge(ms) {
   return `${Math.floor(mins / 60)}h ago`;
 }
 
+function updateFreshnessDot(dot, fetchedAt) {
+  const ageMs = fetchedAt ? Math.max(0, Date.now() - Number(fetchedAt)) : null;
+  const state = ageMs == null ? "unknown" : ageMs < 60_000
+    ? "fresh" : ageMs <= 5 * 60_000 ? "aging" : "stale";
+  const label = fetchedAt ? `Updated ${fmtAge(Number(fetchedAt))}` : "Never updated";
+  dot.className = `freshness-dot ${state}`;
+  dot.title = label;
+  dot.setAttribute("aria-label", label);
+}
+
+function freshnessDot(fetchedAt) {
+  const dot = document.createElement("span");
+  dot.dataset.fetchedAt = fetchedAt ? String(fetchedAt) : "";
+  updateFreshnessDot(dot, fetchedAt);
+  return dot;
+}
+
 function openWalkingDirections(coordinates) {
   if (!coordinates) return;
   const [lon, lat] = coordinates;
@@ -610,6 +627,20 @@ function placeRouteRow(option, card, { primary = false } = {}) {
     if (primary) setPlaceReachability(card, wait - elapsed, option.originStop.walkSeconds);
   }
   route.append(first, copy, eta);
+  if (!primary) {
+    const directions = document.createElement("button");
+    directions.className = "place-route-directions";
+    directions.type = "button";
+    directions.title = `Walk to stop ${option.originStop.stopId}`;
+    directions.setAttribute("aria-label", directions.title);
+    directions.innerHTML = WALKING_ICON;
+    directions.disabled = !option.originStop.coordinates;
+    directions.addEventListener("click", (event) => {
+      event.stopPropagation();
+      openWalkingDirections(option.originStop.coordinates);
+    });
+    route.append(directions);
+  }
   return route;
 }
 
@@ -683,6 +714,7 @@ function placeCard(place) {
       return row;
     });
     if (alternatives.length) {
+      card.classList.add("has-alternatives");
       route.classList.add("place-route-expandable");
       route.tabIndex = 0;
       route.setAttribute("role", "button");
@@ -691,6 +723,7 @@ function placeCard(place) {
       const toggle = () => {
         const expanded = route.getAttribute("aria-expanded") === "true";
         route.setAttribute("aria-expanded", String(!expanded));
+        card.classList.toggle("routes-expanded", !expanded);
         route.setAttribute("aria-label", expanded ? `Show ${alternatives.length} alternative route${alternatives.length === 1 ? "" : "s"}` : "Hide alternative routes");
         alternatives.forEach((row) => { row.hidden = expanded; });
       };
@@ -703,13 +736,9 @@ function placeCard(place) {
     }
     card.append(route, ...alternatives);
   }
-  const age = document.createElement("p");
-  age.className = "age";
   const fetchedAt = option?.firstLeg?.fetchedAt ?? journeyPayload?.generatedAt;
-  age.textContent = fetchedAt ? `updated ${fmtAge(fetchedAt)}` : "never updated";
-  if (fetchedAt) age.dataset.fetchedAt = String(fetchedAt);
+  title.append(freshnessDot(fetchedAt));
   if (!route.parentNode) card.append(route);
-  card.append(age);
   return card;
 }
 
@@ -856,12 +885,9 @@ function renderSavedStops() {
         }
       }
 
-      // Every rendering of arrival data carries its age. A stale number is fine;
-      // a stale number without its age is not.
-      const age = document.createElement("p");
-      age.className = "age";
-      age.textContent = cached ? `updated ${fmtAge(cached.fetchedAt)}` : "never updated";
-      if (cached) age.dataset.fetchedAt = String(cached.fetchedAt);
+      // The dot keeps freshness visible without spending a full row on it.
+      // Its tooltip and accessible label retain the exact age.
+      title.append(freshnessDot(cached?.fetchedAt));
 
       const controls = document.createElement("div");
       controls.className = "controls";
@@ -871,7 +897,7 @@ function renderSavedStops() {
       head.className = "head";
       head.append(titleWrap, controls);
 
-      card.append(head, list, age);
+      card.append(head, list);
       return card;
     })
   );
@@ -3985,6 +4011,9 @@ function tickStopList() {
   }
   for (const age of listEl.querySelectorAll(".age[data-fetched-at]")) {
     age.textContent = `updated ${fmtAge(Number(age.dataset.fetchedAt))}`;
+  }
+  for (const dot of listEl.querySelectorAll(".freshness-dot[data-fetched-at]")) {
+    updateFreshnessDot(dot, dot.dataset.fetchedAt || null);
   }
 }
 
