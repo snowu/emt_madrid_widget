@@ -536,7 +536,6 @@ for (const id of ["refresh-all", "sheet-refresh"]) {
   document.getElementById(id).innerHTML = REFRESH_ICON;
 }
 const INFO_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v5"></path><circle cx="12" cy="7.6" r=".9" fill="currentColor" stroke="none"></circle></svg>';
-const ROUTE_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s6-5.4 6-11a6 6 0 1 0-12 0c0 5.6 6 11 6 11Z"></path><circle cx="12" cy="10" r="2"></circle></svg>';
 
 function openTransitDirections(place) {
   if (!myLocation || !place) return;
@@ -660,7 +659,7 @@ function placeCard(place) {
   fullRoute.type = "button";
   fullRoute.title = `Transit directions to ${place.name}`;
   fullRoute.setAttribute("aria-label", fullRoute.title);
-  fullRoute.innerHTML = ROUTE_ICON;
+  fullRoute.textContent = "➤";
   fullRoute.disabled = !myLocation;
   fullRoute.addEventListener("click", () => openTransitDirections(place));
 
