@@ -4010,6 +4010,11 @@ function tickStopList() {
 setInterval(() => {
   if (section === "bikes") {
     bikeAgeEl.textContent = bikeAgeText();
+    const accountAge = bikeAccountText.querySelector("[data-checked-at]");
+    if (accountAge) {
+      accountAge.textContent = accountFreshness(accountAge.dataset.checkedAt);
+      bikeAccountDot.title = `Checked ${fmtAge(Number(accountAge.dataset.checkedAt))}`;
+    }
     return;
   }
   if (mapEl.hidden) tickStopList();
@@ -4080,19 +4085,31 @@ let bikeUserMarker = null;
 // sweep, or the by-ids lookup that keeps saved stations current even when
 // they are nowhere near the map.
 const bikeById = new Map();
-function showBikeAccount(text, tone = "") {
-  bikeAccountText.textContent = text;
+function accountFreshness(checkedAt) {
+  if (!checkedAt) return "not checked";
+  const age = Date.now() - Number(checkedAt);
+  return age < 60_000 ? "<1m" : age < 5 * 60_000 ? "<5m" : ">5m";
+}
+
+function showBikeAccount(text, tone = "", checkedAt = null) {
+  const label = document.createElement("span");
+  label.textContent = text;
+  const freshness = document.createElement("small");
+  freshness.className = "bike-account-freshness";
+  freshness.textContent = accountFreshness(checkedAt);
+  if (checkedAt) freshness.dataset.checkedAt = String(checkedAt);
+  bikeAccountText.replaceChildren(label, freshness);
   bikeAccountDot.className = `bike-account-dot${tone ? ` ${tone}` : ""}`;
+  bikeAccountDot.title = checkedAt ? `Checked ${fmtAge(Number(checkedAt))}` : "Not checked yet";
 }
 
 function renderBikeAccountStatus(payload) {
-  const age = payload?.checkedAt ? ` · checked ${fmtAge(payload.checkedAt)}` : "";
   if (payload?.blocked) {
-    showBikeAccount(`Account blocked by BiciMAD${age}`, "blocked");
+    showBikeAccount("Blocked", "blocked", payload.checkedAt);
   } else if (!payload?.accountEnabled || !payload?.activeContract) {
-    showBikeAccount(`Account not ready to rent${age}`, "warn");
+    showBikeAccount("Unavailable", "warn", payload?.checkedAt);
   } else {
-    showBikeAccount(`Account active · not blocked${age}`, "ready");
+    showBikeAccount("Account", "ready", payload.checkedAt);
   }
 }
 

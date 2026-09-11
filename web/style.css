@@ -187,7 +187,9 @@ button:active { transform: scale(0.97); }
 .bike-account-dot.ready { background: var(--success); }
 .bike-account-dot.blocked { background: var(--danger); }
 .bike-account-dot.warn { background: var(--warning); }
-#bike-account-text { flex: 1; }
+#bike-account-text { display: flex; align-items: baseline; gap: 0.35rem; flex: 1; min-width: 0; }
+#bike-account-text > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bike-account-freshness { color: var(--muted); font-size: 0.68rem; white-space: nowrap; }
 #bike-account-check { min-height: 36px; padding: 0.3rem 0.7rem; font-size: 0.85rem; }
 #bike-trips-open { min-height: 36px; padding: 0.3rem 0.7rem; font-size: 0.85rem; }
 
@@ -1341,7 +1343,18 @@ body[data-bus-list-mode="stops"] .stop > .age {
   font-size: 0.64rem;
 }
 
-#bikes > .stop .bike-head { grid-template-columns: minmax(0, 1fr) auto auto; }
+#bikes > .stop .bike-head,
+.place-nearest-bike .bike-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 3.4rem 56px;
+  align-items: center;
+}
+#bikes > .stop .bike-card-distance,
+.place-nearest-bike .bike-card-distance {
+  width: 3.4rem;
+  justify-self: end;
+  text-align: right;
+}
 #bikes > .stop .bike-counts {
   min-height: 47px;
   margin: 0;
