@@ -639,7 +639,7 @@ function placeRouteRow(option, card, { primary = false } = {}) {
       event.stopPropagation();
       openWalkingDirections(option.originStop.coordinates);
     });
-    route.append(directions);
+    route.insertBefore(directions, eta);
   }
   return route;
 }

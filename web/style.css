@@ -549,7 +549,7 @@ body.map-is-fullscreen { overflow: hidden; }
 .place-card.has-alternatives::after { content: "⌄"; position: absolute; right: 0.35rem; bottom: 0.05rem; color: var(--muted); font-size: 0.7rem; pointer-events: none; }
 .place-card.has-alternatives.routes-expanded::after { content: "⌃"; }
 .place-route-alternative { margin-top: 0.35rem; padding-top: 0.45rem; }
-.place-route-alternative { grid-template-columns: 3rem minmax(0, 1fr) auto 32px; }
+.place-route-alternative { grid-template-columns: 3rem minmax(0, 1fr) 32px auto; }
 .place-route-directions { width: 32px; min-height: 32px; padding: 0; border-color: transparent; border-radius: 8px; background: transparent; color: var(--accent); }
 .place-route-directions svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .place-route-directions:disabled { opacity: 0.35; color: var(--muted); }
@@ -1280,7 +1280,7 @@ body[data-bus-list-mode="stops"] .title h2,
 }
 
 .place-route-alternative { margin-top: 0; }
-.place-route-alternative { grid-template-columns: 2.5rem minmax(0, 1fr) auto 28px; }
+.place-route-alternative { grid-template-columns: 2.5rem minmax(0, 1fr) 28px auto; }
 .place-route-directions { width: 28px; min-height: 28px; border-radius: 5px; }
 .place-route p b { font-size: 0.72rem; }
 .place-route p small { color: var(--muted); font-size: 0.63rem; }
