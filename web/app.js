@@ -3526,6 +3526,7 @@ viewMapBtn.addEventListener("click", () => showView("map"));
 
 function setBusListMode(mode) {
   busListMode = mode === "stops" ? "stops" : "places";
+  document.body.dataset.busListMode = busListMode;
   localStorage.setItem("emt:bus-list-mode", busListMode);
   busModePlaces.setAttribute("aria-selected", String(busListMode === "places"));
   busModeStops.setAttribute("aria-selected", String(busListMode === "stops"));
@@ -5055,6 +5056,7 @@ function rebuildBikeMarkers() {
 function showSection(next) {
   if (next !== section) closeFullscreenMap();
   section = next;
+  document.body.dataset.section = next;
   const bikes = next === "bikes";
   document.title = bikes ? "BiciMAD" : busListMode === "places" ? "Hubwise" : "Stops";
   busModePlaces.setAttribute("aria-selected", String(!bikes && busListMode === "places"));
