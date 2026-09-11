@@ -1210,7 +1210,7 @@ dialog input {
 body[data-section="buses"] #stops,
 body[data-section="bikes"] #bikes {
   display: grid;
-  gap: 0.55rem;
+  gap: 0.4rem;
 }
 
 body[data-section="buses"] #stops[hidden],
@@ -1224,7 +1224,7 @@ body[data-bus-list-mode="stops"] .stop,
   margin-top: 0;
   padding: 0;
   border-color: var(--line);
-  border-radius: 17px;
+  border-radius: 8px;
   background: var(--card);
 }
 
@@ -1251,7 +1251,7 @@ body[data-bus-list-mode="stops"] .title h2,
 .place-directions {
   width: 28px;
   min-height: 28px;
-  border-radius: 8px;
+  border-radius: 5px;
 }
 
 .place-directions svg { width: 16px; height: 16px; }
@@ -1269,7 +1269,7 @@ body[data-bus-list-mode="stops"] .title h2,
 .place-route-alternative { margin-top: 0; }
 .place-route p b { font-size: 0.72rem; }
 .place-route p small { color: var(--muted); font-size: 0.63rem; }
-.place-line { min-height: 29px; border-radius: 9px; font-size: 0.9rem; }
+.place-line { min-height: 29px; border-radius: 5px; font-size: 0.9rem; }
 .place-route time { font-size: 1rem; }
 .place-card.reachability-comfortable .place-route:first-of-type time { color: var(--success); }
 .place-card.reachability-tight .place-route:first-of-type time { color: var(--warning); }
@@ -1344,3 +1344,20 @@ body[data-bus-list-mode="stops"] .stop > .age {
 }
 
 #bike-age { margin: 0.55rem 0.1rem 0; font-size: 0.64rem; }
+
+/* The compact cards are stacked sections, not floating pills. A restrained
+   radius makes the shared header/data border feel intentional. */
+body[data-section="buses"] .place-nearest-bike,
+body[data-section="bikes"] #bikes > .stop { border-radius: 8px; }
+
+/* Shorter navigation, while each destination remains a 44px touch target. */
+#primary-menu {
+  bottom: calc(0.35rem + env(safe-area-inset-bottom, 0px));
+  padding: 3px;
+  border-radius: 12px;
+}
+#primary-menu button {
+  min-height: 44px;
+  border-radius: 8px;
+}
+#fab { bottom: calc(4.15rem + env(safe-area-inset-bottom, 0px)); }
