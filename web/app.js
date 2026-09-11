@@ -493,7 +493,7 @@ function fmtAge(ms) {
 function updateFreshnessDot(dot, fetchedAt) {
   const ageMs = fetchedAt ? Math.max(0, Date.now() - Number(fetchedAt)) : null;
   const state = ageMs == null ? "unknown" : ageMs < 60_000
-    ? "fresh" : ageMs <= 5 * 60_000 ? "aging" : "stale";
+    ? "fresh" : ageMs < 5 * 60_000 ? "aging" : "stale";
   const label = fetchedAt ? `Updated ${fmtAge(Number(fetchedAt))}` : "Never updated";
   dot.className = `freshness-dot ${state}`;
   dot.title = label;

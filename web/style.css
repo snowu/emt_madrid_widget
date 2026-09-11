@@ -621,11 +621,16 @@ body.map-is-fullscreen { overflow: hidden; }
   margin: 0;
   overflow-wrap: anywhere;
 }
-.freshness-dot { width: 0.45rem; height: 0.45rem; flex: none; border-radius: 50%; background: var(--muted); }
-.freshness-dot.fresh { background: var(--success); box-shadow: 0 0 0 2px color-mix(in srgb, var(--success) 12%, transparent); }
-.freshness-dot.aging { background: var(--warning); box-shadow: 0 0 0 2px color-mix(in srgb, var(--warning) 12%, transparent); }
-.freshness-dot.stale { background: var(--danger); box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger) 12%, transparent); }
-.freshness-dot.unknown { background: var(--muted); }
+.freshness-dot { display: inline-flex; align-items: center; gap: 0.2rem; flex: none; color: var(--muted); font-size: 0.54rem; font-weight: 600; white-space: nowrap; }
+.freshness-dot::before { content: ""; width: 0.42rem; height: 0.42rem; border-radius: 50%; background: currentColor; }
+.freshness-dot::after { content: "—"; }
+.freshness-dot.fresh { color: var(--success); }
+.freshness-dot.fresh::after { content: "<1m"; }
+.freshness-dot.aging { color: var(--warning); }
+.freshness-dot.aging::after { content: "<5m"; }
+.freshness-dot.stale { color: var(--danger); }
+.freshness-dot.stale::after { content: ">5m"; }
+.freshness-dot.unknown { color: var(--muted); }
 .stop-num {
   margin: 0.1rem 0 0;
   font-size: 0.75rem;
