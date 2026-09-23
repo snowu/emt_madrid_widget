@@ -1402,3 +1402,12 @@ body[data-section="bikes"] #bikes > .stop { border-radius: 8px; }
 .tracking-item small { opacity: .7; }
 #sheet-arrivals li { flex-wrap: wrap; }
 #bike-sheet-tracking { margin-top: .75rem; }
+
+.tracking-indicator { display: inline-flex; align-items: center; vertical-align: middle; margin-left: .35rem; color: var(--accent); }
+.tracking-indicator[hidden] { display: none; }
+.tracking-indicator svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.track-button .tracking-indicator { margin: 0 .35rem 0 0; }
+button.stop-open { display: inline; min-height: 0; padding: 0; border: 0; border-radius: 3px; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+button.stop-open:hover { text-decoration: underline; text-underline-offset: 3px; }
+button.stop-open:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+button.place-stop-open { color: var(--fg); font-size: .72rem; font-weight: 700; }

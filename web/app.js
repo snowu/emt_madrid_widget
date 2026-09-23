@@ -586,9 +586,20 @@ function placeRouteRow(option, card, { primary = false } = {}) {
   const connection = option.type === "direct"
     ? "direct"
     : `then ${option.secondLeg.label} · ${option.transfer.walkM} m transfer`;
-  const origin = document.createElement("b");
+  const origin = document.createElement("button");
+  origin.type = "button";
+  origin.className = "stop-open place-stop-open";
   const walkMetres = option.originStop.walkMetres ?? option.originStop.distanceM;
   origin.textContent = `Stop ${option.originStop.stopId} · ${Math.round(walkMetres)} m walk`;
+  origin.setAttribute("aria-label", `Open stop ${option.originStop.stopId} for arrivals and tracking`);
+  origin.append(tracking.indicator("bus", option.originStop.stopId, option.firstLeg.label));
+  origin.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const stopId = String(option.originStop.stopId);
+    mergeNearbyDetails([{ ...option.originStop, stopId, lines: [option.firstLeg] }], { onlySaved: false });
+    openStop(stops.find((stop) => String(stop.stop_id) === stopId) ?? { stop_id: stopId, label: null, id: null });
+  });
+  origin.addEventListener("keydown", (event) => event.stopPropagation());
   const detail = document.createElement("small");
   detail.textContent = connection;
   // The one after, when there is one. Same reasoning as the stop cards showing
@@ -781,7 +792,14 @@ function renderSavedStops() {
       const titleWrap = document.createElement("div");
       titleWrap.className = "title";
       const title = document.createElement("h2");
-      title.textContent = stopTitle(stop);
+      const open = document.createElement("button");
+      open.type = "button";
+      open.className = "stop-open";
+      open.textContent = stopTitle(stop);
+      open.setAttribute("aria-label", `Open stop ${stop.stop_id} for arrivals and tracking`);
+      open.append(tracking.indicator("bus", stop.stop_id));
+      open.addEventListener("click", (event) => { event.stopPropagation(); openStop(stop); });
+      title.append(open);
       const num = document.createElement("span");
       num.className = "stop-num";
       num.replaceChildren(stopMetaNode(stop.stop_id));
@@ -869,6 +887,7 @@ function renderSavedStops() {
           destination.className = "destination";
           destination.textContent = bus.destination || "";
           destination.hidden = !bus.destination;
+          line.append(tracking.indicator("bus", stop.stop_id, bus.line));
           li.append(line, destination, eta);
           list.append(li);
         }
@@ -906,6 +925,8 @@ const pendingGets = new Map();
 const tracking = createTracking({
   api, signedIn: () => !!authSession,
   changed: () => {
+    render();
+    renderBikes();
     if (stopDialog.open) { renderSheetArrivals(); renderSheetService(); }
     if (bikeDialog.open) renderBikeSheet();
     tracking.renderList(document.getElementById("tracking-list"));
@@ -3682,9 +3703,9 @@ function openStop(stop) {
   sheetLabel.placeholder = details[stop.stop_id]?.name || "EMT's name";
   sheetDirections.hidden = !details[stop.stop_id]?.coordinates;
   syncSheetOwnership(); // also closes the name editor and settles the pencil
+  stopDialog.showModal();
   renderSheetArrivals();
   renderSheetService();
-  stopDialog.showModal();
   showSheetMap();
   // A card's numbers can be a minute old; opening the stop is asking for now.
   refreshStop(stop.stop_id);
@@ -4709,6 +4730,7 @@ function bikeCard(station, saved) {
   titleWrap.className = "title";
   const h2 = document.createElement("h2");
   h2.textContent = bikeTitle(station, saved);
+  h2.append(tracking.indicator("bike", station.id));
   titleWrap.append(h2);
 
   const distance = document.createElement("span");

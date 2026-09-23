@@ -58,12 +58,29 @@ export function createTracking({ api, signedIn, changed }) {
     } finally { busy = false; }
   }
 
+  function isTracked(kind, targetId, line) {
+    return watches.some((watch) => watch.kind === kind && watch.targetId === String(targetId) &&
+      (line == null || watch.line === String(line).toUpperCase()));
+  }
+
+  function indicator(kind, targetId, line) {
+    const icon = document.createElement("span");
+    icon.className = "tracking-indicator";
+    icon.hidden = !isTracked(kind, targetId, line);
+    icon.title = "Tracking alerts enabled";
+    icon.setAttribute("role", "img");
+    icon.setAttribute("aria-label", icon.title);
+    icon.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg>';
+    return icon;
+  }
+
   function button(watch) {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "track-button";
     const tracked = !!find(watch);
     button.textContent = tracked ? "Tracking · stop" : "Track";
+    if (tracked) button.prepend(indicator(watch.kind, watch.targetId, watch.line || undefined));
     button.setAttribute("aria-pressed", String(tracked));
     button.setAttribute("aria-label", `${tracked ? "Stop tracking" : "Track"} ${watch.kind === "bus" ? `line ${watch.line} at stop` : "bike station"} ${watch.targetId}${watch.destination ? ` towards ${watch.destination}` : ""}`);
     button.addEventListener("click", async (event) => {
@@ -124,5 +141,5 @@ export function createTracking({ api, signedIn, changed }) {
     await api("/tracking/subscription", { method: "DELETE", body: JSON.stringify({ endpoint: subscription.endpoint }) });
     await subscription.unsubscribe();
   }
-  return { load, button, renderList, disconnect, clear() { generation++; watches = []; refresh(); } };
+  return { load, button, indicator, isTracked, renderList, disconnect, clear() { generation++; watches = []; refresh(); } };
 }
