@@ -972,6 +972,9 @@ const tracking = createTracking({
     if (stopDialog.open) { renderSheetArrivals(); renderSheetService(); }
     if (bikeDialog.open) renderBikeSheet();
     refreshBikePopup();
+    rebuildBikeMarkers();
+    rebuildMarkers();
+    renderNearbyPins();
     tracking.renderList(document.getElementById("tracking-list"));
     const count = tracking.count();
     trackingClear.hidden = !count;
@@ -2625,8 +2628,12 @@ function reopenStopPopup() {
  */
 const STOP_PIN_RADIUS = 7;
 
-function stopPin(lngLat, { saved }) {
-  return domMarker("", `stop-pin${saved ? " saved" : ""}`, lngLat);
+/** Tracked wins over saved when a stop is both: the alert is the more
+ *  specific fact, and the saved fill stays underneath the tracked ring. */
+function stopPin(lngLat, { saved, stopId }) {
+  const pin = domMarker("", `stop-pin${saved ? " saved" : ""}`, lngLat);
+  pin.getElement().classList.toggle("tracked", tracking.isTracked("bus", stopId));
+  return pin;
 }
 
 function rebuildMarkers() {
@@ -2637,7 +2644,7 @@ function rebuildMarkers() {
     const coords = details[stop.stop_id]?.coordinates;
     if (!coords) continue;
     // EMT gives [lon, lat], which is the order MapLibre wants.
-    const marker = stopPin(coords, { saved: true }).addTo(leafletMap);
+    const marker = stopPin(coords, { saved: true, stopId: stop.stop_id }).addTo(leafletMap);
     marker.getElement().addEventListener("click", (event) => {
       event.stopPropagation();
       showMapPopup(leafletMap, coords, `stop:${stop.stop_id}`, () => popupHtml(stop));
@@ -3442,8 +3449,11 @@ function renderNearbyPins() {
       // to live here judged every stop out of bounds, so none were ever drawn.
       if (!bounds.contains(at)) continue;
       wanted.add(s.stopId);
-      if (nearbyPins.has(s.stopId)) continue;
-      const pin = stopPin(at, { saved: false }).addTo(leafletMap);
+      if (nearbyPins.has(s.stopId)) {
+        nearbyPins.get(s.stopId).getElement().classList.toggle("tracked", tracking.isTracked("bus", s.stopId));
+        continue;
+      }
+      const pin = stopPin(at, { saved: false, stopId: s.stopId }).addTo(leafletMap);
       pin.getElement().addEventListener("click", (event) => {
         event.stopPropagation();
         showMapPopup(leafletMap, at, `stop:${s.stopId}`, () => nearbyPopupHtml(s));
@@ -5138,7 +5148,7 @@ function ensureBikeMap() {
   if (bikeMap) return;
   bikeMap = createMap(bikeMapEl, { center: myLngLat(), zoom: 15 });
   // MapLibre has no layer group; the markers are tracked here instead.
-  bikeMarkers = [];
+  bikeMarkers = new Map();
   if (myLocation) bikeUserMarker = addUserMarker(bikeMap, myLocation);
   bikeMap.on("moveend", () => {
     const c = bikeMap.getCenter();
@@ -5220,24 +5230,42 @@ function showBikePopupAfterPan(station) {
   bikeMap.panTo(target);
 }
 
+/** Bike pins are updated in place, keyed by station. Removing and re-adding
+ *  every marker on each refresh made the whole map blink. */
 function rebuildBikeMarkers() {
   if (!bikeMarkers) return;
-  for (const marker of bikeMarkers) marker.remove();
-  bikeMarkers = [];
   const savedIdSet = new Set(bikeSaved.map((s) => s.station_id));
+  const wanted = new Set();
   for (const station of bikeNear.stations ?? []) {
     if (!station.coordinates) continue;
+    wanted.add(station.id);
     const takeClass = availabilityClass(station.bikes,
       station.inService && station.renting !== false);
     const capacity = station.totalBases || "—";
-    const marker = domMarker(
-      `<div class="bike-pin-inner${savedIdSet.has(station.id) ? " saved" : ""}" ` +
+    const ring = tracking.isTracked("bike", station.id) ? " tracked"
+      : savedIdSet.has(station.id) ? " saved" : "";
+    const html =
+      `<div class="bike-pin-inner${ring}" ` +
       `aria-label="${station.bikes ?? "Unknown"} rentable bikes out of ${capacity} spaces">` +
-      `<span class="${takeClass}">🚲 ${station.bikes ?? "—"}/${capacity}</span></div>`,
-      "bike-pin", station.coordinates);
-    marker.getElement().addEventListener("click", () => showBikePopupAfterPan(station));
+      `<span class="${takeClass}">🚲 ${station.bikes ?? "—"}/${capacity}</span></div>`;
+    const existing = bikeMarkers.get(station.id);
+    if (existing) {
+      if (existing.html !== html) {
+        existing.marker.getElement().innerHTML = html;
+        existing.html = html;
+      }
+      continue;
+    }
+    const marker = domMarker(html, "bike-pin", station.coordinates);
+    const id = station.id;
+    marker.getElement().addEventListener("click", () => showBikePopupAfterPan(bikeById.get(id) ?? station));
     marker.addTo(bikeMap);
-    bikeMarkers.push(marker);
+    bikeMarkers.set(id, { marker, html });
+  }
+  for (const [id, { marker }] of bikeMarkers) {
+    if (wanted.has(id)) continue;
+    marker.remove();
+    bikeMarkers.delete(id);
   }
 }
 
@@ -5347,7 +5375,11 @@ function applyLocation(position, { recenter = false, forceNearby = false } = {})
   void loadNearbyAt(myLocation[0], myLocation[1], { force: forceNearby }).then(() => {
     if (nearbyStopsDialog.open || addDialog.open) void updateClosestStopsDialog();
   });
-  void loadBikesNear(myLocation[0], myLocation[1], { force: forceNearby });
+  // On the bike map the map's own centre decides what is loaded (moveend).
+  // Loading around the GPS fix as well swapped the set every 10 s, and the
+  // two areas fought over which stations were on screen.
+  const bikeMapShown = section === "bikes" && bikeMap && !bikeMapEl.hidden;
+  if (!bikeMapShown || recenter) void loadBikesNear(myLocation[0], myLocation[1], { force: forceNearby });
   scheduleJourneys({ force: forceNearby });
 }
 

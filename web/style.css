@@ -15,6 +15,7 @@
   --danger: #ff6b6b;
   --danger-soft: #ff8f8f;
   --star: #ffbf3f;
+  --tracked: #e879f9; /* a tracked stop or dock: distinct from saved (accent) and the star */
   --rating-off: #697286;
   --noteworthy: #8c6631;
   --marker-ring: #fff;
@@ -41,6 +42,7 @@
     --danger: #c73535;
     --danger-soft: #b52f3a;
     --star: #a86600;
+    --tracked: #a21caf;
     --rating-off: #929baa;
     --noteworthy: #bd7923;
     --marker-ring: #111827;
@@ -64,6 +66,7 @@
   --danger: #c73535;
   --danger-soft: #b52f3a;
   --star: #a86600;
+  --tracked: #a21caf;
   --rating-off: #929baa;
   --noteworthy: #bd7923;
   --marker-ring: #111827;
@@ -409,6 +412,15 @@ button:active { transform: scale(0.97); }
     0 2px 8px 6px rgb(0 0 0 / 0.55);
 }
 
+/* Tracked outranks saved: the alert is the more specific fact. */
+.bike-pin-inner.tracked {
+  border-color: var(--tracked);
+  box-shadow:
+    0 0 0 2px var(--marker-ring),
+    0 0 0 5px var(--tracked),
+    0 2px 8px 6px rgb(0 0 0 / 0.55);
+}
+
 #map-actions {
   position: fixed;
   right: calc(1rem + env(safe-area-inset-right, 0px));
@@ -459,6 +471,12 @@ button:active { transform: scale(0.97); }
 .stop-pin.saved {
   border: 2px solid #eaf1ff;
   background: #4ea3ff;
+  opacity: 1;
+}
+
+/* Painted for the dark basemap like the rest, so a fixed colour, not a token. */
+.stop-pin.tracked {
+  border: 3px solid #e879f9;
   opacity: 1;
 }
 
