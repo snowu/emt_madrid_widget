@@ -676,9 +676,20 @@ async function journeys(request, body, env, ctx) {
     item.options.sort(compareJourneyOptions);
     item.options = deduplicateJourneyOptions(item.options);
   }
+  // The boards behind every boarding stop offered. The page files them in the
+  // same per-stop store its cards, sheet and map read, so a hub card and the
+  // stop it opens show one set of times and move together on every refresh.
+  const boards = {};
+  for (const item of planned) {
+    for (const option of item.options) {
+      const stopId = String(option.originStop.stopId);
+      if (!boards[stopId] && live.get(stopId)) boards[stopId] = live.get(stopId);
+    }
+  }
   return {
     origin,
     destinations: planned,
+    boards,
     generatedAt: Date.now(),
     calls: {
       nearby: 1 + destinations.length,

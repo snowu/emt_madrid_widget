@@ -1,7 +1,6 @@
 import { createTracking } from "./tracking.js";
 import {
   readCache,
-  writeCache,
   writeArrivalCache,
   readNearbyCell,
   writeNearbyCell,
@@ -212,7 +211,13 @@ const CARD_ARRIVALS = 2;
 const BOARD_ARRIVALS = 8;
 
 let stops = [];
+// Every arrival board the page holds, one per stop id: saved stops, map
+// previews, route probes and the boards journeys were planned on. Cards, hub
+// cards, the stop sheet, popups and live buses all read this one record, and
+// putBoard() re-renders all of them, so no two views of a stop can disagree.
+// Only saved stops' boards are persisted.
 let arrivals = readCache();
+const boardFailures = new Set(); // stops whose last fetch failed with no board to show
 let details = readDetails();
 
 function stopTitle(stop) {
@@ -574,6 +579,35 @@ function setPlaceReachability(card, waitSeconds, walkSeconds) {
     : margin < 120 ? "reachability-tight" : "reachability-comfortable");
 }
 
+/** A hub card's first leg, timed from the boarding stop's board in the shared
+ *  store, so the card and the stop sheet it opens never disagree. The pick
+ *  mirrors the planner's nextDeparture(): the first bus you can still walk to,
+ *  else one headway after the last one listed. The planner's own snapshot is
+ *  only the fallback, for a worker too old to send boards. */
+function firstLegTimes(option) {
+  const leg = option.firstLeg;
+  const board = arrivals[String(option.originStop.stopId)];
+  if (!board) {
+    return {
+      fetchedAt: leg.fetchedAt ?? journeyPayload.generatedAt,
+      times: leg.arrivals ?? [],
+      wait: leg.selectedArrival ?? leg.arrivals?.[0],
+    };
+  }
+  const ids = new Set([lineIdentity(leg.label), lineIdentity(leg.line)].filter(Boolean));
+  const times = board.arrivals
+    .filter((bus) => ids.has(lineIdentity(bus.line)))
+    .map((bus) => Number(bus.seconds)).filter(Number.isFinite).sort((a, b) => a - b);
+  const walk = Number(option.originStop.walkSeconds ?? (option.originStop.distanceM ?? 0) / 1.3);
+  let wait = times.find((seconds) => seconds >= walk) ?? null;
+  if (wait == null && times.length) {
+    const observed = times.length > 1 ? times.at(-1) - times.at(-2) : 600;
+    const headway = Math.min(1800, Math.max(180, observed || 600));
+    wait = times.at(-1) + Math.ceil((walk - times.at(-1)) / headway) * headway;
+  }
+  return { fetchedAt: board.fetchedAt, times, wait };
+}
+
 function placeRouteRow(option, card, { primary = false } = {}) {
   const route = document.createElement("div");
   route.className = `place-route${primary ? "" : " place-route-alternative"}`;
@@ -582,7 +616,8 @@ function placeRouteRow(option, card, { primary = false } = {}) {
   first.style.color = lineColor(option.firstLeg.label);
   first.textContent = option.firstLeg.label;
   const copy = document.createElement("p");
-  const wait = option.firstLeg.selectedArrival ?? option.firstLeg.arrivals?.[0];
+  const leg = firstLegTimes(option);
+  const wait = leg.wait;
   const connection = option.type === "direct"
     ? "direct"
     : `then ${option.secondLeg.label} · ${option.transfer.walkM} m transfer`;
@@ -607,13 +642,13 @@ function placeRouteRow(option, card, { primary = false } = {}) {
   // "what happens if I don't" — and at night, when the next N-line may be half
   // an hour behind, that is the difference between leaving now and finishing
   // the drink.
-  const following = (option.firstLeg.arrivals ?? [])
+  const following = leg.times
     .filter((seconds) => seconds > (wait ?? -1))
     .slice(0, 2);
   if (following.length) {
     const later = document.createElement("span");
     later.className = "route-later";
-    later.dataset.fetchedAt = String(option.firstLeg.fetchedAt ?? journeyPayload.generatedAt);
+    later.dataset.fetchedAt = String(leg.fetchedAt);
     later.dataset.seconds = following.join(",");
     later.textContent = ` · then ${following.map((s) => fmtCountdown(s)).join(", ")}`;
     detail.append(later);
@@ -627,7 +662,7 @@ function placeRouteRow(option, card, { primary = false } = {}) {
   }
   copy.append(origin, document.createElement("br"), detail);
   const eta = document.createElement("time");
-  const fetchedAt = option.firstLeg.fetchedAt ?? journeyPayload.generatedAt;
+  const fetchedAt = leg.fetchedAt;
   const elapsed = Math.floor((Date.now() - fetchedAt) / 1000);
   eta.className = "eta";
   eta.textContent = wait == null ? "—" : fmtCountdown(wait - elapsed);
@@ -692,7 +727,13 @@ function placeCard(place) {
       legs.disabled = false;
     }
   });
-  heading.append(title, distance, fullRoute, legs);
+  // Every boarding option the planner offers, not only the suggested one: the
+  // best bus changes as you walk, and an alert for any of them is useful.
+  const hubWatches = (planned?.options ?? []).map((choice) => ({
+    kind: "bus", targetId: String(choice.originStop.stopId), line: choice.firstLeg.label,
+    label: `To ${place.name}`,
+  }));
+  heading.append(title, distance, fullRoute, legs, tracking.setButton(hubWatches, place.name));
   card.append(heading);
 
   let route;
@@ -736,8 +777,7 @@ function placeCard(place) {
     }
     card.append(route, ...alternatives);
   }
-  const fetchedAt = option?.firstLeg?.fetchedAt ?? journeyPayload?.generatedAt;
-  title.append(freshnessDot(fetchedAt));
+  title.append(freshnessDot(option ? firstLegTimes(option).fetchedAt : journeyPayload?.generatedAt));
   if (!route.parentNode) card.append(route);
   return card;
 }
@@ -1095,6 +1135,9 @@ async function loadJourneys({ force = false } = {}) {
     journeyInitialPending = false;
     journeyCell = cell;
     journeyLoadedAt = Date.now();
+    for (const payload of payloads) {
+      for (const [stopId, board] of Object.entries(payload.boards ?? {})) putBoard(stopId, board);
+    }
     render();
   } catch (err) {
     journeyInitialPending = false;
@@ -1445,7 +1488,38 @@ const ARRIVALS_REFRESH_MS = 20_000;
 const BUS_MAP_REFRESH_MS = 5_000;
 const stopRefreshes = new Map();
 
-async function refreshStop(stopId, { force = false, updateView = true, persist = true } = {}) {
+/** File a board, keeping whichever sample is newer: a journey's 30s planner
+ *  board must never overwrite a live one fetched a moment later. */
+function putBoard(stopId, payload) {
+  const id = String(stopId);
+  if (!payload || !Array.isArray(payload.arrivals)) return;
+  boardFailures.delete(id);
+  if (Number(arrivals[id]?.fetchedAt) >= Number(payload.fetchedAt)) return;
+  arrivals[id] = payload;
+  boardsChanged();
+}
+
+let boardsRenderQueued = false;
+/** Every view that shows a board, re-rendered once per burst of updates. */
+function boardsChanged() {
+  if (boardsRenderQueued) return;
+  boardsRenderQueued = true;
+  queueMicrotask(() => {
+    boardsRenderQueued = false;
+    writeArrivalCache(Object.fromEntries(stops
+      .filter((stop) => arrivals[stop.stop_id])
+      .map((stop) => [stop.stop_id, arrivals[stop.stop_id]])));
+    if (!listEl.hidden) render(); // showView renders the list on the way back
+    renderSheetArrivals();
+    if (!mapEl.hidden) {
+      rebuildLiveBusMarkers();
+      renderRouteLegend();
+      tickPopups();
+    }
+  });
+}
+
+async function refreshStop(stopId, { force = false } = {}) {
   const cached = arrivals[stopId];
   if (!force && cached && Date.now() - cached.fetchedAt < ARRIVALS_REFRESH_MS) return cached;
   if (stopRefreshes.has(stopId)) return stopRefreshes.get(stopId);
@@ -1454,16 +1528,14 @@ async function refreshStop(stopId, { force = false, updateView = true, persist =
       const payload = await api(
         `/arrivals?stop=${encodeURIComponent(stopId)}&limit=${BOARD_ARRIVALS}`
       );
-      arrivals[stopId] = payload;
-      if (persist) writeCache(stopId, payload);
+      putBoard(stopId, payload);
       statusEl.textContent = "";
-      if (updateView) {
-        render();
-        renderSheetArrivals();
-        rebuildLiveBusMarkers();
-      }
-      return payload;
+      return arrivals[stopId];
     } catch (err) {
+      if (!arrivals[stopId]) {
+        boardFailures.add(String(stopId));
+        boardsChanged();
+      }
       // Keep whatever is on screen; it is labelled with its age already.
       statusEl.textContent =
         err.kind === "quota"
@@ -1481,18 +1553,7 @@ async function refreshStop(stopId, { force = false, updateView = true, persist =
 }
 
 async function refreshAll({ force = false } = {}) {
-  const before = new Map(stops.map((stop) => [stop.stop_id, arrivals[stop.stop_id]?.fetchedAt]));
-  await Promise.all(stops.map((s) => refreshStop(s.stop_id, {
-    force,
-    updateView: false,
-    persist: false,
-  })));
-  const changed = stops.some((stop) => before.get(stop.stop_id) !== arrivals[stop.stop_id]?.fetchedAt);
-  if (!changed) return;
-  writeArrivalCache(arrivals);
-  render();
-  renderSheetArrivals();
-  rebuildLiveBusMarkers();
+  await Promise.all(stops.map((s) => refreshStop(s.stop_id, { force })));
 }
 
 async function refreshMapArrivals() {
@@ -1519,17 +1580,8 @@ async function refreshMapArrivals() {
     }
   }
   await Promise.all([
-    ...[...stopIds].map((stopId) => refreshStop(stopId, {
-      force: true, updateView: false, persist: false,
-    })),
+    ...[...stopIds].map((stopId) => refreshStop(stopId, { force: true })),
   ]);
-  // Probe stops are not saved stops: persisting them would grow the shared
-  // arrivals cache by every route ever toggled.
-  writeArrivalCache(Object.fromEntries(stops
-    .filter((stop) => arrivals[stop.stop_id])
-    .map((stop) => [stop.stop_id, arrivals[stop.stop_id]])));
-  rebuildLiveBusMarkers();
-  renderRouteLegend();
 }
 
 /** The one stop worth polling for a displayed direction: the stop the route
@@ -2086,7 +2138,7 @@ function dueLinesAt(stopId) {
  */
 async function toggleStopRoutes(stopId, { label } = {}) {
   const where = label || `stop ${stopId}`;
-  if (!arrivals[stopId]) await refreshStop(stopId, { updateView: false });
+  if (!arrivals[stopId]) await refreshStop(stopId);
   const lines = dueLinesAt(stopId);
   if (lines.length === 0) {
     statusEl.textContent = `Nothing due at ${where} to draw.`;
@@ -2178,7 +2230,7 @@ async function toggleNearestStopRoutes() {
   const drawn = [];
   for (const stop of nearest) {
     if (!arrivals[stop.stop_id]) {
-      await refreshStop(stop.stop_id, { updateView: false });
+      await refreshStop(stop.stop_id);
     }
     for (const line of dueLinesAt(stop.stop_id)) {
       statusEl.textContent = `Drawing ${stopTitle(stop)}: ${line.label}…`;
@@ -2236,7 +2288,7 @@ function undoClearRoutes() {
 
 function routeBoardArrival(shown) {
   const stopId = routeProbeStop(shown) ?? shown.anchorStopId;
-  const payload = arrivals[String(stopId)] ?? previewArrivals.get(String(stopId));
+  const payload = arrivals[String(stopId)];
   const elapsed = payload ? Math.floor((Date.now() - Number(payload.fetchedAt)) / 1000) : 0;
   const matches = (payload?.arrivals ?? []).filter((bus) =>
     lineIdentity(bus.line) === lineIdentity(shown.label)
@@ -3073,7 +3125,6 @@ function rebuildLiveBusMarkers() {
     }
   };
   Object.values(arrivals).forEach(collect);
-  previewArrivals.forEach(collect);
   // Vehicle display is deliberately scoped to routes the user explicitly
   // chose. A map with no directional route has no live-bus workload at all.
   for (const [key, bus] of buses) {
@@ -3193,25 +3244,6 @@ function savedIds() {
   return new Set(stops.map((s) => s.stop_id));
 }
 
-/** Arrivals for stops that are not saved, kept in memory only — localStorage
- *  is the cache for stops you actually keep. undefined = never asked,
- *  null = asked and EMT did not answer. */
-const previewArrivals = new Map();
-
-async function loadPreviewArrivals(stopId, { force = false } = {}) {
-  if (!force && previewArrivals.has(stopId)) return;
-  previewArrivals.set(stopId, undefined);
-  try {
-    previewArrivals.set(
-      stopId,
-      await api(`/arrivals?stop=${encodeURIComponent(stopId)}&limit=${BOARD_ARRIVALS}`)
-    );
-  } catch {
-    previewArrivals.set(stopId, null);
-  }
-  rebuildLiveBusMarkers();
-  tickPopups();
-}
 
 /** The body both stop popups share.
  *
@@ -3367,8 +3399,10 @@ function nearbyPopupHtml(s) {
   num.textContent = `Nº ${s.stopId}`;
   wrap.append(popupHead(s.name || `Stop ${s.stopId}`, ...stopPopupActions(s)), num);
 
-  const preview = previewArrivals.get(s.stopId);
-  if (preview === undefined) loadPreviewArrivals(s.stopId);
+  // Unsaved stops share the store too; they are simply never persisted.
+  const preview = arrivals[s.stopId];
+  const failed = boardFailures.has(String(s.stopId));
+  if (!preview && !failed) void refreshStop(s.stopId);
 
   const list = lineRowList(s.stopId, s.lines, preview || null);
   if (list) {
@@ -3376,7 +3410,7 @@ function nearbyPopupHtml(s) {
   } else {
     const empty = document.createElement("p");
     empty.className = "muted pop-empty";
-    empty.textContent = preview === null ? "Could not reach EMT" : "No lines known";
+    empty.textContent = failed ? "Could not reach EMT" : "No lines known";
     wrap.append(empty);
   }
   return wrap;

@@ -763,6 +763,16 @@ is most stale), and manually per-card or all at once.
    720 calls an hour of map-open time against a 20,000/day quota. Probe stops
    are not saved stops and must never reach `writeArrivalCache`.
 
+20. **One board per stop, whoever fetched it.** `arrivals` in `app.js` is the
+   page's only arrival store: saved stops, unsaved map previews, route probes
+   and the boards `/journeys` planned on (it returns them as `boards`) all go
+   through `putBoard()`, which keeps the newer `fetchedAt` and re-renders every
+   view once. Cards, hub cards, the stop sheet, popups and live buses read it,
+   so opening a stop from a hub card shows the same times, and a refresh
+   anywhere moves them all. Hub cards re-pick their catchable bus from that
+   board (`firstLegTimes()`, mirroring the planner's `nextDeparture()`); the
+   planner's snapshot is only a fallback. Don't add a second copy of a board.
+
 Cached payload shapes are versioned in the worker's Cache API keys (`CACHE_VERSION`).
 Bump it when a parsed shape changes, or week-old detail entries keep serving
 the old one.

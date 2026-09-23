@@ -23,12 +23,6 @@ export function readCache() {
   return read(ARRIVALS_KEY, {});
 }
 
-export function writeCache(stopId, payload) {
-  const all = readCache();
-  all[stopId] = payload;
-  localStorage.setItem(ARRIVALS_KEY, JSON.stringify(all));
-}
-
 export function writeArrivalCache(all) {
   localStorage.setItem(ARRIVALS_KEY, JSON.stringify(all));
 }
