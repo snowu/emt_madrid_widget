@@ -4081,6 +4081,7 @@ document.getElementById("refresh-all").addEventListener("click", async () => {
     return busListMode === "places" ? loadJourneys({ force: true }) : refreshAll({ force: true });
   }
   const c = bikeMap?.getCenter();
+  if (bikeMap && !bikeMapEl.hidden) void loadBikeCity({ force: true });
   loadBikesNear(c?.lat ?? myLocation?.[0] ?? 40.4168, c?.lng ?? myLocation?.[1] ?? -3.7038, {
     force: true,
   });
@@ -4143,6 +4144,7 @@ document.addEventListener("visibilitychange", () => {
   if (section === "bikes") {
     const c = bikeMap?.getCenter();
     loadBikesNear(c?.lat ?? myLocation?.[0] ?? 40.4168, c?.lng ?? myLocation?.[1] ?? -3.7038);
+    if (bikeMap && !bikeMapEl.hidden) void loadBikeCity();
   } else {
     if (busListMode === "places") loadJourneys();
     else refreshAll();
@@ -5150,11 +5152,43 @@ function ensureBikeMap() {
   // MapLibre has no layer group; the markers are tracked here instead.
   bikeMarkers = new Map();
   if (myLocation) bikeUserMarker = addUserMarker(bikeMap, myLocation);
+  // The map draws from the whole city, not a fixed radius around its centre:
+  // panning only redraws what is already loaded, and zooming out shows every
+  // station in view instead of the same handful.
   bikeMap.on("moveend", () => {
-    const c = bikeMap.getCenter();
-    loadBikesNear(c.lat, c.lng);
+    rebuildBikeMarkers();
+    void loadBikeCity();
   });
   rebuildBikeMarkers();
+  void loadBikeCity();
+}
+
+/** Every station, for the map. One call serves the city: the worker already
+ *  fetches it whole, and it is ~34KB compressed. Same 45 s freshness as the
+ *  nearby list. */
+const BIKE_MAP_FAR_ZOOM = 14;
+let bikeCity = null;
+let bikeCityLoadedAt = 0;
+let bikeCityLoad = null;
+
+function loadBikeCity({ force = false } = {}) {
+  if (!force && bikeCity && Date.now() - bikeCityLoadedAt < 45_000) return Promise.resolve();
+  bikeCityLoad ??= (async () => {
+    try {
+      const payload = await api("/bikes/stations");
+      bikeCity = payload;
+      bikeCityLoadedAt = Date.now();
+      for (const st of payload.stations ?? []) bikeById.set(st.id, { ...bikeById.get(st.id), ...st });
+      if (Number(payload.fetchedAt) > Number(bikeFetchedAt ?? 0)) bikeFetchedAt = payload.fetchedAt;
+      rebuildBikeMarkers();
+      refreshBikePopup();
+    } catch (err) {
+      statusEl.textContent = `Could not load bike stations: ${err.message}`;
+    } finally {
+      bikeCityLoad = null;
+    }
+  })();
+  return bikeCityLoad;
 }
 
 function bikePopup(station) {
@@ -5233,11 +5267,16 @@ function showBikePopupAfterPan(station) {
 /** Bike pins are updated in place, keyed by station. Removing and re-adding
  *  every marker on each refresh made the whole map blink. */
 function rebuildBikeMarkers() {
-  if (!bikeMarkers) return;
+  if (!bikeMarkers || bikeMapEl.hidden) return; // a hidden map has no bounds
   const savedIdSet = new Set(bikeSaved.map((s) => s.station_id));
   const wanted = new Set();
-  for (const station of bikeNear.stations ?? []) {
-    if (!station.coordinates) continue;
+  // Far out, a pin is a dot coloured by availability: 54px labels for a
+  // whole district would only be a pile of overlapping text.
+  bikeMapEl.classList.toggle("bike-map-far", bikeMap.getZoom() < BIKE_MAP_FAR_ZOOM);
+  const bounds = paddedBounds(bikeMap, 0.25);
+  const source = bikeCity?.stations ?? bikeNear.stations ?? [];
+  for (const station of source) {
+    if (!station.coordinates || !bounds.contains(station.coordinates)) continue;
     wanted.add(station.id);
     const takeClass = availabilityClass(station.bikes,
       station.inService && station.renting !== false);
@@ -5245,7 +5284,7 @@ function rebuildBikeMarkers() {
     const ring = tracking.isTracked("bike", station.id) ? " tracked"
       : savedIdSet.has(station.id) ? " saved" : "";
     const html =
-      `<div class="bike-pin-inner${ring}" ` +
+      `<div class="bike-pin-inner avail-${takeClass}${ring}" ` +
       `aria-label="${station.bikes ?? "Unknown"} rentable bikes out of ${capacity} spaces">` +
       `<span class="${takeClass}">🚲 ${station.bikes ?? "—"}/${capacity}</span></div>`;
     const existing = bikeMarkers.get(station.id);
@@ -5295,6 +5334,8 @@ function showSection(next) {
     if (mapView) {
       ensureBikeMap();
       bikeMap.resize();
+      rebuildBikeMarkers(); // bounds exist only now the map is visible
+      void loadBikeCity();
     }
     const centre = bikeMap?.getCenter() ?? { lat: myLocation?.[0] ?? 40.4168, lng: myLocation?.[1] ?? -3.7038 };
     loadBikesNear(centre.lat, centre.lng);

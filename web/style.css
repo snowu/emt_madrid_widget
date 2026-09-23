@@ -412,6 +412,20 @@ button:active { transform: scale(0.97); }
     0 2px 8px 6px rgb(0 0 0 / 0.55);
 }
 
+/* Zoomed far out: a dot per station, coloured by what you can take. */
+.bike-map-far .bike-pin-inner {
+  width: 12px;
+  height: 12px;
+  border-width: 1.5px;
+  border-radius: 50%;
+  font-size: 0;
+}
+.bike-map-far .bike-pin-inner span { display: none; }
+.bike-map-far .bike-pin-inner.avail-good { background: var(--success); }
+.bike-map-far .bike-pin-inner.avail-low { background: var(--warning); }
+.bike-map-far .bike-pin-inner.avail-empty { background: var(--danger); }
+.bike-map-far .bike-pin-inner.avail-unavailable { background: var(--muted); }
+
 /* Tracked outranks saved: the alert is the more specific fact. */
 .bike-pin-inner.tracked {
   border-color: var(--tracked);
