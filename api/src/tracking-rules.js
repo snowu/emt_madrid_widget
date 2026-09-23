@@ -1,12 +1,17 @@
 // Pure transitions: never consume an alert until its push has been accepted.
 export const BUS_INTERVAL = 120_000;
 export const BIKE_INTERVAL = 30_000;
+// A rack arms below 6 bikes and alerts on every bike docked until it holds
+// more than 6; dropping below 6 again re-arms it. Exactly 6 keeps whichever
+// state it had. Requiring exactly zero kept busy racks silent all night.
+export const BIKE_ARM_BELOW = 6;
+export const BIKE_DISARM_ABOVE = 6;
 
 export function bikeTransition(previous = {}, station) {
   if (!station || !station.inService || !station.renting ||
       !Number.isInteger(station.bikes) || station.bikes < 0) return { state: previous, alerts: [] };
   const count = station.bikes;
-  const armed = count === 0 ? true : count > 4 ? false : previous.armed === true;
+  const armed = count < BIKE_ARM_BELOW ? true : count > BIKE_DISARM_ABOVE ? false : previous.armed === true;
   const notify = armed && count > 0 && previous.count != null && count > previous.count;
   return {
     state: { armed, count },

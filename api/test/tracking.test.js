@@ -38,18 +38,18 @@ describe("alert thresholds", () => {
     const rows = [bus(-1), bus(NaN), bus(999999), { ...bus(10), line: "71" }, { ...bus(10), destination: "ELSEWHERE" }];
     expect(busTransition({}, rows, busWatch, 1000).alerts).toHaveLength(0);
   });
-  it("arms at zero, alerts on increases up to four, silences above four and rearms only at zero", () => {
+  it("arms below six, alerts on every bike docked, silences above six and rearms below six", () => {
     let state = {};
-    const alerts = [2, 3, 0, 1, 1, 2, 1, 4, 5, 3, 4, 0, 2].map((count) => {
+    const alerts = [2, 3, 0, 1, 1, 4, 6, 7, 8, 6, 7, 5, 6].map((count) => {
       const result = bikeTransition(state, station(count));
       state = result.state;
       return result.alerts.length;
     });
-    expect(alerts).toEqual([0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 1]);
+    expect(alerts).toEqual([0, 1, 0, 1, 0, 1, 1, 0, 0, 0, 0, 0, 1]);
   });
-  it("does not alert on 0 → 5 or turn unavailable/missing counts into zero", () => {
+  it("does not alert on a jump past six or turn unavailable/missing counts into zero", () => {
     const empty = bikeTransition({}, station(0)).state;
-    expect(bikeTransition(empty, station(5)).alerts).toHaveLength(0);
+    expect(bikeTransition(empty, station(7)).alerts).toHaveLength(0);
     for (const value of [null, { ...station(0), renting: false }, station(null), station(-1)]) {
       expect(bikeTransition({ armed: false, count: 6 }, value).state).toEqual({ armed: false, count: 6 });
     }
