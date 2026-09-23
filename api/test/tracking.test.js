@@ -100,6 +100,8 @@ describe("persistent background runner", () => {
     await dueNow(stub);
     const first = (await stub.list()).watches[0];
     expect(first.nextCheck - first.lastCheck).toBeGreaterThan(BIKE_INTERVAL - 2000);
+    expect(first.rack).toEqual({ bikes: 0, armed: true });
+    expect(first.state).toBeUndefined();
     count = 1;
     await dueNow(stub);
     expect(pushes).toHaveLength(1);

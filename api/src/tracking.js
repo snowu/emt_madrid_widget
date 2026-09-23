@@ -41,7 +41,15 @@ export class TrackingRunner extends DurableObject {
   }
 
   async list() {
-    return { watches: this.rows("watches").map(({ state, revision, delivered, ...watch }) => watch), devices: this.devices().length };
+    return {
+      watches: this.rows("watches").map(({ state, revision, delivered, ...watch }) => ({
+        ...watch,
+        // A rack only alerts after it has been seen empty, so the page shows
+        // where it stands: the last count and whether that has happened.
+        ...(watch.kind === "bike" && Number.isInteger(state?.count) ? { rack: { bikes: state.count, armed: state.armed === true } } : {}),
+      })),
+      devices: this.devices().length,
+    };
   }
 
   async subscribe(subscription) {

@@ -146,3 +146,15 @@ test("a subscription the push service expired is replaced, not re-registered", a
   assert.ok(calls.includes("unsubscribe") && calls.includes("subscribe"));
   assert.equal(calls.at(-1).path, "/tracking");
 });
+
+test("the tracked list says where each rack stands against the alert rule", async () => {
+  const bike = (rack) => ({ kind: "bike", targetId: "1", label: "Rack", id: `b${rack?.bikes}${rack?.armed}`, rack });
+  const { tracking, window } = setup({ watches: [bike({ bikes: 7, armed: false }), bike({ bikes: 0, armed: true }), bike({ bikes: 2, armed: true }), bike(undefined)] });
+  await tracking.load();
+  tracking.renderList(window.document.querySelector("main"));
+  const lines = [...window.document.querySelectorAll(".tracking-item small")].map((el) => el.textContent);
+  assert.match(lines[0], /^7 bikes · alerts once it empties · waiting for first check$/);
+  assert.match(lines[1], /^Empty · alerts when a bike arrives/);
+  assert.match(lines[2], /^2 bikes · alerts as more arrive/);
+  assert.equal(lines[3], "Waiting for first check");
+});

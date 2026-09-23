@@ -195,6 +195,16 @@ export function createTracking({ api, signedIn, changed }) {
     return button;
   }
 
+  /** Where a rack stands against the rule: alerts start once it is seen
+   *  empty, then fire as bikes arrive, until more than four are docked. */
+  function rackState(rack) {
+    if (!rack) return "";
+    const bikes = `${rack.bikes} ${rack.bikes === 1 ? "bike" : "bikes"}`;
+    if (rack.bikes === 0) return "Empty · alerts when a bike arrives";
+    if (rack.armed) return `${bikes} · alerts as more arrive`;
+    return `${bikes} · alerts once it empties`;
+  }
+
   function renderList(container) {
     container.replaceChildren();
     const intro = document.createElement("p");
@@ -217,7 +227,11 @@ export function createTracking({ api, signedIn, changed }) {
       const text = document.createElement("span");
       text.textContent = `${watch.kind === "bus" ? `Line ${watch.line} · ` : ""}${watch.label || watch.targetId}${watch.destination ? ` → ${watch.destination}` : ""}`;
       const status = document.createElement("small");
-      status.textContent = watch.error || (watch.lastCheck ? `Checked ${new Date(watch.lastCheck).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "Waiting for first check");
+      const checked = watch.lastCheck
+        ? `checked ${new Date(watch.lastCheck).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+        : "waiting for first check";
+      const rack = rackState(watch.rack);
+      status.textContent = watch.error || (rack ? `${rack} · ${checked}` : checked.charAt(0).toUpperCase() + checked.slice(1));
       text.append(document.createElement("br"), status);
       row.append(text, button(watch));
       container.append(row);
