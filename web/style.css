@@ -1328,7 +1328,9 @@ body[data-bus-list-mode="stops"] .icon-btn,
   border-radius: 8px;
 }
 
-body[data-bus-list-mode="stops"] .icon-btn svg { width: 16px; height: 16px; }
+body[data-bus-list-mode="stops"] .icon-btn svg,
+#bikes > .stop .controls .track-button svg,
+.place-nearest-bike .controls .track-button svg { width: 16px; height: 16px; }
 body[data-bus-list-mode="stops"] .stop ul { margin: 0; border-top: 1px solid var(--separator); }
 body[data-bus-list-mode="stops"] .stop li {
   gap: 0.45rem;
@@ -1348,7 +1350,7 @@ body[data-bus-list-mode="stops"] .stop > .age {
 #bikes > .stop .bike-head,
 .place-nearest-bike .bike-head {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 3.4rem 56px;
+  grid-template-columns: minmax(0, 1fr) 3.4rem 84px;
   align-items: center;
 }
 #bikes > .stop .bike-card-distance,

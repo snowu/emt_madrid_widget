@@ -733,7 +733,7 @@ function placeCard(place) {
     kind: "bus", targetId: String(choice.originStop.stopId), line: choice.firstLeg.label,
     label: `To ${place.name}`,
   }));
-  heading.append(title, distance, fullRoute, legs, tracking.setButton(hubWatches, place.name));
+  heading.append(title, distance, fullRoute, tracking.setButton(hubWatches, place.name), legs);
   card.append(heading);
 
   let route;
@@ -4775,7 +4775,6 @@ function bikeCard(station, saved) {
   titleWrap.className = "title";
   const h2 = document.createElement("h2");
   h2.textContent = bikeTitle(station, saved);
-  h2.append(tracking.indicator("bike", station.id));
   titleWrap.append(h2);
 
   const distance = document.createElement("span");
@@ -4805,7 +4804,10 @@ function bikeCard(station, saved) {
 
   const controls = document.createElement("div");
   controls.className = "controls";
-  controls.append(directions, fav);
+  // The bell shows the tracked state itself, so the title carries no indicator.
+  controls.append(directions, tracking.button({
+    kind: "bike", targetId: String(station.id), label: bikeTitle(station, saved),
+  }), fav);
 
   const head = document.createElement("div");
   head.className = "head bike-head";
