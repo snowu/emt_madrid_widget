@@ -731,7 +731,7 @@ function placeCard(place) {
   // best bus changes as you walk, and an alert for any of them is useful.
   const hubWatches = (planned?.options ?? []).map((choice) => ({
     kind: "bus", targetId: String(choice.originStop.stopId), line: choice.firstLeg.label,
-    label: `To ${place.name}`,
+    label: `To ${place.name}`, coordinates: choice.originStop.coordinates,
   }));
   heading.append(title, distance, fullRoute, tracking.setButton(hubWatches, place.name), legs);
   card.append(heading);
@@ -965,6 +965,7 @@ const pendingGets = new Map();
 const trackingClear = document.getElementById("tracking-clear");
 const tracking = createTracking({
   api, signedIn: () => !!authSession,
+  locate: (kind, id) => (kind === "bike" ? bikeById.get(String(id))?.coordinates : details[id]?.coordinates) ?? null,
   changed: () => {
     render();
     renderBikes();
@@ -3816,7 +3817,8 @@ function renderSheetArrivals() {
         if (!trackingLines.has(bus.line)) {
           trackingLines.add(bus.line);
           li.append(tracking.button({ kind: "bus", targetId: String(sheetStop.stop_id), line: bus.line,
-            label: sheetStop.label || `Stop ${sheetStop.stop_id}` }));
+            label: sheetStop.label || `Stop ${sheetStop.stop_id}`,
+            coordinates: details[sheetStop.stop_id]?.coordinates }));
         }
         return li;
       })
@@ -3893,7 +3895,8 @@ function renderSheetService() {
       }
       li.append(hours);
       li.append(tracking.button({ kind: "bus", targetId: String(sheetStop.stop_id), line: l.label,
-        label: sheetStop.label || `Stop ${sheetStop.stop_id}` }));
+        label: sheetStop.label || `Stop ${sheetStop.stop_id}`,
+        coordinates: details[sheetStop.stop_id]?.coordinates }));
 
       if (l.headers?.length) {
         const route = document.createElement("span");
@@ -4835,6 +4838,7 @@ function bikeCard(station, saved) {
   // The bell shows the tracked state itself, so the title carries no indicator.
   controls.append(directions, tracking.button({
     kind: "bike", targetId: String(station.id), label: bikeTitle(station, saved),
+    coordinates: station.coordinates,
   }), fav);
 
   const head = document.createElement("div");
@@ -5050,6 +5054,7 @@ function renderBikeSheet() {
   bikeSheetCounts.replaceChildren(bikeCounts(station));
   document.getElementById("bike-sheet-tracking").replaceChildren(tracking.button({
     kind: "bike", targetId: String(station.id), label: bikeTitle(station, saved),
+    coordinates: station.coordinates,
   }));
 
   bikeSheetLabel.value = saved?.label ?? "";

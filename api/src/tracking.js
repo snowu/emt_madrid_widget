@@ -14,7 +14,19 @@ export function validateWatch(input) {
   const destination = typeof input.destination === "string" ? input.destination.trim().slice(0, 160) : "";
   const label = typeof input.label === "string" ? input.label.trim().slice(0, 120) : "";
   const watch = { kind: input.kind, targetId: String(input.targetId), label, line: input.kind === "bus" ? line : "", destination: input.kind === "bus" ? destination : "" };
-  return { ...watch, id: JSON.stringify([watch.kind, watch.targetId, watch.line, watch.destination]) };
+  const coordinates = watchCoordinates(input.coordinates);
+  // Coordinates are not part of the identity: the same stop tracked from a
+  // card that knows where it is and one that does not is one watch.
+  return { ...watch, ...(coordinates ? { coordinates } : {}), id: JSON.stringify([watch.kind, watch.targetId, watch.line, watch.destination]) };
+}
+
+/** GeoJSON [lon, lat] for the notification's directions link, or null.
+ *  Bounded to the Madrid region so a watch cannot carry an arbitrary point. */
+function watchCoordinates(value) {
+  if (!Array.isArray(value) || value.length !== 2) return null;
+  const [lon, lat] = value.map(Number);
+  if (!Number.isFinite(lon) || !Number.isFinite(lat) || lon < -5 || lon > -2.5 || lat < 39.5 || lat > 41.5) return null;
+  return [Math.round(lon * 1e6) / 1e6, Math.round(lat * 1e6) / 1e6];
 }
 
 // One object per authenticated user. Watches are shared by that user's devices;
@@ -72,7 +84,12 @@ export class TrackingRunner extends DurableObject {
   async add(input) {
     const watch = validateWatch(input);
     if (!this.devices().length) throw new Error("Enable notifications on this device first");
-    if (this.watch(watch.id)) return this.list();
+    const existing = this.watch(watch.id);
+    if (existing) {
+      // Watches made before notifications carried a location learn it here.
+      if (!existing.coordinates && watch.coordinates) this.save({ ...existing, coordinates: watch.coordinates });
+      return this.list();
+    }
     if (this.rows("watches").length >= 20) throw new Error("At most 20 tracked stops or stations are supported");
     this.save({ ...watch, revision: crypto.randomUUID(), state: {}, nextCheck: Date.now(), lastCheck: null, error: null });
     await this.schedule();
@@ -133,7 +150,7 @@ export class TrackingRunner extends DurableObject {
               const status = await sendPush(this.env, device, {
                 ...notificationText(watch, alert),
                 tag: `${watch.id}:${alert.vehicle ?? "bikes"}`, timestamp: now,
-                target: { kind: watch.kind, id: watch.targetId },
+                target: { kind: watch.kind, id: watch.targetId, ...(watch.coordinates ? { coordinates: watch.coordinates } : {}) },
               });
               console.log(JSON.stringify({ event: "push_sent", kind: watch.kind, status }));
               if (status === 404 || status === 410) this.expire(device.id);

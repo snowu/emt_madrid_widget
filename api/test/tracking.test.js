@@ -11,6 +11,17 @@ const station = (bikes) => ({ bikes, inService: true, renting: true });
 const bus = (seconds, vehicleId = "123") => ({ seconds, vehicleId, line: "70", destination: "PLAZA" });
 afterEach(() => vi.restoreAllMocks());
 
+describe("watch validation", () => {
+  it("keeps a Madrid location for directions but never lets it change the watch identity", () => {
+    const plain = validateWatch(busWatch);
+    const placed = validateWatch({ ...busWatch, coordinates: [-3.70381234567, 40.41681234567] });
+    expect(placed.coordinates).toEqual([-3.703812, 40.416812]);
+    expect(placed.id).toBe(plain.id);
+    expect(validateWatch({ ...busWatch, coordinates: [2.17, 41.38] }).coordinates).toBeUndefined();
+    expect(validateWatch({ ...busWatch, coordinates: "x" }).coordinates).toBeUndefined();
+  });
+});
+
 describe("alert thresholds", () => {
   it.each([[990, 870], [901, 781], [901, 900], [1200, 120]])("alerts across %i → %i seconds exactly once", (first, next) => {
     const initial = busTransition({}, [bus(first)], busWatch, 1000);

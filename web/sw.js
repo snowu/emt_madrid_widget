@@ -5,6 +5,17 @@
 // take over at once, including pages loaded before it existed.
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim()));
+/** Walking directions in Google Maps, which Android hands to the Maps app. */
+function directionsUrl(target) {
+  const [lon, lat] = Array.isArray(target?.coordinates) ? target.coordinates.map(Number) : [];
+  if (!Number.isFinite(lon) || !Number.isFinite(lat)) return null;
+  const url = new URL("https://www.google.com/maps/dir/");
+  url.searchParams.set("api", "1");
+  url.searchParams.set("destination", `${lat},${lon}`); // GeoJSON is [lon, lat]
+  url.searchParams.set("travelmode", "walking");
+  return url.href;
+}
+
 self.addEventListener("push", (event) => {
   let message;
   try { message = event.data?.json(); } catch { /* Show a useful fallback. */ }
@@ -26,6 +37,8 @@ self.addEventListener("push", (event) => {
       renotify: true,
       timestamp: Number.isFinite(message?.timestamp) ? message.timestamp : Date.now(),
       data: { target: message?.target },
+      // A tap walks you there; the button is for when you want the app.
+      actions: directionsUrl(message?.target) ? [{ action: "open", title: "Open in Hubwise" }] : [],
     });
   })());
 });
@@ -34,6 +47,11 @@ self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   const url = new URL(self.registration.scope);
   const target = event.notification.data?.target;
+  const directions = event.action === "open" ? null : directionsUrl(target);
+  if (directions) {
+    event.waitUntil(self.clients.openWindow(directions));
+    return;
+  }
   if (["bus", "bike"].includes(target?.kind) && /^\d+$/.test(target?.id)) {
     url.searchParams.set("trackKind", target.kind);
     url.searchParams.set("trackId", target.id);

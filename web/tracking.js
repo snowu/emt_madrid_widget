@@ -1,5 +1,5 @@
 /** Browser push is opt-in, and only requested in direct response to a tap. */
-export function createTracking({ api, signedIn, changed }) {
+export function createTracking({ api, signedIn, changed, locate = () => null }) {
   let watches = [];
   let config;
   let deviceCount = 0;
@@ -83,7 +83,19 @@ export function createTracking({ api, signedIn, changed }) {
       watches = data.watches;
       deviceCount = data.devices ?? deviceCount;
       refresh();
+      void backfillLocations(current);
     } catch { /* Tracking availability must not prevent the transport UI loading. */ }
+  }
+
+  /** Watches made before notifications carried a location open the app
+   *  instead of directions. Re-adding one with a known location fills it in;
+   *  the worker keeps the watch and only stores the coordinates. */
+  async function backfillLocations(current) {
+    for (const watch of watches.filter((item) => !item.coordinates)) {
+      const coordinates = locate(watch.kind, watch.targetId);
+      if (!coordinates || current !== generation) continue;
+      try { await send("POST", { ...watch, coordinates }); } catch { return; }
+    }
   }
 
   async function send(method, body) {
