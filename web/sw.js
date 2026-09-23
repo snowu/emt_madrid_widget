@@ -3,19 +3,26 @@
 self.addEventListener("push", (event) => {
   let message;
   try { message = event.data?.json(); } catch { /* Show a useful fallback. */ }
-  // Android draws neither an SVG icon nor a coloured badge: without these PNGs
-  // it falls back to Chrome's own logo. The badge is read as alpha only.
-  event.waitUntil(self.registration.showNotification(message?.title || "Hubwise", {
-    body: message?.body || "A tracked stop has an update.",
-    icon: new URL("icon-192.png", self.registration.scope).href,
-    badge: new URL("badge-96.png", self.registration.scope).href,
-    tag: message?.tag || "hubwise-update",
-    // A bike station reuses its tag, so a second alert would otherwise replace
-    // the first without a sound.
-    renotify: true,
-    timestamp: Number.isFinite(message?.timestamp) ? message.timestamp : Date.now(),
-    data: { target: message?.target },
-  }));
+  event.waitUntil((async () => {
+    // Chrome only lets a push go without a system notification when the page
+    // is focused; there the page shows its own banner instead of a duplicate.
+    const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+    const focused = windows.find((client) => client.focused && client.visibilityState === "visible");
+    if (focused) return focused.postMessage({ type: "push", message });
+    // Android draws neither an SVG icon nor a coloured badge: without these
+    // PNGs it falls back to Chrome's own logo. The badge is read as alpha only.
+    return self.registration.showNotification(message?.title || "Hubwise", {
+      body: message?.body || "A tracked stop has an update.",
+      icon: new URL("icon-192.png", self.registration.scope).href,
+      badge: new URL("badge-96.png", self.registration.scope).href,
+      tag: message?.tag || "hubwise-update",
+      // A bike station reuses its tag, so a second alert would otherwise
+      // replace the first without a sound.
+      renotify: true,
+      timestamp: Number.isFinite(message?.timestamp) ? message.timestamp : Date.now(),
+      data: { target: message?.target },
+    });
+  })());
 });
 
 self.addEventListener("notificationclick", (event) => {

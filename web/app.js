@@ -922,6 +922,7 @@ function render() {
 
 const pendingGets = new Map();
 
+const trackingClear = document.getElementById("tracking-clear");
 const tracking = createTracking({
   api, signedIn: () => !!authSession,
   changed: () => {
@@ -930,11 +931,21 @@ const tracking = createTracking({
     if (stopDialog.open) { renderSheetArrivals(); renderSheetService(); }
     if (bikeDialog.open) renderBikeSheet();
     tracking.renderList(document.getElementById("tracking-list"));
+    const count = tracking.count();
+    trackingClear.hidden = !count;
+    trackingClear.textContent = `Stop tracking everything (${count})`;
   },
 });
 document.getElementById("tracking-open").addEventListener("click", () => {
   document.getElementById("tracking-dialog").showModal();
   void tracking.load();
+});
+trackingClear.addEventListener("click", async () => {
+  if (!window.confirm(`Stop all ${tracking.count()} tracked alerts?`)) return;
+  trackingClear.disabled = true;
+  try { await tracking.removeAll(); }
+  catch (error) { window.alert(`Could not stop every alert: ${error.message}`); }
+  finally { trackingClear.disabled = false; }
 });
 
 async function api(path, init = {}) {
@@ -5306,18 +5317,37 @@ document.addEventListener("keydown", (event) => {
 startLocationRefresh();
 initAuth();
 
-async function openNotificationTarget() {
-  const params = new URLSearchParams(location.search);
-  const id = params.get("trackId");
+async function openNotificationTarget(kind, id) {
   if (!/^\d+$/.test(id || "")) return;
   try {
-    if (params.get("trackKind") === "bus") {
+    if (kind === "bus") {
       openStop({ stop_id: id, label: `Stop ${id}` });
-    } else if (params.get("trackKind") === "bike") {
+    } else if (kind === "bike") {
       const payload = await api(`/bikes/stations?ids=${encodeURIComponent(id)}`);
       const station = payload.stations?.find((station) => String(station.id) === id);
       if (station) openBikeStation(station);
     }
   } catch (error) { statusEl.textContent = `Could not open notification: ${error.message}`; }
 }
-void openNotificationTarget();
+const launchParams = new URLSearchParams(location.search);
+void openNotificationTarget(launchParams.get("trackKind"), launchParams.get("trackId"));
+
+const pushBanner = document.getElementById("push-banner");
+let pushBannerTimer;
+let pushBannerTarget;
+navigator.serviceWorker?.addEventListener("message", (event) => {
+  if (event.data?.type !== "push") return;
+  const message = event.data.message ?? {};
+  document.getElementById("push-banner-title").textContent = message.title || "Hubwise";
+  document.getElementById("push-banner-body").textContent = message.body || "";
+  pushBannerTarget = message.target;
+  pushBanner.hidden = false;
+  navigator.vibrate?.(200);
+  clearTimeout(pushBannerTimer);
+  pushBannerTimer = setTimeout(() => { pushBanner.hidden = true; }, 8000);
+});
+pushBanner.addEventListener("click", () => {
+  pushBanner.hidden = true;
+  clearTimeout(pushBannerTimer);
+  void openNotificationTarget(pushBannerTarget?.kind, pushBannerTarget?.id);
+});

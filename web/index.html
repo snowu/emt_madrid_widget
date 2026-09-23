@@ -116,12 +116,18 @@
           </div>
         </section>
         <button id="tracking-open" type="button">Tracked alerts</button>
+        <button id="tracking-clear" class="danger" type="button" hidden>Stop tracking everything</button>
         <button id="manage-places" type="button">Manage hubs</button>
         <button id="metrics-open" type="button" hidden>Metrics</button>
         <button id="account-signout" class="danger" type="button">Sign out</button>
         <p class="account-attribution">Data from <a href="https://mobilitylabs.emtmadrid.es">EMT MobilityLabs</a>.</p>
       </form>
     </dialog>
+
+    <button id="push-banner" type="button" hidden>
+      <img src="icon-192.png" alt="" />
+      <span><strong id="push-banner-title"></strong><small id="push-banner-body"></small></span>
+    </button>
 
     <dialog id="tracking-dialog" aria-labelledby="tracking-title">
       <form method="dialog">

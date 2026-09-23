@@ -58,6 +58,22 @@ export function createTracking({ api, signedIn, changed }) {
     } finally { busy = false; }
   }
 
+  async function removeAll() {
+    if (busy) return;
+    busy = true;
+    try {
+      // One DELETE per watch: there are at most 20, and it needs no new route.
+      for (const watch of [...watches]) {
+        const data = await api("/tracking", { method: "DELETE", body: JSON.stringify({ id: watch.id }) });
+        watches = data.watches;
+        deviceCount = data.devices ?? deviceCount;
+      }
+    } finally {
+      busy = false;
+      refresh();
+    }
+  }
+
   function isTracked(kind, targetId, line) {
     return watches.some((watch) => watch.kind === kind && watch.targetId === String(targetId) &&
       (line == null || watch.line === String(line).toUpperCase()));
@@ -75,14 +91,17 @@ export function createTracking({ api, signedIn, changed }) {
   }
 
   function button(watch) {
+    // An icon, not a label: "Tracking · stop" pushed the ETA off a phone row.
     const button = document.createElement("button");
     button.type = "button";
-    button.className = "track-button";
+    button.className = "icon-btn track-button";
     const tracked = !!find(watch);
-    button.textContent = tracked ? "Tracking · stop" : "Track";
-    if (tracked) button.prepend(indicator(watch.kind, watch.targetId, watch.line || undefined));
+    button.innerHTML = tracked
+      ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path class="bell-fill" d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/></svg>'
+      : '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/><path d="M12 2v1"/></svg>';
     button.setAttribute("aria-pressed", String(tracked));
     button.setAttribute("aria-label", `${tracked ? "Stop tracking" : "Track"} ${watch.kind === "bus" ? `line ${watch.line} at stop` : "bike station"} ${watch.targetId}${watch.destination ? ` towards ${watch.destination}` : ""}`);
+    button.title = tracked ? "Stop tracking" : "Track: notify me";
     button.addEventListener("click", async (event) => {
       event.preventDefault();
       event.stopPropagation();
@@ -107,7 +126,7 @@ export function createTracking({ api, signedIn, changed }) {
     }
     if (!watches.length) {
       const empty = document.createElement("p");
-      empty.textContent = "Open a stop or bike station and tap Track.";
+      empty.textContent = "Open a stop or bike station and tap the bell.";
       container.append(empty);
     }
     for (const watch of watches) {
@@ -141,5 +160,5 @@ export function createTracking({ api, signedIn, changed }) {
     await api("/tracking/subscription", { method: "DELETE", body: JSON.stringify({ endpoint: subscription.endpoint }) });
     await subscription.unsubscribe();
   }
-  return { load, button, indicator, isTracked, renderList, disconnect, clear() { generation++; watches = []; refresh(); } };
+  return { load, button, removeAll, count: () => watches.length, indicator, isTracked, renderList, disconnect, clear() { generation++; watches = []; refresh(); } };
 }

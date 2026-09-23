@@ -1396,8 +1396,9 @@ body[data-section="bikes"] #bikes > .stop { border-radius: 8px; }
 #fab { bottom: calc(4.15rem + env(safe-area-inset-bottom, 0px)); }
 
 /* Compact tracking controls remain usable beside the live countdown. */
-.track-button { font-size: .75rem; padding: .4rem .55rem; white-space: nowrap; }
-.track-button[aria-pressed="true"] { color: var(--accent, #287657); border-color: currentColor; }
+.track-button { flex: none; color: var(--muted); }
+.track-button[aria-pressed="true"] { color: var(--accent); }
+.track-button .bell-fill { fill: currentColor; }
 .tracking-item { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin: 1rem 0; }
 .tracking-item small { opacity: .7; }
 #sheet-arrivals li { flex-wrap: wrap; }
@@ -1406,8 +1407,24 @@ body[data-section="bikes"] #bikes > .stop { border-radius: 8px; }
 .tracking-indicator { display: inline-flex; align-items: center; vertical-align: middle; margin-left: .35rem; color: var(--accent); }
 .tracking-indicator[hidden] { display: none; }
 .tracking-indicator svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-.track-button .tracking-indicator { margin: 0 .35rem 0 0; }
 button.stop-open { display: inline; min-height: 0; padding: 0; border: 0; border-radius: 3px; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 button.stop-open:hover { text-decoration: underline; text-underline-offset: 3px; }
 button.stop-open:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
 button.place-stop-open { color: var(--fg); font-size: .72rem; font-weight: 700; }
+
+/* A push that lands while the page is on screen shows here instead of the
+   system shade, where it would duplicate what the page already shows. */
+#push-banner {
+  position: fixed; left: 50%; top: calc(env(safe-area-inset-top) + 0.75rem); z-index: 2000;
+  transform: translateX(-50%); width: min(28rem, calc(100vw - 2rem));
+  display: flex; align-items: center; gap: 0.75rem; padding: 0.7rem 0.9rem;
+  border: 1px solid var(--accent); border-radius: 12px;
+  background: var(--card, var(--bg)); color: var(--fg, inherit); text-align: left;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.35);
+  animation: push-banner-in 180ms ease-out;
+}
+#push-banner[hidden] { display: none; }
+#push-banner img { width: 32px; height: 32px; border-radius: 8px; flex: none; }
+#push-banner strong, #push-banner small { display: block; }
+#push-banner small { color: var(--muted); }
+@keyframes push-banner-in { from { transform: translate(-50%, -1rem); opacity: 0; } }

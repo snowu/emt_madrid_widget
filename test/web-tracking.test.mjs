@@ -87,3 +87,30 @@ test("service worker displays a push with the page closed and opens its tracked 
   await done;
   assert.equal(opened[0], "https://example.com/app/?trackKind=bus&trackId=5138");
 });
+
+test("service worker hands a push to a focused page instead of the system shade", async () => {
+  const handlers = {};
+  const notifications = [];
+  const posted = [];
+  const page = { focused: true, visibilityState: "visible", postMessage: (m) => posted.push(m) };
+  const self = {
+    addEventListener: (name, callback) => { handlers[name] = callback; },
+    registration: { scope: "https://example.com/app/", showNotification: async (...args) => notifications.push(args) },
+    clients: { matchAll: async () => [page] },
+  };
+  vm.runInNewContext(readFileSync(new URL("../web/sw.js", import.meta.url), "utf8"), { self, URL });
+  let done;
+  handlers.push({ data: { json: () => ({ title: "70 → PLAZA in 3 min", body: "Home" }) }, waitUntil: (p) => { done = p; } });
+  await done;
+  assert.equal(notifications.length, 0);
+  assert.equal(posted[0].message.title, "70 → PLAZA in 3 min");
+});
+test("stop tracking everything deletes each watch", async () => {
+  const other = { kind: "bike", targetId: "1", id: "bike-1" };
+  const { tracking, calls } = setup({ watches: [{ ...watch, id }, other] });
+  await tracking.load();
+  assert.equal(tracking.count(), 2);
+  await tracking.removeAll();
+  assert.deepEqual(calls.filter((x) => x.method === "DELETE").map((x) => x.body.id), [id, "bike-1"]);
+  assert.equal(tracking.count(), 0);
+});
