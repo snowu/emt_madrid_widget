@@ -68,14 +68,17 @@ export async function getBikeStationInfo() {
 
 /** Live counts. `num_bikes_available` already excludes broken bikes, which is
  *  the whole reason for preferring this feed. */
-export async function getBikeStationStatus() {
+export async function getBikeStationStatus({ forTracking = false } = {}) {
   const body = await gbfs("station_status");
+  if (forTracking && body.last_updated != null && Date.now() / 1000 - Number(body.last_updated) > 120) {
+    throw new EmtError("upstream", "GBFS status is stale");
+  }
   const stations = body.data?.stations ?? [];
   if (stations.length === 0) throw new EmtError("upstream", "GBFS sent no status");
   return {
     status: stations.map((s) => ({
       id: String(s.station_id),
-      bikes: Number(s.num_bikes_available ?? 0),
+      bikes: s.num_bikes_available == null ? null : Number(s.num_bikes_available),
       broken: Number(s.num_bikes_disabled ?? 0),
       freeBases: Number(s.num_docks_available ?? 0),
       brokenDocks: Number(s.num_docks_disabled ?? 0),

@@ -9,6 +9,7 @@ export class EmtError extends Error {
 }
 
 const STATUS_BY_KIND = {
+  bad_request: 400,
   user_auth: 401, // the caller needs to sign in (or refresh their session)
   forbidden: 403,
   auth: 502,      // our credentials are wrong; not the caller's fault

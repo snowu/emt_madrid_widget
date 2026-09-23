@@ -66,3 +66,50 @@ Engine retains three months; no KV operations are consumed.
 Design: `docs/superpowers/specs/2026-08-18-emt-madrid-web-design.md`
 
 Bus data from [EMT MobilityLabs](https://mobilitylabs.emtmadrid.es).
+
+## Background arrival and bike alerts
+
+Open a bus stop and tap **Track** beside a line, or open a bike station and tap
+**Track**. Allow browser notifications when prompted. **Account → Tracked
+alerts** lists active watches and lets you stop them or enable another device.
+Watches are shared across your signed-in devices; signing out disconnects that
+browser's notifications. Up to 20 watches and five devices are supported per user.
+
+- Buses are checked every two minutes. Each newly observed bus at **900 seconds
+  or less** triggers an alert, including a first check already below the threshold.
+  A vehicle is remembered through brief omissions and ETA corrections, and can
+  notify again after 30 minutes outside the alert window (a later circuit).
+- Bike stations are checked every 30 seconds, using rentable bikes from GBFS.
+  Zero bikes arms alerts. Increases to 1–4 bikes notify; more than four silences
+  alerts until the rack reaches zero again. Initial nonzero counts do not arm
+  alerts. Polling detects net count increases; returns and rentals between checks
+  can cancel each other out. Stale feeds and missing counts never become zero.
+- Checks run in a persistent Cloudflare Durable Object per user, even when the
+  page is closed. Alarm scheduling and push delivery are best effort, not exact
+  wall-clock guarantees. A push expires after two minutes to avoid late alerts.
+  Failed checks retry; expired push subscriptions are removed. No active devices
+  pauses the runner without deleting its watches.
+
+On iOS/iPadOS, open the app from its Home Screen installation to enable Web Push.
+The service worker handles notifications only; it does not cache pages or data.
+
+One-time push setup (preserve the same key pair on subsequent deployments):
+
+```bash
+mkdir -p .local
+node tools/generate-push-keys.mjs .local/push-secrets.json
+cd api
+npx wrangler secret bulk ../.local/push-secrets.json
+npx wrangler deploy
+```
+
+Deploy `web/` through the existing Pages workflow. The `tracking-v1` migration
+creates the SQLite-backed `TrackingRunner`; existing KV and scheduled jobs remain
+in place. Never commit or rotate the private key file casually: existing browser
+subscriptions are tied to the public key. For local development, add the three
+`VAPID_*` fields to the ignored `api/.dev.vars` file.
+
+Validation: `npm --prefix api test`, `node --test test/*.test.mjs`, and
+`cd api && npx wrangler deploy --dry-run`. Tracking tests exercise threshold
+crossings, bike re-arming, encrypted push construction, durable alarms, retries,
+expired subscriptions, authentication, user isolation, and cancellation races.

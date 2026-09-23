@@ -1,3 +1,6 @@
+import { validateWatch } from "./tracking.js";
+import { validateSubscription } from "./push.js";
+export { TrackingRunner } from "./tracking.js";
 import {
   getArrivals,
   getStopDetail,
@@ -698,6 +701,29 @@ export default {
     }
 
     try {
+      if (pathname === "/tracking/config" && method === "GET") {
+        return json({ available: Boolean(env.TRACKING && env.VAPID_PUBLIC_KEY && env.VAPID_PRIVATE_KEY && env.VAPID_SUBJECT), publicKey: env.VAPID_PUBLIC_KEY ?? null }, env);
+      }
+      if (pathname === "/tracking" || pathname.startsWith("/tracking/")) {
+        const user = await authenticatedUser(env, request);
+        if (!env.TRACKING || !env.VAPID_PRIVATE_KEY) return json({ message: "Notifications are not configured yet" }, env, 503);
+        const runner = env.TRACKING.getByName(user.id);
+        let body;
+        if (["POST", "DELETE"].includes(method)) {
+          const raw = await request.text();
+          if (raw.length > 8192) return json({ message: "Request too large" }, env, 413);
+          try { body = JSON.parse(raw); } catch { return json({ message: "Invalid JSON" }, env, 400); }
+        }
+        let result;
+        if (pathname === "/tracking" && method === "GET") result = await runner.list();
+        else if (pathname === "/tracking" && method === "POST") result = await runner.add(validateWatch(body));
+        else if (pathname === "/tracking" && method === "DELETE" && typeof body?.id === "string") result = await runner.remove(body.id);
+        else if (pathname === "/tracking/subscription" && method === "POST") result = await runner.subscribe(validateSubscription(body));
+        else if (pathname === "/tracking/subscription" && method === "DELETE" && typeof body?.endpoint === "string") result = await runner.unsubscribe(body.endpoint);
+        else return json({ message: "Unknown tracking request" }, env, 400);
+        return json(result, env, 200, { "cache-control": "no-store" });
+      }
+
       if (pathname === "/auth/config" && method === "GET") {
         return json(
           { url: env.SUPABASE_URL, anonKey: env.SUPABASE_ANON_KEY },

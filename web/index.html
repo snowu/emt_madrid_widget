@@ -115,10 +115,19 @@
             <button type="button" data-theme-choice="dark" aria-pressed="false">Dark</button>
           </div>
         </section>
+        <button id="tracking-open" type="button">Tracked alerts</button>
         <button id="manage-places" type="button">Manage hubs</button>
         <button id="metrics-open" type="button" hidden>Metrics</button>
         <button id="account-signout" class="danger" type="button">Sign out</button>
         <p class="account-attribution">Data from <a href="https://mobilitylabs.emtmadrid.es">EMT MobilityLabs</a>.</p>
+      </form>
+    </dialog>
+
+    <dialog id="tracking-dialog" aria-labelledby="tracking-title">
+      <form method="dialog">
+        <h2 id="tracking-title">Tracked alerts</h2>
+        <div id="tracking-list"></div>
+        <button type="submit">Close</button>
       </form>
     </dialog>
 
@@ -212,6 +221,8 @@
         <p id="bike-sheet-meta" class="stop-num"></p>
         <div id="bike-sheet-map"></div>
         <div id="bike-sheet-counts"></div>
+        <div id="bike-sheet-tracking"></div>
+        <p class="muted">Track to hear when an empty rack gains bikes. Alerts go quiet above 4 bikes.</p>
         <label class="field" id="bike-sheet-name" hidden>
           <span>Name</span>
           <input id="bike-sheet-label" autocomplete="off" placeholder="Station name" />

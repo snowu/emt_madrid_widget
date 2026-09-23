@@ -22,5 +22,8 @@
     "workerd@1.20241230.0": true,
     "workerd@1.20250718.0": true,
     "sharp@0.33.5": true
+  },
+  "dependencies": {
+    "@block65/webcrypto-web-push": "^2.0.0"
   }
 }

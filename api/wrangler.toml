@@ -21,3 +21,11 @@ CLOUDFLARE_ACCOUNT_ID = "3dab85270c19e7a426145878daacaad7"
 
 [triggers]
 crons = ["*/30 * * * *"]
+
+[[durable_objects.bindings]]
+name = "TRACKING"
+class_name = "TrackingRunner"
+
+[[migrations]]
+tag = "tracking-v1"
+new_sqlite_classes = ["TrackingRunner"]

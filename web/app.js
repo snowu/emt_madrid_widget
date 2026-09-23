@@ -1,3 +1,4 @@
+import { createTracking } from "./tracking.js";
 import {
   readCache,
   writeCache,
@@ -902,6 +903,19 @@ function render() {
 
 const pendingGets = new Map();
 
+const tracking = createTracking({
+  api, signedIn: () => !!authSession,
+  changed: () => {
+    if (stopDialog.open) { renderSheetArrivals(); renderSheetService(); }
+    if (bikeDialog.open) renderBikeSheet();
+    tracking.renderList(document.getElementById("tracking-list"));
+  },
+});
+document.getElementById("tracking-open").addEventListener("click", () => {
+  document.getElementById("tracking-dialog").showModal();
+  void tracking.load();
+});
+
 async function api(path, init = {}) {
   const isWrite = init.method && init.method !== "GET";
   const requestKey = isWrite ? null : `${authUser?.id ?? "public"}:${path}`;
@@ -934,6 +948,7 @@ async function api(path, init = {}) {
 }
 
 function showSignedOut(message = "") {
+  tracking.clear();
   authSession = null;
   authUser = null;
   isOwner = false;
@@ -962,6 +977,7 @@ async function applySession(session) {
   authSession = session;
   authUser = session.user;
   setUserCacheScope(authUser.id);
+  void tracking.load();
   resetBikePrivateState();
   stops = readStops();
   bikeSaved = readBikeSaved();
@@ -1099,7 +1115,10 @@ authButton.addEventListener("click", async () => {
 accountSignout.addEventListener("click", async () => {
   accountSignout.disabled = true;
   try {
+    await tracking.disconnect();
     await authClient.auth.signOut();
+  } catch (error) {
+    window.alert(`Could not sign out: ${error.message}`);
   } finally {
     accountSignout.disabled = false;
     if (accountMenu.open) accountMenu.close();
@@ -3706,6 +3725,7 @@ function renderSheetArrivals() {
     sheetArrivals.replaceChildren(li);
   } else {
     const elapsed = Math.floor((Date.now() - cached.fetchedAt) / 1000);
+    const trackingLines = new Set();
     sheetArrivals.replaceChildren(
       ...cached.arrivals.map((bus) => {
         const li = document.createElement("li");
@@ -3727,6 +3747,11 @@ function renderSheetArrivals() {
           li.append(dest);
         }
         li.append(eta);
+        if (!trackingLines.has(bus.line)) {
+          trackingLines.add(bus.line);
+          li.append(tracking.button({ kind: "bus", targetId: String(sheetStop.stop_id), line: bus.line,
+            label: sheetStop.label || `Stop ${sheetStop.stop_id}` }));
+        }
         return li;
       })
     );
@@ -3801,6 +3826,8 @@ function renderSheetService() {
         if (window.overnight) hours.textContent += " (+1d)";
       }
       li.append(hours);
+      li.append(tracking.button({ kind: "bus", targetId: String(sheetStop.stop_id), line: l.label,
+        label: sheetStop.label || `Stop ${sheetStop.stop_id}` }));
 
       if (l.headers?.length) {
         const route = document.createElement("span");
@@ -4924,6 +4951,9 @@ function renderBikeSheet() {
     ? `Nº ${station.number} · ${station.address}`
     : `Nº ${station.number}`;
   bikeSheetCounts.replaceChildren(bikeCounts(station));
+  document.getElementById("bike-sheet-tracking").replaceChildren(tracking.button({
+    kind: "bike", targetId: String(station.id), label: bikeTitle(station, saved),
+  }));
 
   bikeSheetLabel.value = saved?.label ?? "";
   bikeSheetLabel.placeholder = station.name || "BiciMAD station";
@@ -5253,3 +5283,19 @@ document.addEventListener("keydown", (event) => {
 
 startLocationRefresh();
 initAuth();
+
+async function openNotificationTarget() {
+  const params = new URLSearchParams(location.search);
+  const id = params.get("trackId");
+  if (!/^\d+$/.test(id || "")) return;
+  try {
+    if (params.get("trackKind") === "bus") {
+      openStop({ stop_id: id, label: `Stop ${id}` });
+    } else if (params.get("trackKind") === "bike") {
+      const payload = await api(`/bikes/stations?ids=${encodeURIComponent(id)}`);
+      const station = payload.stations?.find((station) => String(station.id) === id);
+      if (station) openBikeStation(station);
+    }
+  } catch (error) { statusEl.textContent = `Could not open notification: ${error.message}`; }
+}
+void openNotificationTarget();
