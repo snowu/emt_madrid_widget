@@ -5399,19 +5399,75 @@ void openNotificationTarget(launchParams.get("trackKind"), launchParams.get("tra
 const pushBanner = document.getElementById("push-banner");
 let pushBannerTimer;
 let pushBannerTarget;
+
+function setBannerDrag(x = 0, y = 0) {
+  pushBanner.style.setProperty("--drag-x", `${x}px`);
+  pushBanner.style.setProperty("--drag-y", `${y}px`);
+  pushBanner.style.setProperty("--drag-opacity", String(Math.max(0, 1 - Math.hypot(x, Math.min(y, 0)) / 240)));
+}
+
+function hidePushBanner() {
+  clearTimeout(pushBannerTimer);
+  delete pushBanner.dataset.dragged;
+  pushBanner.hidden = true;
+  pushBanner.classList.remove("settling");
+  setBannerDrag();
+}
+
 navigator.serviceWorker?.addEventListener("message", (event) => {
   if (event.data?.type !== "push") return;
   const message = event.data.message ?? {};
   document.getElementById("push-banner-title").textContent = message.title || "Hubwise";
   document.getElementById("push-banner-body").textContent = message.body || "";
   pushBannerTarget = message.target;
+  // Below the header, not over it: the List/Map toggle and refresh live there.
+  // A header scrolled out of view leaves the banner at the top of the screen.
+  const headerBottom = document.querySelector("header")?.getBoundingClientRect().bottom ?? 0;
+  pushBanner.style.top = `${Math.max(12, headerBottom + 8)}px`;
+  hidePushBanner();
   pushBanner.hidden = false;
   navigator.vibrate?.(200);
-  clearTimeout(pushBannerTimer);
-  pushBannerTimer = setTimeout(() => { pushBanner.hidden = true; }, 8000);
+  pushBannerTimer = setTimeout(hidePushBanner, 8000);
 });
+
+// Swipe sideways or up to dismiss; a short movement is still a tap.
+let bannerDrag = null;
+pushBanner.addEventListener("pointerdown", (event) => {
+  bannerDrag = { id: event.pointerId, x: event.clientX, y: event.clientY, moved: false };
+  pushBanner.setPointerCapture(event.pointerId);
+  pushBanner.classList.remove("settling");
+  clearTimeout(pushBannerTimer); // not while a finger is on it
+});
+pushBanner.addEventListener("pointermove", (event) => {
+  if (bannerDrag?.id !== event.pointerId) return;
+  const dx = event.clientX - bannerDrag.x;
+  const dy = Math.min(0, event.clientY - bannerDrag.y);
+  if (Math.hypot(dx, dy) > 8) bannerDrag.moved = true;
+  setBannerDrag(dx, dy);
+});
+function endBannerDrag(event) {
+  if (bannerDrag?.id !== event.pointerId) return;
+  const dx = event.clientX - bannerDrag.x;
+  const dy = Math.min(0, event.clientY - bannerDrag.y);
+  pushBanner.classList.add("settling");
+  if (Math.abs(dx) > 80 || dy < -40) {
+    setBannerDrag(Math.abs(dx) > 80 ? Math.sign(dx) * window.innerWidth : 0, dy < -40 ? -200 : 0);
+    setTimeout(hidePushBanner, 160);
+  } else {
+    setBannerDrag();
+    pushBannerTimer = setTimeout(hidePushBanner, 8000);
+  }
+  // A drag must not also count as a tap on the banner.
+  if (bannerDrag.moved && event.type === "pointerup") pushBanner.dataset.dragged = "1";
+  bannerDrag = null;
+}
+pushBanner.addEventListener("pointerup", endBannerDrag);
+pushBanner.addEventListener("pointercancel", endBannerDrag);
 pushBanner.addEventListener("click", () => {
-  pushBanner.hidden = true;
-  clearTimeout(pushBannerTimer);
+  if (pushBanner.dataset.dragged) {
+    delete pushBanner.dataset.dragged;
+    return;
+  }
+  hidePushBanner();
   void openNotificationTarget(pushBannerTarget?.kind, pushBannerTarget?.id);
 });

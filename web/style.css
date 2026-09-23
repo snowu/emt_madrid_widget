@@ -1419,14 +1419,20 @@ button.place-stop-open { color: var(--fg); font-size: .72rem; font-weight: 700; 
 /* A push that lands while the page is on screen shows here instead of the
    system shade, where it would duplicate what the page already shows. */
 #push-banner {
+  /* top is set from the header's bottom edge when shown, so the List/Map
+     toggle stays reachable; --drag-x/--drag-y follow a swipe. */
   position: fixed; left: 50%; top: calc(env(safe-area-inset-top) + 0.75rem); z-index: 2000;
-  transform: translateX(-50%); width: min(28rem, calc(100vw - 2rem));
+  transform: translate(calc(-50% + var(--drag-x, 0px)), var(--drag-y, 0px));
+  opacity: var(--drag-opacity, 1);
+  width: min(28rem, calc(100vw - 2rem));
   display: flex; align-items: center; gap: 0.75rem; padding: 0.7rem 0.9rem;
   border: 1px solid var(--accent); border-radius: 12px;
   background: var(--card, var(--bg)); color: var(--fg, inherit); text-align: left;
   box-shadow: 0 8px 24px rgb(0 0 0 / 0.35);
+  touch-action: none; /* the swipe is ours, not a page scroll */
   animation: push-banner-in 180ms ease-out;
 }
+#push-banner.settling { transition: transform 160ms ease-out, opacity 160ms ease-out; }
 #push-banner[hidden] { display: none; }
 #push-banner img { width: 32px; height: 32px; border-radius: 8px; flex: none; }
 #push-banner strong, #push-banner small { display: block; }
