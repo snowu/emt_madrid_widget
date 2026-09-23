@@ -3,10 +3,17 @@
 self.addEventListener("push", (event) => {
   let message;
   try { message = event.data?.json(); } catch { /* Show a useful fallback. */ }
+  // Android draws neither an SVG icon nor a coloured badge: without these PNGs
+  // it falls back to Chrome's own logo. The badge is read as alpha only.
   event.waitUntil(self.registration.showNotification(message?.title || "Hubwise", {
     body: message?.body || "A tracked stop has an update.",
-    icon: new URL("icon.svg", self.registration.scope).href,
+    icon: new URL("icon-192.png", self.registration.scope).href,
+    badge: new URL("badge-96.png", self.registration.scope).href,
     tag: message?.tag || "hubwise-update",
+    // A bike station reuses its tag, so a second alert would otherwise replace
+    // the first without a sound.
+    renotify: true,
+    timestamp: Number.isFinite(message?.timestamp) ? message.timestamp : Date.now(),
     data: { target: message?.target },
   }));
 });

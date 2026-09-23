@@ -10,7 +10,10 @@ export function bikeTransition(previous = {}, station) {
   const notify = armed && count > 0 && previous.count != null && count > previous.count;
   return {
     state: { armed, count },
-    alerts: notify ? [{ body: `${count} ${count === 1 ? "bike is" : "bikes are"} now available.` }] : [],
+    alerts: notify ? [{
+      headline: `${count} ${count === 1 ? "bike" : "bikes"} available`,
+      body: `${count} ${count === 1 ? "bike is" : "bikes are"} now available.`,
+    }] : [],
   };
 }
 
@@ -25,7 +28,11 @@ export function busTransition(previous = {}, arrivals, watch, now) {
   const alerts = [];
   for (const bus of eligible) {
     const key = bus.vehicleId ? `${bus.vehicleId}:${bus.destination ?? ""}` : `unknown:${bus.destination ?? ""}`;
-    if (!seen[key]) alerts.push({ body: `Line ${watch.line}${bus.destination ? ` → ${bus.destination}` : ""}: ${Math.ceil(bus.seconds / 60)} min away.`, vehicle: key });
+    if (!seen[key]) {
+      const route = `${watch.line}${bus.destination ? ` → ${bus.destination}` : ""}`;
+      const minutes = Math.ceil(bus.seconds / 60);
+      alerts.push({ headline: `${route} in ${minutes} min`, body: `Line ${route}: ${minutes} min away.`, vehicle: key });
+    }
     seen[key] = now;
   }
   return { state: { seen }, alerts };

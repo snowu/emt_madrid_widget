@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <!-- Android status-bar badge: only the alpha channel is used. -->
+  <mask id="cut">
+    <rect width="128" height="128" fill="#fff"/>
+    <rect x="36" y="34" width="56" height="26" rx="6" fill="#000"/>
+    <circle cx="46" cy="78" r="7" fill="#000"/>
+    <circle cx="82" cy="78" r="7" fill="#000"/>
+  </mask>
+  <g mask="url(#cut)" fill="#fff">
+    <rect x="28" y="18" width="72" height="80" rx="12"/>
+    <rect x="58" y="100" width="12" height="10" rx="3"/>
+  </g>
+</svg>

@@ -80,6 +80,9 @@ test("service worker displays a push with the page closed and opens its tracked 
   handlers.push({ data: { json: () => ({ title: "Home", body: "Bus in 13 min", target: { kind: "bus", id: "5138" } }) }, waitUntil: (p) => { done = p; } });
   await done;
   assert.equal(notifications[0][0], "Home");
+  // Android ignores SVG here and would show Chrome's logo instead.
+  assert.match(notifications[0][1].icon, /\.png$/);
+  assert.match(notifications[0][1].badge, /\.png$/);
   handlers.notificationclick({ notification: { close() {}, data: notifications[0][1].data }, waitUntil: (p) => { done = p; } });
   await done;
   assert.equal(opened[0], "https://example.com/app/?trackKind=bus&trackId=5138");

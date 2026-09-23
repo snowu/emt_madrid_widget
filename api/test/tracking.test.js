@@ -26,6 +26,11 @@ describe("alert thresholds", () => {
     expect(busTransition(gap.state, [bus(700)], busWatch, 241000).alerts).toHaveLength(0);
     expect(busTransition(first.state, [bus(800)], busWatch, 31 * 60_000).alerts).toHaveLength(1);
   });
+  it("leads the notification with the line, direction and wait", () => {
+    expect(busTransition({}, [bus(170)], busWatch, 1000).alerts[0].headline).toBe("70 → PLAZA in 3 min");
+    const armed = bikeTransition({}, station(0)).state;
+    expect(bikeTransition(armed, station(1)).alerts[0].headline).toBe("1 bike available");
+  });
   it("rejects invalid ETAs and other routes/directions", () => {
     const rows = [bus(-1), bus(NaN), bus(999999), { ...bus(10), line: "71" }, { ...bus(10), destination: "ELSEWHERE" }];
     expect(busTransition({}, rows, busWatch, 1000).alerts).toHaveLength(0);
