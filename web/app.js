@@ -4135,21 +4135,31 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 
-// Scrolling down hands the bottom of the screen to the list; any scroll up,
-// or reaching the top, brings the menu back. Small jitters are ignored.
+// Scrolling down hands the bottom of the screen to the list; a deliberate
+// scroll up, or reaching the top, brings the menu back. Momentum flings
+// overshoot the end and bounce back, and the browser bar resizing the viewport
+// nudges scrollY, so the position is clamped to the real scroll range, the
+// bottom edge never shows the menu, and it takes a sustained scroll up
+// (SHOW_AFTER_PX) rather than one frame's jitter.
+const HIDE_AFTER_PX = 24;
+const SHOW_AFTER_PX = 60;
+let scrollAnchor = window.scrollY;
 let lastScrollY = window.scrollY;
 let scrollFrame = 0;
 window.addEventListener("scroll", () => {
   if (scrollFrame) return;
   scrollFrame = requestAnimationFrame(() => {
     scrollFrame = 0;
-    const y = Math.max(0, window.scrollY);
-    const delta = y - lastScrollY;
-    if (y < 40) document.body.classList.remove("nav-hidden");
-    else if (delta > 8) document.body.classList.add("nav-hidden");
-    else if (delta < -8) document.body.classList.remove("nav-hidden");
-    else return;
+    const max = document.documentElement.scrollHeight - window.innerHeight;
+    const y = Math.min(Math.max(0, window.scrollY), Math.max(0, max));
+    // Direction flipped: measure the new run from where it started.
+    if ((y - lastScrollY) * (lastScrollY - scrollAnchor) < 0) scrollAnchor = lastScrollY;
     lastScrollY = y;
+    const run = y - scrollAnchor;
+    if (y < 40) document.body.classList.remove("nav-hidden");
+    else if (y >= max - 4) return;
+    else if (run > HIDE_AFTER_PX) document.body.classList.add("nav-hidden");
+    else if (run < -SHOW_AFTER_PX) document.body.classList.remove("nav-hidden");
   });
 }, { passive: true });
 

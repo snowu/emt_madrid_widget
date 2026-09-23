@@ -1433,7 +1433,8 @@ button.place-stop-open { color: var(--fg); font-size: .72rem; font-weight: 700; 
 #push-banner small { color: var(--muted); }
 @keyframes push-banner-in { from { transform: translate(-50%, -1rem); opacity: 0; } }
 
-/* Scrolling down tucks the bottom menu away; the FAB drops into its place. */
-#primary-menu, #fab { transition: transform 200ms ease; }
+/* Scrolling down tucks the bottom menu and the FAB away together. */
+#fab { width: 46px; height: 46px; min-height: 46px; font-size: 1.6rem; }
+#primary-menu, #fab { transition: transform 200ms ease, opacity 200ms ease; }
 body.nav-hidden #primary-menu { transform: translate(-50%, calc(100% + 0.5rem + env(safe-area-inset-bottom, 0px))); }
-body.nav-hidden #fab { transform: translateY(3.4rem); }
+body.nav-hidden #fab { transform: translateY(calc(100% + 4.15rem + env(safe-area-inset-bottom, 0px))); opacity: 0; pointer-events: none; }
