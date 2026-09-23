@@ -227,19 +227,27 @@
         <p id="bike-sheet-meta" class="stop-num"></p>
         <div id="bike-sheet-map"></div>
         <div id="bike-sheet-counts"></div>
-        <div id="bike-sheet-tracking"></div>
-        <p class="muted">Track to hear when an empty rack gains bikes. Alerts go quiet above 4 bikes.</p>
+        <p class="muted">The bell alerts you for each bike docked while the rack has fewer than 6.</p>
         <label class="field" id="bike-sheet-name" hidden>
           <span>Name</span>
           <input id="bike-sheet-label" autocomplete="off" placeholder="Station name" />
         </label>
-        <div class="dialog-actions">
-          <button type="button" id="bike-sheet-remove" class="danger">Remove</button>
-          <button type="button" id="bike-sheet-favourite">☆ Save</button>
-          <button type="button" id="bike-sheet-directions">Directions</button>
-          <button type="button" id="bike-sheet-show-map">Show on map</button>
-          <button type="button" id="bike-sheet-close">Close</button>
+        <!-- Icons only, as on the cards and the map popup. The star is filled
+             when saved; tapping it then removes the station. -->
+        <div class="dialog-actions bike-sheet-actions">
+          <button type="button" id="bike-sheet-remove" class="icon-action bike-favourite" title="Remove from saved" aria-label="Remove from saved">★</button>
+          <button type="button" id="bike-sheet-favourite" class="icon-action bike-favourite" title="Save this station" aria-label="Save this station">☆</button>
+          <span id="bike-sheet-tracking"></span>
+          <button type="button" id="bike-sheet-directions" class="icon-action" title="Walking directions" aria-label="Walking directions">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="13" cy="4" r="1.8"></circle><path d="m10.5 8 2.5-1 2.5 2.5 2.5 1"></path><path d="m13 7-2 5 3 2 1.5 5"></path><path d="m11 12-3 3-2 4"></path></svg>
+          </button>
+          <button type="button" id="bike-sheet-show-map" class="icon-action" title="Show on map" aria-label="Show on map">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-6-5.3-6-11a6 6 0 0 1 12 0c0 5.7-6 11-6 11z"></path><circle cx="12" cy="10" r="2.2"></circle></svg>
+          </button>
           <button type="submit" id="bike-sheet-save" hidden>Save</button>
+          <button type="button" id="bike-sheet-close" class="icon-action sheet-close" title="Close" aria-label="Close">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"></path></svg>
+          </button>
         </div>
       </form>
     </dialog>

@@ -204,3 +204,22 @@ test("a notification with a location opens walking directions; its button opens 
   await done;
   assert.equal(opened[1], "https://example.com/app/?trackKind=bike&trackId=12");
 });
+
+test("on Android a notification hands directions to the Google Maps app", async () => {
+  const handlers = {};
+  const opened = [];
+  const self = {
+    navigator: { userAgent: "Mozilla/5.0 (Linux; Android 15; Pixel 8) Chrome/140 Mobile" },
+    addEventListener: (name, callback) => { handlers[name] = callback; },
+    registration: { scope: "https://example.com/app/" },
+    clients: { matchAll: async () => [], openWindow: async (url) => { opened.push(url); if (url.startsWith("intent:")) throw new TypeError("unsupported"); } },
+  };
+  vm.runInNewContext(readFileSync(new URL("../web/sw.js", import.meta.url), "utf8"), { self, URL });
+  let done;
+  const data = { target: { kind: "bike", id: "12", coordinates: [-3.7038, 40.4168] } };
+  handlers.notificationclick({ notification: { close() {}, data }, action: "", waitUntil: (p) => { done = p; } });
+  await done;
+  assert.match(opened[0], /^intent:\/\/maps\.google\.com\/maps\?daddr=40\.4168,-3\.7038&dirflg=w#Intent;.*package=com\.google\.android\.apps\.maps;/);
+  // A browser that refuses intent: URLs still gets the web directions.
+  assert.equal(opened[1], "https://www.google.com/maps/dir/?api=1&destination=40.4168%2C-3.7038&travelmode=walking");
+});

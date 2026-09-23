@@ -1420,7 +1420,13 @@ body[data-section="bikes"] #bikes > .stop { border-radius: 8px; }
 .tracking-item { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin: 1rem 0; }
 .tracking-item small { opacity: .7; }
 #sheet-arrivals li { flex-wrap: wrap; }
-#bike-sheet-tracking { margin-top: .75rem; }
+.bike-sheet-actions { justify-content: flex-start; align-items: center; gap: 0.25rem; }
+.bike-sheet-actions .icon-action { min-width: var(--tap); padding: 0; border-color: transparent; background: transparent; }
+.bike-sheet-actions .bike-favourite { color: var(--star); font-size: 1.3rem; }
+.bike-sheet-actions .sheet-close { margin-left: auto; color: var(--muted); }
+#bike-sheet-tracking { display: contents; }
+.bike-sheet-actions .track-button { width: var(--tap); min-width: var(--tap); min-height: var(--tap); }
+.bike-sheet-actions .track-button svg { width: 18px; height: 18px; }
 
 .tracking-indicator { display: inline-flex; align-items: center; vertical-align: middle; margin-left: .35rem; color: var(--accent); }
 .tracking-indicator[hidden] { display: none; }

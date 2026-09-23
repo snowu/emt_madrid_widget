@@ -5,15 +5,29 @@
 // take over at once, including pages loaded before it existed.
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim()));
-/** Walking directions in Google Maps, which Android hands to the Maps app. */
-function directionsUrl(target) {
+/** Walking directions in the Google Maps app.
+ *
+ * openWindow() opens its URL as a browser tab, and Android only hands a
+ * google.com/maps link to the app when it is followed from inside a page, so
+ * the plain link opened Maps in Chrome. On Android an intent: URL names the
+ * Maps app outright and falls back to the web page if it is not installed.
+ * iOS has no intents; there the universal link is what opens the app. */
+function webDirections(target) {
   const [lon, lat] = Array.isArray(target?.coordinates) ? target.coordinates.map(Number) : [];
   if (!Number.isFinite(lon) || !Number.isFinite(lat)) return null;
-  const url = new URL("https://www.google.com/maps/dir/");
-  url.searchParams.set("api", "1");
-  url.searchParams.set("destination", `${lat},${lon}`); // GeoJSON is [lon, lat]
-  url.searchParams.set("travelmode", "walking");
-  return url.href;
+  const web = new URL("https://www.google.com/maps/dir/");
+  web.searchParams.set("api", "1");
+  web.searchParams.set("destination", `${lat},${lon}`); // GeoJSON is [lon, lat]
+  web.searchParams.set("travelmode", "walking");
+  return web.href;
+}
+
+function directionsUrl(target) {
+  const web = webDirections(target);
+  if (!web || !/Android/i.test(self.navigator?.userAgent ?? "")) return web;
+  const [lon, lat] = target.coordinates.map(Number);
+  return `intent://maps.google.com/maps?daddr=${lat},${lon}&dirflg=w#Intent;scheme=https;` +
+    `package=com.google.android.apps.maps;S.browser_fallback_url=${encodeURIComponent(web)};end`;
 }
 
 self.addEventListener("push", (event) => {
@@ -49,7 +63,9 @@ self.addEventListener("notificationclick", (event) => {
   const target = event.notification.data?.target;
   const directions = event.action === "open" ? null : directionsUrl(target);
   if (directions) {
-    event.waitUntil(self.clients.openWindow(directions));
+    // If this browser refuses an intent: URL outright, the web page still helps.
+    const fallback = directions.startsWith("intent:") ? webDirections(target) : null;
+    event.waitUntil(self.clients.openWindow(directions).catch(() => fallback && self.clients.openWindow(fallback)));
     return;
   }
   if (["bus", "bike"].includes(target?.kind) && /^\d+$/.test(target?.id)) {
