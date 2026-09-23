@@ -971,6 +971,7 @@ const tracking = createTracking({
     renderBikes();
     if (stopDialog.open) { renderSheetArrivals(); renderSheetService(); }
     if (bikeDialog.open) renderBikeSheet();
+    refreshBikePopup();
     tracking.renderList(document.getElementById("tracking-list"));
     const count = tracking.count();
     trackingClear.hidden = !count;
@@ -4202,6 +4203,7 @@ let bikeMap = null;
 let bikeMarkers = null;
 let pendingBikePopupId = null;
 let bikePopupControl = null;
+let bikePopupStationId = null;
 let bikeCell = null;
 let bikeSeq = 0;
 let bikeUserMarker = null;
@@ -5155,22 +5157,43 @@ function bikePopup(station) {
   num.textContent = station.address ? `Nº ${station.number} · ${station.address}` : `Nº ${station.number}`;
   wrap.append(title, num, bikeCounts(station));
 
+  // Icons only, like the cards: save, track, and the sheet behind the "i".
   const fav = document.createElement("button");
   fav.type = "button";
-  fav.textContent = saved ? "★ Saved" : "☆ Save";
+  fav.className = "icon-btn bike-favourite";
+  fav.textContent = saved ? "★" : "☆";
+  fav.title = saved ? "Remove from saved" : "Save this station";
+  fav.setAttribute("aria-label", fav.title);
   fav.addEventListener("click", () => {
     toggleBikeSaved(station, saved);
     bikePopupControl?.remove();
   });
-  const detailsButton = document.createElement("button");
-  detailsButton.type = "button";
-  detailsButton.textContent = "Details";
-  detailsButton.addEventListener("click", () => {
+  const track = tracking.button({
+    kind: "bike", targetId: String(station.id), label: bikeTitle(station, saved),
+    coordinates: station.coordinates,
+  });
+  const info = document.createElement("button");
+  info.type = "button";
+  info.className = "icon-btn";
+  info.title = "Station details";
+  info.setAttribute("aria-label", info.title);
+  info.innerHTML = INFO_ICON;
+  info.addEventListener("click", () => {
     bikePopupControl?.remove();
     openBikeStation(station);
   });
-  wrap.append(fav, detailsButton);
+  const actions = document.createElement("div");
+  actions.className = "pop-actions";
+  actions.append(fav, track, info);
+  wrap.append(actions);
   return wrap;
+}
+
+/** The open bike popup, redrawn in place: its bell must follow a toggle. */
+function refreshBikePopup() {
+  if (!bikePopupControl?.isOpen() || bikePopupStationId == null) return;
+  const station = bikeById.get(bikePopupStationId);
+  if (station) bikePopupControl.setDOMContent(bikePopup(station));
 }
 
 function showBikePopupAfterPan(station) {
@@ -5179,6 +5202,7 @@ function showBikePopupAfterPan(station) {
   const open = () => {
     if (pendingBikePopupId !== station.id) return;
     pendingBikePopupId = null;
+    bikePopupStationId = station.id;
     bikePopupControl = new maplibregl.Popup({ closeButton: false, closeOnClick: true })
       .setLngLat(target)
       .setDOMContent(bikePopup(bikeById.get(station.id) ?? station))
