@@ -4135,6 +4135,24 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 
+// Scrolling down hands the bottom of the screen to the list; any scroll up,
+// or reaching the top, brings the menu back. Small jitters are ignored.
+let lastScrollY = window.scrollY;
+let scrollFrame = 0;
+window.addEventListener("scroll", () => {
+  if (scrollFrame) return;
+  scrollFrame = requestAnimationFrame(() => {
+    scrollFrame = 0;
+    const y = Math.max(0, window.scrollY);
+    const delta = y - lastScrollY;
+    if (y < 40) document.body.classList.remove("nav-hidden");
+    else if (delta > 8) document.body.classList.add("nav-hidden");
+    else if (delta < -8) document.body.classList.remove("nav-hidden");
+    else return;
+    lastScrollY = y;
+  });
+}, { passive: true });
+
 render();
 
 /* ---- BiciMAD ------------------------------------------------------------ */

@@ -1432,3 +1432,8 @@ button.place-stop-open { color: var(--fg); font-size: .72rem; font-weight: 700; 
 #push-banner strong, #push-banner small { display: block; }
 #push-banner small { color: var(--muted); }
 @keyframes push-banner-in { from { transform: translate(-50%, -1rem); opacity: 0; } }
+
+/* Scrolling down tucks the bottom menu away; the FAB drops into its place. */
+#primary-menu, #fab { transition: transform 200ms ease; }
+body.nav-hidden #primary-menu { transform: translate(-50%, calc(100% + 0.5rem + env(safe-area-inset-bottom, 0px))); }
+body.nav-hidden #fab { transform: translateY(3.4rem); }
