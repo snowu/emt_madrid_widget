@@ -8,13 +8,21 @@ const { JSDOM } = createRequire(new URL("../api/package.json", import.meta.url))
 const watch = { kind: "bus", targetId: "5138", line: "70", destination: "PLAZA" };
 const id = JSON.stringify(["bus", "5138", "70", "PLAZA"]);
 
-function setup({ permission = "granted", watches = [] } = {}) {
+function setup({ permission = "granted", watches = [], expired = new Set() } = {}) {
   const { window } = new JSDOM('<main id="list"></main>', { url: "https://example.com/app/" });
   const calls = [];
   const errors = [];
   window.alert = (message) => errors.push(message);
   const subscription = { endpoint: "https://push.test/device", unsubscribe: async () => { calls.push("unsubscribe"); } };
-  const reg = { pushManager: { getSubscription: async () => subscription } };
+  let current = subscription;
+  const reg = { pushManager: {
+    getSubscription: async () => current,
+    subscribe: async () => {
+      calls.push("subscribe");
+      current = { endpoint: "https://push.test/fresh", unsubscribe: async () => { current = null; } };
+      return current;
+    },
+  } };
   window.Notification = { requestPermission: async () => { calls.push("permission"); return permission; } };
   window.PushManager = function () {};
   Object.defineProperty(window.navigator, "serviceWorker", { value: { register: async () => reg, ready: Promise.resolve(reg), getRegistration: async () => reg } });
@@ -22,6 +30,7 @@ function setup({ permission = "granted", watches = [] } = {}) {
   const api = async (path, init) => {
     calls.push({ path, method: init?.method ?? "GET", body: init?.body && JSON.parse(init.body) });
     if (path === "/tracking/config") return { available: true, publicKey: "test" };
+    if (path === "/tracking/subscription" && init?.method === "POST") return { expired: expired.has(JSON.parse(init.body).endpoint) };
     if (path === "/tracking" && init?.method === "POST") watches = [{ ...JSON.parse(init.body), id }];
     if (path === "/tracking" && init?.method === "DELETE") watches = [];
     return { watches };
@@ -126,4 +135,14 @@ test("a hub bell tracks every distinct boarding option", async () => {
   hub().click();
   await tick(); await tick();
   assert.deepEqual(calls.filter((x) => x.method === "POST" && x.path === "/tracking").map((x) => x.body.targetId), ["1", "2"]);
+});
+
+test("a subscription the push service expired is replaced, not re-registered", async () => {
+  const { tracking, calls } = setup({ expired: new Set(["https://push.test/device"]) });
+  tracking.button(watch).click();
+  await tick(); await tick();
+  const posted = calls.filter((x) => x.path === "/tracking/subscription").map((x) => x.body.endpoint);
+  assert.deepEqual(posted, ["https://push.test/device", "https://push.test/fresh"]);
+  assert.ok(calls.includes("unsubscribe") && calls.includes("subscribe"));
+  assert.equal(calls.at(-1).path, "/tracking");
 });

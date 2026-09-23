@@ -109,7 +109,7 @@ describe("persistent background runner", () => {
     expect(await runDurableObjectAlarm(stub)).toBe(false);
   });
   it("retries failed push without losing the zero-to-one transition and prunes expired subscriptions", async () => {
-    const { stub } = await runner();
+    const { stub, subscription } = await runner();
     let count = 0;
     let status = 503;
     let sends = 0;
@@ -132,6 +132,13 @@ describe("persistent background runner", () => {
     await dueNow(stub);
     expect((await stub.list()).devices).toBe(0);
     expect(await runDurableObjectAlarm(stub)).toBe(false);
+    // The browser hands back the same dead subscription: it must not be
+    // re-registered, or the next send drops it and checks stop again.
+    expect(await stub.subscribe(subscription)).toMatchObject({ expired: true });
+    expect((await stub.list()).devices).toBe(0);
+    await stub.subscribe({ ...subscription, endpoint: "https://fcm.googleapis.com/fcm/send/fresh" });
+    expect((await stub.list()).devices).toBe(1);
+    expect(await runInDurableObject(stub, (_, ctx) => ctx.storage.getAlarm())).not.toBeNull();
   });
   it("survives upstream failure and retains an alarm; no data means no push", async () => {
     const { stub } = await runner();

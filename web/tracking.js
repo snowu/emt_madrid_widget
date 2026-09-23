@@ -3,6 +3,7 @@ export function createTracking({ api, signedIn, changed }) {
   let watches = [];
   let config;
   let deviceCount = 0;
+  let thisDevice = false; // this browser holds a subscription the worker accepted
   let generation = 0;
   let busy = false;
   const supported = () => "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
@@ -20,12 +21,54 @@ export function createTracking({ api, signedIn, changed }) {
     config ??= await api("/tracking/config");
     if (!config.available) throw new Error("Notifications are not configured yet.");
     await registration();
-    const reg = await navigator.serviceWorker.ready;
-    const subscription = await reg.pushManager.getSubscription() ?? await reg.pushManager.subscribe({
-      userVisibleOnly: true, applicationServerKey: config.publicKey,
-    });
-    await api("/tracking/subscription", { method: "POST", body: JSON.stringify(subscription) });
+    await register(await navigator.serviceWorker.ready);
     deviceCount = Math.max(1, deviceCount);
+  }
+
+  /** Send this browser's subscription to the worker, replacing it first when
+   *  it was made with another server key or the push service has expired it:
+   *  the browser keeps handing back a dead subscription as if it were fine. */
+  async function register(reg) {
+    let subscription = await reg.pushManager.getSubscription();
+    if (subscription && !sameKey(subscription, config.publicKey)) {
+      await subscription.unsubscribe();
+      subscription = null;
+    }
+    for (let attempt = 0; attempt < 2; attempt++) {
+      subscription ??= await reg.pushManager.subscribe({
+        userVisibleOnly: true, applicationServerKey: config.publicKey,
+      });
+      const result = await api("/tracking/subscription", { method: "POST", body: JSON.stringify(subscription) });
+      if (!result?.expired) {
+        thisDevice = true;
+        return;
+      }
+      await subscription.unsubscribe();
+      subscription = null;
+    }
+    throw new Error("The push service keeps rejecting this device. Try again later.");
+  }
+
+  function sameKey(subscription, publicKey) {
+    const raw = subscription.options?.applicationServerKey;
+    if (!raw) return true; // not exposed: nothing to compare, keep it
+    const encoded = btoa(String.fromCharCode(...new Uint8Array(raw)))
+      .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    return encoded === publicKey;
+  }
+
+  /** Re-register this browser's subscription without prompting. The worker
+   *  drops a device the push service rejected, and reinstalling the app can
+   *  leave the browser subscribed while the worker has forgotten it; either
+   *  way alerts would stop silently until someone tapped Enable again. */
+  async function resync() {
+    thisDevice = false;
+    if (!supported() || window.Notification.permission !== "granted") return;
+    const reg = await navigator.serviceWorker.getRegistration(new URL("./", import.meta.url));
+    // Never subscribe on its own: only keep alive what Enable created.
+    if (!reg || !(await reg.pushManager.getSubscription())) return;
+    config ??= await api("/tracking/config");
+    if (config.available) await register(reg);
   }
 
   async function load() {
@@ -33,6 +76,7 @@ export function createTracking({ api, signedIn, changed }) {
     watches = [];
     refresh();
     if (!signedIn()) return;
+    try { await resync(); } catch { thisDevice = false; }
     try {
       const data = await api("/tracking");
       if (current !== generation) return;
@@ -180,10 +224,10 @@ export function createTracking({ api, signedIn, changed }) {
     }
     const enableButton = document.createElement("button");
     enableButton.type = "button";
-    enableButton.textContent = "Enable alerts on this device";
+    enableButton.textContent = thisDevice ? "Alerts enabled on this device" : "Enable alerts on this device";
     enableButton.addEventListener("click", async () => {
       enableButton.disabled = true;
-      try { await enable(); enableButton.textContent = "Alerts enabled on this device"; }
+      try { await enable(); refresh(); }
       catch (error) { window.alert(error.message); }
       finally { enableButton.disabled = false; }
     });

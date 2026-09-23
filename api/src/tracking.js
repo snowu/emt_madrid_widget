@@ -24,12 +24,21 @@ export class TrackingRunner extends DurableObject {
     super(ctx, env);
     ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS watches (id TEXT PRIMARY KEY, value TEXT NOT NULL)");
     ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS devices (id TEXT PRIMARY KEY, value TEXT NOT NULL)");
+    // Subscriptions the push service answered 404/410 for. A browser keeps
+    // handing back its dead subscription, so without this list re-enabling
+    // re-registered it, the next send dropped it again, and checks stopped.
+    ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS expired (id TEXT PRIMARY KEY, at INTEGER NOT NULL)");
   }
 
   rows(table) { return this.ctx.storage.sql.exec(`SELECT id, value FROM ${table}`).toArray().map((r) => ({ id: r.id, ...JSON.parse(r.value) })); }
   watch(id) { const row = this.ctx.storage.sql.exec("SELECT value FROM watches WHERE id = ?", id).toArray()[0]; return row ? JSON.parse(row.value) : null; }
   save(watch) { this.ctx.storage.sql.exec("INSERT OR REPLACE INTO watches VALUES (?, ?)", watch.id, JSON.stringify(watch)); }
   devices() { return this.rows("devices"); }
+  expire(id) {
+    this.ctx.storage.sql.exec("DELETE FROM devices WHERE id = ?", id);
+    this.ctx.storage.sql.exec("DELETE FROM expired WHERE at < ?", Date.now() - 90 * 86_400_000);
+    this.ctx.storage.sql.exec("INSERT OR REPLACE INTO expired VALUES (?, ?)", id, Date.now());
+  }
 
   async list() {
     return { watches: this.rows("watches").map(({ state, revision, delivered, ...watch }) => watch), devices: this.devices().length };
@@ -38,6 +47,7 @@ export class TrackingRunner extends DurableObject {
   async subscribe(subscription) {
     const clean = validateSubscription(subscription);
     const id = await subscriptionId(clean.endpoint);
+    if (this.ctx.storage.sql.exec("SELECT 1 FROM expired WHERE id = ?", id).toArray().length) return { id, expired: true };
     if (!this.devices().some((d) => d.id === id) && this.devices().length >= 5) throw new Error("At most five notification devices are supported");
     this.ctx.storage.sql.exec("INSERT OR REPLACE INTO devices VALUES (?, ?)", id, JSON.stringify(clean));
     await this.schedule();
@@ -121,7 +131,7 @@ export class TrackingRunner extends DurableObject {
                 tag: `${watch.id}:${alert.vehicle ?? "bikes"}`, timestamp: now,
                 target: { kind: watch.kind, id: watch.targetId },
               });
-              if (status === 404 || status === 410) this.ctx.storage.sql.exec("DELETE FROM devices WHERE id = ?", device.id);
+              if (status === 404 || status === 410) this.expire(device.id);
               else if (status < 200 || status >= 300) { deliveryFailed = true; continue; }
               if (this.watch(watch.id)?.revision === watch.revision) {
                 watch.delivered[deliveryKey].push(device.id);
