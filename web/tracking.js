@@ -42,20 +42,42 @@ export function createTracking({ api, signedIn, changed }) {
     } catch { /* Tracking availability must not prevent the transport UI loading. */ }
   }
 
+  async function send(method, body) {
+    const data = await api("/tracking", { method, body: JSON.stringify(body) });
+    watches = data.watches;
+    deviceCount = data.devices ?? deviceCount;
+  }
+
   async function toggle(watch) {
     if (busy) return;
     busy = true;
     try {
       const existing = find(watch);
       if (!existing) await enable();
-      const data = await api("/tracking", {
-        method: existing ? "DELETE" : "POST",
-        body: JSON.stringify(existing ? { id: existing.id } : watch),
-      });
-      watches = data.watches;
-      deviceCount = data.devices ?? deviceCount;
+      await send(existing ? "DELETE" : "POST", existing ? { id: existing.id } : watch);
+    } finally {
+      busy = false;
       refresh();
-    } finally { busy = false; }
+    }
+  }
+
+  /** A set is tracked when every member is; tapping a partly tracked set
+   *  completes it, tapping a fully tracked one clears it. */
+  async function toggleSet(set) {
+    if (busy || !set.length) return;
+    busy = true;
+    try {
+      const all = set.every((watch) => find(watch));
+      if (!all) await enable();
+      for (const watch of set) {
+        const existing = find(watch);
+        if (all) await send("DELETE", { id: existing.id });
+        else if (!existing) await send("POST", watch);
+      }
+    } finally {
+      busy = false;
+      refresh();
+    }
   }
 
   async function removeAll() {
@@ -64,9 +86,7 @@ export function createTracking({ api, signedIn, changed }) {
     try {
       // One DELETE per watch: there are at most 20, and it needs no new route.
       for (const watch of [...watches]) {
-        const data = await api("/tracking", { method: "DELETE", body: JSON.stringify({ id: watch.id }) });
-        watches = data.watches;
-        deviceCount = data.devices ?? deviceCount;
+        await send("DELETE", { id: watch.id });
       }
     } finally {
       busy = false;
@@ -90,26 +110,44 @@ export function createTracking({ api, signedIn, changed }) {
     return icon;
   }
 
-  function button(watch) {
-    // An icon, not a label: "Tracking · stop" pushed the ETA off a phone row.
+  const BELL_ON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path class="bell-fill" d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/></svg>';
+  const BELL_OFF = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/><path d="M12 2v1"/></svg>';
+
+  // An icon, not a label: "Tracking · stop" pushed the ETA off a phone row.
+  function bell(tracked, label, onClick) {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "icon-btn track-button";
-    const tracked = !!find(watch);
-    button.innerHTML = tracked
-      ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path class="bell-fill" d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/></svg>'
-      : '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/><path d="M12 2v1"/></svg>';
+    button.innerHTML = tracked ? BELL_ON : BELL_OFF;
     button.setAttribute("aria-pressed", String(tracked));
-    button.setAttribute("aria-label", `${tracked ? "Stop tracking" : "Track"} ${watch.kind === "bus" ? `line ${watch.line} at stop` : "bike station"} ${watch.targetId}${watch.destination ? ` towards ${watch.destination}` : ""}`);
-    button.title = tracked ? "Stop tracking" : "Track: notify me";
+    button.setAttribute("aria-label", label);
+    button.title = label;
     button.addEventListener("click", async (event) => {
       event.preventDefault();
       event.stopPropagation();
       button.disabled = true;
-      try { await toggle(watch); }
+      try { await onClick(); }
       catch (error) { window.alert(error.message); }
       finally { button.disabled = false; }
     });
+    return button;
+  }
+
+  function button(watch) {
+    const tracked = !!find(watch);
+    return bell(tracked,
+      `${tracked ? "Stop tracking" : "Track"} ${watch.kind === "bus" ? `line ${watch.line} at stop` : "bike station"} ${watch.targetId}${watch.destination ? ` towards ${watch.destination}` : ""}`,
+      () => toggle(watch));
+  }
+
+  /** One bell for several watches, e.g. every boarding option of a hub. */
+  function setButton(set, name) {
+    const unique = [...new Map(set.map((watch) => [key(watch), watch])).values()];
+    const tracked = unique.length > 0 && unique.every((watch) => find(watch));
+    const button = bell(tracked,
+      `${tracked ? "Stop tracking" : "Track"} all ${unique.length} boarding option${unique.length === 1 ? "" : "s"} to ${name}`,
+      () => toggleSet(unique));
+    button.disabled = unique.length === 0;
     return button;
   }
 
@@ -160,5 +198,5 @@ export function createTracking({ api, signedIn, changed }) {
     await api("/tracking/subscription", { method: "DELETE", body: JSON.stringify({ endpoint: subscription.endpoint }) });
     await subscription.unsubscribe();
   }
-  return { load, button, removeAll, count: () => watches.length, indicator, isTracked, renderList, disconnect, clear() { generation++; watches = []; refresh(); } };
+  return { load, button, setButton, removeAll, count: () => watches.length, indicator, isTracked, renderList, disconnect, clear() { generation++; watches = []; refresh(); } };
 }

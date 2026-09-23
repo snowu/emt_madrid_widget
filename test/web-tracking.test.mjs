@@ -114,3 +114,16 @@ test("stop tracking everything deletes each watch", async () => {
   assert.deepEqual(calls.filter((x) => x.method === "DELETE").map((x) => x.body.id), [id, "bike-1"]);
   assert.equal(tracking.count(), 0);
 });
+test("a hub bell tracks every distinct boarding option", async () => {
+  const { tracking, calls } = setup();
+  const set = [
+    { kind: "bus", targetId: "1", line: "27", label: "To Work" },
+    { kind: "bus", targetId: "2", line: "N1", label: "To Work" },
+    { kind: "bus", targetId: "1", line: "27", label: "To Work" },
+  ];
+  const hub = () => tracking.setButton(set, "Work");
+  assert.match(hub().getAttribute("aria-label"), /all 2 boarding options/);
+  hub().click();
+  await tick(); await tick();
+  assert.deepEqual(calls.filter((x) => x.method === "POST" && x.path === "/tracking").map((x) => x.body.targetId), ["1", "2"]);
+});
