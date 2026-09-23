@@ -103,6 +103,9 @@ describe("persistent background runner", () => {
     expect(new Headers(pushes[0].headers).get("content-encoding")).toBe("aes128gcm");
     expect(new Headers(pushes[0].headers).get("authorization")).toMatch(/^vapid /);
     expect(pushes[0].body.byteLength).toBeGreaterThan(100);
+    // The stubbed fetch accepts anything; the real Workers fetch throws on
+    // redirect: "error", which silently failed every push in production.
+    expect(pushes[0].redirect).toBe("manual");
     await dueNow(stub);
     expect(pushes).toHaveLength(1);
     await stub.remove(first.id);

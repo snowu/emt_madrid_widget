@@ -29,8 +29,10 @@ export async function sendPush(env, subscription, payload) {
     publicKey: env.VAPID_PUBLIC_KEY,
     privateKey: env.VAPID_PRIVATE_KEY,
   });
+  // Workers reject redirect: "error". "manual" hands a redirect back as a 3xx,
+  // which the caller already treats as a failed delivery: never follow one.
   const response = await fetch(subscription.endpoint, {
-    ...details, redirect: "error", signal: AbortSignal.timeout(10_000),
+    ...details, redirect: "manual", signal: AbortSignal.timeout(10_000),
   });
   await response.body?.cancel();
   return response.status;

@@ -131,21 +131,31 @@ export class TrackingRunner extends DurableObject {
                 tag: `${watch.id}:${alert.vehicle ?? "bikes"}`, timestamp: now,
                 target: { kind: watch.kind, id: watch.targetId },
               });
+              console.log(JSON.stringify({ event: "push_sent", kind: watch.kind, status }));
               if (status === 404 || status === 410) this.expire(device.id);
-              else if (status < 200 || status >= 300) { deliveryFailed = true; continue; }
+              else if (status < 200 || status >= 300) {
+                // The push service's status is the whole diagnosis (403: key
+                // mismatch, 400: bad payload, 429: throttled). No endpoint logged.
+                console.warn(JSON.stringify({ event: "push_rejected", status }));
+                deliveryFailed = true;
+                continue;
+              }
               if (this.watch(watch.id)?.revision === watch.revision) {
                 watch.delivered[deliveryKey].push(device.id);
                 this.save(watch);
               }
-            } catch { deliveryFailed = true; }
+            } catch (error) {
+              console.warn(JSON.stringify({ event: "push_error", error: String(error?.message ?? error).slice(0, 200) }));
+              deliveryFailed = true;
+            }
           }
         }
         if (deliveryFailed) throw new Error("Push delivery incomplete");
         if (this.watch(watch.id)?.revision === watch.revision) this.save({ ...watch, state: result.state, delivered: {}, lastCheck: Date.now(), error: null });
-      } catch {
+      } catch (error) {
         // Never interpret failed/missing data as zero bikes or a bus departure.
         if (this.watch(watch.id)?.revision === watch.revision) this.save({ ...watch, error: "Check or notification failed; retrying", lastAttempt: Date.now() });
-        console.warn(JSON.stringify({ event: "tracking_retry", kind: watch.kind }));
+        console.warn(JSON.stringify({ event: "tracking_retry", kind: watch.kind, error: String(error?.message ?? error).slice(0, 200) }));
       }
     }
     await this.schedule();
