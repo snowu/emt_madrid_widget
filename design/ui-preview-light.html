@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Hubwise UI study</title>
+  <link rel="stylesheet" href="../web/style.css">
+  <style>
+    body { min-height: 100dvh; }
+    .study-intro { display: flex; align-items: center; justify-content: space-between; margin: 0.7rem 0.1rem 0.2rem; color: var(--muted); font-size: .72rem; }
+    .study-intro strong { color: var(--fg); font-size: .78rem; }
+    .study-badge { padding: .25rem .5rem; border: 1px solid var(--line); border-radius: 999px; background: var(--surface-quiet); }
+  </style>
+</head>
+<body>
+  <header>
+    <button id="auth-button" type="button" aria-label="Open account menu">☻</button>
+    <div id="header-context"><i aria-hidden="true"></i><span>García Luna · 3 min</span></div>
+    <button id="nearby-stops-open" type="button" aria-label="Stops near me" title="Stops near me">➤</button>
+    <button id="refresh-all" type="button" aria-label="Refresh all" title="Refresh all">↻</button>
+    <nav id="view-toggle" class="segmented" aria-label="View"><button id="view-list" type="button" aria-selected="true">List</button><button id="view-map" type="button" aria-selected="false">Map</button></nav>
+  </header>
+  <p id="status" role="status">Live data is ready</p>
+  <div class="study-intro"><strong>Recommended next</strong><span class="study-badge">3 routes</span></div>
+  <main id="stops">
+    <article class="place-card reachability-comfortable"><div class="place-card-heading"><h2><span class="freshness-dot fresh">— &lt;1m</span> Madrid Río</h2><span class="muted">280 m</span><button class="place-directions" type="button" aria-label="Open directions">⌁</button><button class="place-directions" type="button" aria-label="Track this hub">♢</button><button class="place-directions" type="button" aria-label="More hub actions">⋯</button></div><div class="place-route"><span class="place-line">27</span><p><b>Alcalá de Henares</b></p><span class="route-later">then 40 · 52</span><time>4 min</time></div><p class="age">Updated 12 seconds ago · Direct is the best trade</p></article>
+    <article class="stop"><div class="head"><div class="title"><h2><span class="freshness-dot aging">— &lt;5m</span> Puerta del Sol</h2><p class="stop-num">Stop 30 · Metro Sol</p></div><div class="controls"><button class="icon-btn" type="button" aria-label="Open stop">›</button><button class="icon-btn" type="button" aria-label="Track stop">♧</button><button class="icon-btn" type="button" aria-label="Show directions">⌁</button></div></div><ul><li><span class="line">5</span><span class="destination">Casa de Campo</span><span class="eta">2 min</span></li><li><span class="line">3</span><span class="destination">Villaverde</span><span class="eta">7 min</span></li></ul><p class="age">Updated 1 minute ago</p></article>
+  </main>
+  <nav id="primary-menu" aria-label="Main navigation"><button type="button" aria-selected="true">Hubwise</button><button type="button" aria-selected="false">Stops</button><button type="button" aria-selected="false">BiciMAD</button></nav>
+  <button id="fab" type="button" aria-label="Add stop">+</button>
+  <div id="map-actions"><button type="button" aria-label="Expand map">⛶</button><button type="button" aria-label="Show nearest routes">≈</button><button type="button" aria-label="Find me">◎</button></div>
+</body>
+</html>
