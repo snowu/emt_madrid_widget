@@ -1,5 +1,10 @@
 // No fetch handler: transport data and application updates retain their normal
 // network caching behavior. This worker exists only to display background push.
+
+// A fixed worker must not wait for every open window to close before it runs:
+// take over at once, including pages loaded before it existed.
+self.addEventListener("install", () => self.skipWaiting());
+self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim()));
 self.addEventListener("push", (event) => {
   let message;
   try { message = event.data?.json(); } catch { /* Show a useful fallback. */ }
@@ -36,9 +41,15 @@ self.addEventListener("notificationclick", (event) => {
   event.waitUntil((async () => {
     const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
     const existing = windows.find((client) => client.url.startsWith(self.registration.scope));
+    // Bring an open app forward and let it open the target itself. navigate()
+    // rejects for a page this worker does not control, which left the tap
+    // doing nothing at all; reloading the app was never wanted anyway.
     if (existing) {
-      await existing.navigate(url.href);
-      return existing.focus();
+      try {
+        const focused = await existing.focus();
+        focused.postMessage({ type: "open", target });
+        return;
+      } catch { /* fall through to a fresh window */ }
     }
     return self.clients.openWindow(url.href);
   })());

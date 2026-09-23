@@ -158,3 +158,25 @@ test("the tracked list says where each rack stands against the alert rule", asyn
   assert.match(lines[2], /^2 bikes · alerts as more arrive/);
   assert.equal(lines[3], "Waiting for first check");
 });
+
+test("tapping a notification focuses the open app and hands it the target", async () => {
+  const handlers = {};
+  const posted = [];
+  const opened = [];
+  const page = {
+    url: "https://example.com/app/", focused: false, visibilityState: "hidden",
+    focus: async () => page, postMessage: (m) => posted.push(m),
+    navigate: async () => { throw new TypeError("not controlled"); },
+  };
+  const self = {
+    addEventListener: (name, callback) => { handlers[name] = callback; },
+    registration: { scope: "https://example.com/app/" },
+    clients: { matchAll: async () => [page], openWindow: async (url) => opened.push(url) },
+  };
+  vm.runInNewContext(readFileSync(new URL("../web/sw.js", import.meta.url), "utf8"), { self, URL });
+  let done;
+  handlers.notificationclick({ notification: { close() {}, data: { target: { kind: "bike", id: "12" } } }, waitUntil: (p) => { done = p; } });
+  await done;
+  assert.equal(JSON.stringify(posted), JSON.stringify([{ type: "open", target: { kind: "bike", id: "12" } }]));
+  assert.equal(opened.length, 0);
+});

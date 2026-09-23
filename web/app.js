@@ -5381,11 +5381,15 @@ document.addEventListener("keydown", (event) => {
 startLocationRefresh();
 initAuth();
 
+/** Where a tapped notification leads: that stop's or that dock's sheet. */
 async function openNotificationTarget(kind, id) {
   if (!/^\d+$/.test(id || "")) return;
+  // A sheet already showing, even this one, cannot be shown again: showModal()
+  // throws on an open dialog. Whatever was open gives way to the alert.
+  for (const dialog of document.querySelectorAll("dialog[open]")) dialog.close();
   try {
     if (kind === "bus") {
-      openStop({ stop_id: id, label: `Stop ${id}` });
+      openStop(stops.find((stop) => String(stop.stop_id) === id) ?? { stop_id: id, label: null, id: null });
     } else if (kind === "bike") {
       const payload = await api(`/bikes/stations?ids=${encodeURIComponent(id)}`);
       const station = payload.stations?.find((station) => String(station.id) === id);
@@ -5394,7 +5398,11 @@ async function openNotificationTarget(kind, id) {
   } catch (error) { statusEl.textContent = `Could not open notification: ${error.message}`; }
 }
 const launchParams = new URLSearchParams(location.search);
-void openNotificationTarget(launchParams.get("trackKind"), launchParams.get("trackId"));
+if (launchParams.has("trackId")) {
+  void openNotificationTarget(launchParams.get("trackKind"), launchParams.get("trackId"));
+  // Opened once; a reload or a home-screen relaunch should not reopen it.
+  history.replaceState(null, "", location.pathname);
+}
 
 const pushBanner = document.getElementById("push-banner");
 let pushBannerTimer;
@@ -5415,6 +5423,10 @@ function hidePushBanner() {
 }
 
 navigator.serviceWorker?.addEventListener("message", (event) => {
+  if (event.data?.type === "open") {
+    void openNotificationTarget(event.data.target?.kind, event.data.target?.id);
+    return;
+  }
   if (event.data?.type !== "push") return;
   const message = event.data.message ?? {};
   document.getElementById("push-banner-title").textContent = message.title || "Hubwise";
