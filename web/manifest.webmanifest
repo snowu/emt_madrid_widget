@@ -1,8 +1,8 @@
 {
   "id": "./",
-  "name": "Madrid Mobility",
-  "short_name": "Madrid",
-  "description": "Live EMT Madrid bus arrivals for saved stops.",
+  "name": "Hubwise",
+  "short_name": "Hubwise",
+  "description": "Live EMT Madrid buses and BiciMAD stations, with arrival alerts.",
   "start_url": ".",
   "scope": ".",
   "display": "standalone",

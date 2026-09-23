@@ -1,6 +1,6 @@
 import { env, runInDurableObject, runDurableObjectAlarm, createExecutionContext } from "cloudflare:test";
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { bikeTransition, busTransition, BIKE_INTERVAL, BUS_INTERVAL } from "../src/tracking-rules.js";
+import { bikeTransition, busTransition, notificationText, BIKE_INTERVAL, BUS_INTERVAL } from "../src/tracking-rules.js";
 import { validateWatch } from "../src/tracking.js";
 import { validateSubscription } from "../src/push.js";
 import worker from "../src/index.js";
@@ -26,10 +26,13 @@ describe("alert thresholds", () => {
     expect(busTransition(gap.state, [bus(700)], busWatch, 241000).alerts).toHaveLength(0);
     expect(busTransition(first.state, [bus(800)], busWatch, 31 * 60_000).alerts).toHaveLength(1);
   });
-  it("leads the notification with the line, direction and wait", () => {
-    expect(busTransition({}, [bus(170)], busWatch, 1000).alerts[0].headline).toBe("70 → PLAZA in 3 min");
+  it("names the bus in the title and leads the body with the wait", () => {
+    const alert = busTransition({}, [{ ...bus(170), destination: "PLAZA CASTILLA" }], { ...busWatch, destination: "" }, 1000).alerts[0];
+    expect(notificationText(busWatch, alert)).toEqual({ title: "70 → Plaza Castilla", body: "In 3 min · Home · stop 5138" });
+    expect(notificationText({ ...busWatch, label: "" }, { ...alert, minutes: 0 }).body).toBe("Due now · Stop 5138");
     const armed = bikeTransition({}, station(0)).state;
-    expect(bikeTransition(armed, station(1)).alerts[0].headline).toBe("1 bike available");
+    const bikes = bikeTransition(armed, station(1)).alerts[0];
+    expect(notificationText(bikeWatch, bikes)).toEqual({ title: "Rack", body: "1 bike available now · station 1" });
   });
   it("rejects invalid ETAs and other routes/directions", () => {
     const rows = [bus(-1), bus(NaN), bus(999999), { ...bus(10), line: "71" }, { ...bus(10), destination: "ELSEWHERE" }];

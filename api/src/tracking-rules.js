@@ -11,7 +11,7 @@ export function bikeTransition(previous = {}, station) {
   return {
     state: { armed, count },
     alerts: notify ? [{
-      headline: `${count} ${count === 1 ? "bike" : "bikes"} available`,
+      bikes: count,
       body: `${count} ${count === 1 ? "bike is" : "bikes are"} now available.`,
     }] : [],
   };
@@ -31,9 +31,34 @@ export function busTransition(previous = {}, arrivals, watch, now) {
     if (!seen[key]) {
       const route = `${watch.line}${bus.destination ? ` → ${bus.destination}` : ""}`;
       const minutes = Math.ceil(bus.seconds / 60);
-      alerts.push({ headline: `${route} in ${minutes} min`, body: `Line ${route}: ${minutes} min away.`, vehicle: key });
+      alerts.push({ minutes, destination: bus.destination ?? "", body: `Line ${route}: ${minutes} min away.`, vehicle: key });
     }
     seen[key] = now;
   }
   return { state: { seen }, alerts };
+}
+
+/** EMT signs destinations in capitals ("PLAZA CASTILLA"); a notification
+ *  reads them faster in ordinary case. */
+export function displayCase(text) {
+  return String(text ?? "").toLowerCase().replace(/(^|[\s\-/(.])(\p{L})/gu, (_, gap, letter) => gap + letter.toUpperCase());
+}
+
+/** What the phone shows. Android gives the title one bold line and the body
+ *  one more before truncating, so the title names the bus or station and the
+ *  body leads with the news: minutes for a bus, the count for bikes. */
+export function notificationText(watch, alert) {
+  const place = watch.kind === "bike" ? `station ${watch.targetId}` : `stop ${watch.targetId}`;
+  const where = watch.label ? `${watch.label} · ${place}` : place.charAt(0).toUpperCase() + place.slice(1);
+  if (watch.kind === "bike") {
+    return {
+      title: watch.label || `Station ${watch.targetId}`,
+      body: `${alert.bikes} ${alert.bikes === 1 ? "bike" : "bikes"} available now${watch.label ? ` · ${place}` : ""}`,
+    };
+  }
+  const destination = displayCase(alert.destination || watch.destination);
+  return {
+    title: destination ? `${watch.line} → ${destination}` : `Line ${watch.line}`,
+    body: `${alert.minutes <= 0 ? "Due now" : `In ${alert.minutes} min`} · ${where}`,
+  };
 }

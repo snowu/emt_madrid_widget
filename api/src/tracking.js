@@ -3,7 +3,7 @@ import { getArrivals } from "./emt.js";
 import { getBikeStationStatus } from "./bikes.js";
 import { EmtError } from "./errors.js";
 import { sendPush, validateSubscription, subscriptionId } from "./push.js";
-import { bikeTransition, busTransition, BIKE_INTERVAL, BUS_INTERVAL } from "./tracking-rules.js";
+import { bikeTransition, busTransition, notificationText, BIKE_INTERVAL, BUS_INTERVAL } from "./tracking-rules.js";
 
 export function validateWatch(input) {
   if (!input || !["bus", "bike"].includes(input.kind) || !/^\d{1,8}$/.test(input.targetId ?? "")) {
@@ -122,12 +122,8 @@ export class TrackingRunner extends DurableObject {
             if (watch.delivered[deliveryKey].includes(device.id)) continue;
             if (this.watch(watch.id)?.revision !== watch.revision) break;
             try {
-              // The collapsed Android shade shows little more than the title,
-              // so it carries the news and the body says where.
-              const place = `${watch.kind === "bike" ? "Station" : "Stop"} ${watch.targetId}`;
               const status = await sendPush(this.env, device, {
-                title: alert.headline ?? alert.body,
-                body: watch.label ? `${watch.label} · ${place}` : place,
+                ...notificationText(watch, alert),
                 tag: `${watch.id}:${alert.vehicle ?? "bikes"}`, timestamp: now,
                 target: { kind: watch.kind, id: watch.targetId },
               });
