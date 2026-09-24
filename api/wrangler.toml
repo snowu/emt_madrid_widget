@@ -19,7 +19,7 @@ dataset = "hubwise_emt_metrics"
 ALLOWED_ORIGIN = "https://snowu.github.io"
 # "paid" once the account is on Workers Paid: one journey request for every
 # hub and a wider search (see PLANNER_BUDGETS in src/index.js). Not a secret.
-PLANNER_TIER = "free"
+PLANNER_TIER = "paid"
 # "required": everyone, the owner included, must connect their own EMT account;
 # nothing falls back to the shared login. "optional" allows the fallback. See
 # src/emt-account.js. Not a secret.
