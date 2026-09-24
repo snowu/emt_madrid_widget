@@ -136,6 +136,7 @@ else document.documentElement.dataset.theme = themeChoice;
 let authClient = null;
 let authSession = null;
 let authUser = null;
+let emtConnected = false;
 let isOwner = false;
 let myLocation = null;
 let places = [];
@@ -967,7 +968,7 @@ function render() {
 
 const pendingGets = new Map();
 
-const emtAccount = setupEmtAccount({ request: api });
+const emtAccount = setupEmtAccount({ request: api, onState: (connected) => { emtConnected = connected; } });
 const trackingClear = document.getElementById("tracking-clear");
 const tracking = createTracking({
   api, signedIn: () => !!authSession,
@@ -1004,7 +1005,7 @@ async function api(path, init = {}) {
   const requestKey = isWrite ? null : `${authUser?.id ?? "public"}:${path}`;
   if (requestKey && pendingGets.has(requestKey)) return pendingGets.get(requestKey);
   const authorization = authSession?.access_token
-    ? { Authorization: `Bearer ${authSession.access_token}` }
+    ? { Authorization: `Bearer ${authSession.access_token}`, "x-hubwise-emt": emtConnected ? "connected" : "unconnected" }
     : {};
   const operation = (async () => {
     const res = await fetch(`${API}${path}`, {
@@ -1274,7 +1275,34 @@ function renderMetrics(payload) {
     row.append(name, amount);
     table.append(row);
   }
-  metricsContent.replaceChildren(summary, table);
+  const byWho = new Map();
+  for (const row of edge) {
+    const name = row.who || "unrecorded";
+    const entry = byWho.get(name) ?? { hit: 0, other: 0 };
+    entry[row.cache_status === "hit" ? "hit" : "other"] += Number(row.events || 0);
+    byWho.set(name, entry);
+  }
+  const whoTable = byWho.size ? document.createElement("table") : null;
+  if (whoTable) {
+    whoTable.className = "metrics-table";
+    const whoHead = document.createElement("tr");
+    for (const value of ["Who asked", "Cache hits", "Fetched"]) {
+      const th = document.createElement("th");
+      th.textContent = value;
+      whoHead.append(th);
+    }
+    whoTable.append(whoHead);
+    for (const [name, { hit, other }] of [...byWho].sort((a, b) => (b[1].hit + b[1].other) - (a[1].hit + a[1].other))) {
+      const row = document.createElement("tr");
+      for (const value of [name, Math.round(hit).toLocaleString(), Math.round(other).toLocaleString()]) {
+        const td = document.createElement("td");
+        td.textContent = value;
+        row.append(td);
+      }
+      whoTable.append(row);
+    }
+  }
+  metricsContent.replaceChildren(...[summary, table, whoTable].filter(Boolean));
 }
 
 async function loadMetrics(hours = 24) {

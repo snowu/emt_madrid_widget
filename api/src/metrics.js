@@ -5,10 +5,10 @@ function safe(value) {
 }
 
 function write(env, { kind, endpoint, cache = "", target = "", outcome = "ok",
-  error = "", caller = "", upstream = 0, duration = 0, status = 0 }) {
+  error = "", caller = "", upstream = 0, duration = 0, status = 0, who = env?.EMT_CALLER ?? "" }) {
   env?.METRICS?.writeDataPoint({
     indexes: ["emt"],
-    blobs: [kind, endpoint, cache, safe(target), outcome, error, caller],
+    blobs: [kind, endpoint, cache, safe(target), outcome, error, caller, who],
     doubles: [upstream, duration, status],
   });
 }
@@ -45,6 +45,7 @@ export async function queryMetrics(env, hours) {
       blob5 AS outcome,
       blob6 AS error_kind,
       blob7 AS caller,
+      blob8 AS who,
       SUM(_sample_interval) AS events,
       SUM(_sample_interval * double1) AS upstream_calls,
       AVG(double2) AS avg_duration_ms,
@@ -52,7 +53,7 @@ export async function queryMetrics(env, hours) {
       MIN(timestamp) AS first_seen
     FROM ${DATASET}
     WHERE timestamp > NOW() - INTERVAL '${hours}' HOUR
-    GROUP BY kind, endpoint, cache_status, outcome, error_kind, caller
+    GROUP BY kind, endpoint, cache_status, outcome, error_kind, caller, who
     ORDER BY events DESC`;
   const response = await fetch(
     `https://api.cloudflare.com/client/v4/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/analytics_engine/sql`,

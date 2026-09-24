@@ -1,7 +1,7 @@
 import { env, createExecutionContext, waitOnExecutionContext, runInDurableObject, runDurableObjectAlarm } from "cloudflare:test";
 import { beforeEach, afterEach, describe, it, expect, vi } from "vitest";
 import worker from "../src/index.js";
-import { sealCredentials, openCredentials, withEmtAccount } from "../src/emt-account.js";
+import { sealCredentials, openCredentials, withEmtAccount, callerClass } from "../src/emt-account.js";
 import { getToken, clearTokenMemoryForTest } from "../src/emt.js";
 
 // Supabase (auth + the emt_accounts table) and EMT are stubbed; the bearer
@@ -62,6 +62,16 @@ describe("per-user EMT connection", () => {
     expect((await sealCredentials(env, "alice", input)).iv).not.toBe(sealed.iv);
     await expect(openCredentials(env, "bob", sealed)).rejects.toMatchObject({ kind: "emt_account" });
     await expect(openCredentials(env, "alice", { ...sealed, ciphertext: "AAAA" })).rejects.toMatchObject({ kind: "emt_account" });
+  });
+
+  it("classifies metrics callers without recording identity", () => {
+    const request = (headers) => new Request("https://account.test", { headers });
+    expect(callerClass(request({}))).toBe("guest");
+    expect(callerClass(request({ Authorization: "Bearer alice" }))).toBe("signed-in");
+    expect(callerClass(request({ Authorization: "Bearer alice", "x-hubwise-emt": "connected" }))).toBe("connected");
+    expect(callerClass(request({ Authorization: "Bearer alice", "x-hubwise-emt": "unconnected" }))).toBe("unconnected");
+    expect(callerClass(request({ Authorization: "Bearer alice", "x-hubwise-emt": "unknown" }))).toBe("signed-in");
+    expect(withEmtAccount(env, request({ Authorization: "Bearer alice", "x-hubwise-emt": "connected" })).EMT_CALLER).toBe("connected");
   });
 
   it("uses the shared login for guests and for users who never connected", async () => {
