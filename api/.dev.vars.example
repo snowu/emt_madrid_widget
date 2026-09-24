@@ -9,3 +9,7 @@ OWNER_USER_ID=replace-with-owner-auth-uuid
 MPASS_CLIENT_ID=replace-me
 MPASS_PASSKEY=replace-me
 MPASS_DEVICE_ID=replace-me
+# Optional: per-user EMT accounts. 32 random bytes, base64:
+#   node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+# Without it, everyone uses the shared EMT login above.
+# EMT_CREDENTIAL_KEY=replace-me

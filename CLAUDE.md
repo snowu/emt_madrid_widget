@@ -129,6 +129,13 @@ for each of `EMT_EMAIL`, `EMT_PASSWORD`, `SUPABASE_URL`,
 `SUPABASE_ANON_KEY`, and `OWNER_USER_ID`, plus the optional MPass secrets below.
 Tests get fakes from `vitest.config.js`'s miniflare bindings.
 
+**Per-user EMT accounts are optional.** A signed-in user may connect their own
+EMT email/password (`/auth/emt`); EMT calls made for them — including their
+tracking runner's bus checks — then use their quota. Everyone else uses the
+shared `EMT_EMAIL` login. A connection EMT rejects is an `emt_account` error,
+never a silent fallback. Needs the `EMT_CREDENTIAL_KEY` secret and
+`supabase/emt-accounts.sql`; see `docs/emt-account-rollout.md`.
+
 The optional `/bikes/account` route first verifies the Supabase user and allows
 only `OWNER_USER_ID`. It logs in lazily with the `MPASS_EMAIL`,
 `MPASS_PASSWORD`, `MPASS_CLIENT_ID`, `MPASS_PASSKEY`, and `MPASS_DEVICE_ID`

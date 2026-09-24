@@ -35,6 +35,7 @@ import {
 import { EmtError, errorResponse } from "./errors.js";
 import { getBikeAccountStatus, getBikeTrips } from "./bicimad-account.js";
 import { authenticatedUser, bearerToken } from "./auth.js";
+import { withEmtAccount, manageEmtAccount } from "./emt-account.js";
 import { getBikeTripDiagnostics, monitorBikeTrips } from "./trip-monitor.js";
 import { queryMetrics, recordEdgeMetric } from "./metrics.js";
 import {
@@ -712,6 +713,20 @@ export default {
     }
 
     try {
+      // EMT calls in this request use the caller's own EMT account when they
+      // connected one, and the shared login otherwise (see emt-account.js).
+      env = withEmtAccount(env, request);
+      if (pathname === "/auth/emt" && ["GET", "PUT", "DELETE"].includes(method)) {
+        const result = await manageEmtAccount(env, request, {
+          // The tracking runner checks on a timer with no signed-in caller, so
+          // it keeps its own copy of the ciphertext to use the same account.
+          // get(idFromName()) is getByName() spelled for older runtimes too.
+          onChange: async (user, row) => env.TRACKING?.get(env.TRACKING.idFromName(user.id)).setEmtAccount(row ? {
+            userId: user.id, connectionId: row.connection_id, credentials: row.credentials,
+          } : null),
+        });
+        return json(result, env, 200, { "cache-control": "no-store" });
+      }
       if (pathname === "/tracking/config" && method === "GET") {
         return json({ available: Boolean(env.TRACKING && env.VAPID_PUBLIC_KEY && env.VAPID_PRIVATE_KEY && env.VAPID_SUBJECT), publicKey: env.VAPID_PUBLIC_KEY ?? null }, env);
       }

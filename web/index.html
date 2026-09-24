@@ -115,6 +115,7 @@
             <button type="button" data-theme-choice="dark" aria-pressed="false">Dark</button>
           </div>
         </section>
+        <button id="emt-account-open" type="button">Connect EMT account</button>
         <button id="tracking-open" type="button">Tracked alerts</button>
         <button id="tracking-clear" class="danger" type="button" hidden>Stop tracking everything</button>
         <button id="manage-places" type="button">Manage hubs</button>
@@ -139,6 +140,24 @@
           <a id="directions-app" class="directions-primary" href="#">Open in Google Maps</a>
           <a id="directions-web" href="#" target="_blank" rel="noopener">Open in browser instead</a>
           <button type="submit">Close</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- Optional: EMT calls made for this user then spend their own quota. -->
+    <dialog id="emt-account-dialog" aria-labelledby="emt-account-title">
+      <form id="emt-account-form">
+        <h2 id="emt-account-title">Your EMT account</h2>
+        <p id="emt-account-message" class="muted" role="status"></p>
+        <label class="field"><span>EMT email</span>
+          <input id="emt-account-email" type="email" autocomplete="username" required maxlength="254" /></label>
+        <label class="field"><span>EMT password</span>
+          <input id="emt-account-password" type="password" autocomplete="current-password" required maxlength="1024" /></label>
+        <p class="muted">Your password is checked with EMT, then stored encrypted on the server so your session can renew. It is never kept on this device.</p>
+        <div class="dialog-actions">
+          <button id="emt-account-disconnect" type="button" class="danger" hidden>Disconnect</button>
+          <button id="emt-account-close" type="button">Close</button>
+          <button id="emt-account-save" type="submit">Connect</button>
         </div>
       </form>
     </dialog>

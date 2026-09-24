@@ -1,5 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import { getArrivals } from "./emt.js";
+import { openCredentials, scopedEnvironment } from "./emt-account.js";
 import { getBikeStationStatus } from "./bikes.js";
 import { EmtError } from "./errors.js";
 import { sendPush, validateSubscription, subscriptionId } from "./push.js";
@@ -54,6 +55,9 @@ export class TrackingRunner extends DurableObject {
     // handing back its dead subscription, so without this list re-enabling
     // re-registered it, the next send dropped it again, and checks stopped.
     ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS expired (id TEXT PRIMARY KEY, at INTEGER NOT NULL)");
+    // The user's EMT connection (ciphertext only), so bus checks spend their
+    // quota rather than the shared login's. One row, written when it changes.
+    ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS meta (id TEXT PRIMARY KEY, value TEXT NOT NULL)");
     this.checked = new Map(); // watch id → last check, deliberately not persisted
   }
 
@@ -76,6 +80,32 @@ export class TrackingRunner extends DurableObject {
     if (last == null || this.dueOverride) return true;
     if (watch.kind === "bike") return now - last >= TICK - 5_000;
     return Math.floor(now / TICK) % BUS_TICKS === 0 && now - last >= BUS_INTERVAL - TICK;
+  }
+
+  emtAccount() {
+    const row = this.ctx.storage.sql.exec("SELECT value FROM meta WHERE id = 'emt-account'").toArray()[0];
+    return row ? JSON.parse(row.value) : null;
+  }
+
+  /** Called whenever the page reads or changes its EMT connection. Written
+   *  only when the connection actually changed. */
+  async setEmtAccount(account) {
+    const current = this.emtAccount();
+    if ((current?.connectionId ?? null) === (account?.connectionId ?? null)) return;
+    if (account) this.ctx.storage.sql.exec("INSERT OR REPLACE INTO meta VALUES ('emt-account', ?)", JSON.stringify(account));
+    else this.ctx.storage.sql.exec("DELETE FROM meta WHERE id = 'emt-account'");
+    this.emtEnv = null;
+  }
+
+  /** The env bus checks run with: the user's EMT login if they connected
+   *  one, the shared login otherwise. */
+  async checkEnv() {
+    if (this.emtEnv) return this.emtEnv;
+    const account = this.emtAccount();
+    if (!account) return this.env;
+    const credentials = await openCredentials(this.env, account.userId, account.credentials);
+    this.emtEnv = scopedEnvironment(this.env, credentials, `${account.userId}:${account.connectionId}`);
+    return this.emtEnv;
   }
 
   async list() {
@@ -161,7 +191,7 @@ export class TrackingRunner extends DurableObject {
           if (!station || !Number.isInteger(station.bikes) || station.bikes < 0) throw new Error("Station count absent from feed");
           result = bikeTransition(watch.state, station);
         } else {
-          if (!boards.has(watch.targetId)) boards.set(watch.targetId, getArrivals(this.env, watch.targetId, "tracking"));
+          if (!boards.has(watch.targetId)) boards.set(watch.targetId, this.checkEnv().then((env) => getArrivals(env, watch.targetId, "tracking")));
           const payload = await boards.get(watch.targetId);
           result = busTransition(watch.state, payload.arrivals, watch, now);
         }

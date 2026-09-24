@@ -11,6 +11,7 @@ export default defineWorkersConfig({
           bindings: {
             EMT_EMAIL: "test@example.com",
             EMT_PASSWORD: "test-password",
+            EMT_CREDENTIAL_KEY: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
             SUPABASE_ANON_KEY: "test-anon-key",
             OWNER_USER_ID: "owner-user-id",
             MPASS_EMAIL: "rider@example.com",
