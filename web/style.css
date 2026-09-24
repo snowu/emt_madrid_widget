@@ -1981,10 +1981,81 @@ body.nav-hidden #fab { transform: translateY(calc(100% + 4.15rem + env(safe-area
   --signal-muted: #53666d;
 }
 
+.ui-signal-compact .place-card,
+.ui-signal-compact .stop,
+.ui-signal-compact .place-nearest-bike {
+  margin-top: 0.45rem;
+  padding: 0.65rem 0.7rem;
+  box-shadow: 3px 3px 0 var(--signal-ink);
+}
+
+.ui-signal-compact .place-card::before,
+.ui-signal-compact .stop::before {
+  width: 2.8rem;
+  height: 3px;
+}
+
+.ui-signal-compact .place-card-heading h2,
+.ui-signal-compact .title h2 {
+  font-size: 0.9rem;
+}
+
+.ui-signal-compact .place-card-heading > span,
+.ui-signal-compact .stop-num,
+.ui-signal-compact .age {
+  font-size: 0.68rem;
+}
+
+.ui-signal-compact .place-directions,
+.ui-signal-compact .place-route-directions,
+.ui-signal-compact .icon-btn {
+  width: 32px;
+  min-height: 32px;
+}
+
+.ui-signal-compact .place-route {
+  grid-template-columns: 3.6rem minmax(0, 1fr) auto auto;
+  gap: 0.6rem;
+  margin-top: 0.55rem;
+  padding-top: 0.5rem;
+}
+
+.ui-signal-compact .place-line,
+.ui-signal-compact .line {
+  font-size: 1.45rem;
+  font-weight: 750;
+  text-shadow: 2px 2px 0 color-mix(in srgb, var(--signal-coral) 24%, transparent);
+}
+
+.ui-signal-compact .place-line::after,
+.ui-signal-compact .line::after {
+  width: 1.65rem;
+  height: 2px;
+  margin-top: 0.25rem;
+}
+
+.ui-signal-compact .place-route time,
+.ui-signal-compact .eta {
+  font-size: 1rem;
+  text-shadow: 0 0 8px color-mix(in srgb, var(--signal-lime) 26%, transparent);
+}
+
+.ui-signal-compact .stop li {
+  padding: 0.42rem 0;
+}
+
+.ui-signal-compact .stop .destination {
+  font-size: 0.76rem;
+}
+
+.ui-signal-compact #primary-menu button {
+  min-height: 44px;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .ui-signal-v2 *,
-  .ui-signal-v2 *::before,
-  .ui-signal-v2 *::after {
+  .ui-signal-compact *,
+  .ui-signal-compact *::before,
+  .ui-signal-compact *::after {
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
   }
