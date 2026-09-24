@@ -1496,3 +1496,266 @@ button.place-stop-open { color: var(--fg); font-size: .72rem; font-weight: 700; 
 #primary-menu, #fab { transition: transform 200ms ease, opacity 200ms ease; }
 body.nav-hidden #primary-menu { transform: translate(-50%, calc(100% + 0.5rem + env(safe-area-inset-bottom, 0px))); }
 body.nav-hidden #fab { transform: translateY(calc(100% + 4.15rem + env(safe-area-inset-bottom, 0px))); opacity: 0; pointer-events: none; }
+
+.ui-editorial {
+  --editorial-ink: var(--fg);
+  --editorial-quiet: color-mix(in srgb, var(--fg) 62%, var(--bg));
+  --editorial-line: color-mix(in srgb, var(--fg) 14%, var(--bg));
+  --editorial-wash: color-mix(in srgb, var(--accent) 10%, var(--bg));
+  max-width: 520px;
+  padding: 0.5rem 1.1rem calc(env(safe-area-inset-bottom, 0px) + 5.5rem);
+  background: var(--bg);
+}
+
+.ui-editorial header {
+  min-height: 4rem;
+  margin-inline: -1.1rem;
+  padding: 0.7rem 1.1rem 0.6rem;
+  border-bottom: 2px solid var(--editorial-ink);
+  background: var(--bg);
+  backdrop-filter: none;
+}
+
+.ui-editorial .segmented {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.ui-editorial .segmented button {
+  min-width: 3.7rem;
+  border-radius: 7px;
+}
+
+.ui-editorial .segmented button[aria-selected="true"] {
+  color: var(--accent);
+  background: var(--editorial-wash);
+  box-shadow: inset 0 -2px var(--accent);
+}
+
+.ui-editorial #status {
+  min-height: 0;
+  margin: 0.75rem 0 0.2rem;
+  padding: 0.55rem 0;
+  border: 0;
+  border-bottom: 1px solid var(--editorial-line);
+  border-radius: 0;
+  background: transparent;
+}
+
+.ui-editorial .place-context {
+  margin: 1rem 0 0.25rem;
+  color: var(--editorial-quiet);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.ui-editorial .place-card,
+.ui-editorial .stop,
+.ui-editorial .place-nearest-bike,
+.ui-editorial #route-legend {
+  margin: 0;
+  padding: 1rem 0;
+  border: 0;
+  border-top: 1px solid var(--editorial-line);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.ui-editorial .place-card:first-child,
+.ui-editorial #stops > :first-child {
+  border-top: 2px solid var(--editorial-ink);
+}
+
+.ui-editorial .place-card-heading {
+  grid-template-columns: minmax(0, 1fr) auto repeat(3, 36px);
+  gap: 0.2rem;
+}
+
+.ui-editorial .place-card-heading h2,
+.ui-editorial .title h2 {
+  gap: 0.55rem;
+  font-size: 1.1rem;
+  letter-spacing: -0.025em;
+}
+
+.ui-editorial .place-card-heading h2::before,
+.ui-editorial .title h2::before {
+  content: "";
+  width: 0.28rem;
+  height: 1.2em;
+  flex: none;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+.ui-editorial .place-card-heading > span,
+.ui-editorial .stop-num {
+  color: var(--editorial-quiet);
+}
+
+.ui-editorial .place-directions,
+.ui-editorial .place-route-directions,
+.ui-editorial .icon-btn {
+  width: 36px;
+  min-height: 36px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--editorial-quiet);
+}
+
+.ui-editorial .place-directions:hover,
+.ui-editorial .place-route-directions:hover,
+.ui-editorial .icon-btn:hover,
+.ui-editorial .icon-btn:active {
+  color: var(--accent);
+  background: var(--editorial-wash);
+}
+
+.ui-editorial .place-route {
+  grid-template-columns: 3.4rem minmax(0, 1fr) auto auto;
+  gap: 0.75rem;
+  margin-top: 0.85rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--editorial-line);
+}
+
+.ui-editorial .place-line {
+  min-height: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: 1.45rem;
+  font-weight: 850;
+  letter-spacing: -0.06em;
+}
+
+.ui-editorial .place-route p,
+.ui-editorial .place-route p b {
+  color: var(--editorial-ink);
+}
+
+.ui-editorial .place-route time,
+.ui-editorial .eta {
+  color: var(--accent);
+  font-size: 1.35rem;
+  font-weight: 850;
+}
+
+.ui-editorial .route-later,
+.ui-editorial .age,
+.ui-editorial .freshness-dot {
+  color: var(--editorial-quiet);
+}
+
+.ui-editorial .stop ul {
+  margin-top: 0.75rem;
+}
+
+.ui-editorial .stop li {
+  grid-template-columns: 3.4rem minmax(0, 1fr) auto;
+  padding: 0.72rem 0;
+  border-bottom: 1px solid var(--editorial-line);
+}
+
+.ui-editorial .stop li:last-child {
+  border-bottom: 0;
+}
+
+.ui-editorial .line {
+  color: var(--accent);
+  font-size: 1.35rem;
+  font-weight: 850;
+  letter-spacing: -0.06em;
+}
+
+.ui-editorial .stop .destination {
+  color: var(--editorial-ink);
+  font-size: 0.86rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  text-transform: none;
+}
+
+.ui-editorial .controls {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.ui-editorial #primary-menu {
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  max-width: none;
+  margin-inline: auto;
+  padding: 0.45rem 1.1rem calc(0.45rem + env(safe-area-inset-bottom, 0px));
+  border-width: 1px 0 0;
+  border-radius: 0;
+  background: color-mix(in srgb, var(--bg) 94%, transparent);
+  box-shadow: 0 -8px 24px rgb(0 0 0 / 0.12);
+  transform: none;
+}
+
+.ui-editorial #primary-menu button {
+  min-height: 48px;
+  border-radius: 8px;
+  color: var(--editorial-quiet);
+}
+
+.ui-editorial #primary-menu button[aria-selected="true"] {
+  color: var(--accent);
+  background: var(--editorial-wash);
+  box-shadow: inset 0 -2px var(--accent);
+}
+
+.ui-editorial #fab {
+  right: 1.1rem;
+  bottom: calc(5.2rem + env(safe-area-inset-bottom, 0px));
+  width: 44px;
+  height: 44px;
+  min-height: 44px;
+  border-radius: 12px;
+  box-shadow: none;
+}
+
+.ui-editorial #map-actions {
+  right: 1.1rem;
+  bottom: calc(5.2rem + env(safe-area-inset-bottom, 0px));
+}
+
+.ui-editorial #map-actions button {
+  width: 44px;
+  height: 44px;
+  min-height: 44px;
+  border: 1px solid var(--editorial-line);
+  border-radius: 12px;
+  background: var(--editorial-wash);
+  color: var(--accent);
+  box-shadow: none;
+}
+
+.ui-editorial body.nav-hidden #primary-menu,
+.ui-editorial.nav-hidden #primary-menu {
+  transform: translateY(100%);
+}
+
+.ui-editorial .line-chip {
+  border-radius: 7px;
+  background: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-editorial *,
+  .ui-editorial *::before,
+  .ui-editorial *::after {
+    transition-duration: 0.01ms !important;
+  }
+}
