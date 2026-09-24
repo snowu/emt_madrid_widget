@@ -136,6 +136,17 @@ shared `EMT_EMAIL` login. A connection EMT rejects is an `emt_account` error,
 never a silent fallback. Needs the `EMT_CREDENTIAL_KEY` secret and
 `supabase/emt-accounts.sql`; see `docs/emt-account-rollout.md`.
 
+**Tracking is fetched once and shared** (`src/pollers.js`). One `StopPoller`
+per tracked bus stop polls arrivals every 2 minutes, and one `BikeFeed` polls
+the whole GBFS status every 30 seconds, each on an aligned clock, and call
+every subscribed user's `TrackingRunner` with the result (`onBoard` /
+`onBikes`). Runners fetch nothing: they hold one user's watches, devices and
+alert state, keep their poller subscriptions in step via `sync()` (plus a daily
+re-sync alarm), and write storage only when state changes. A stop poller spends
+its watchers' own EMT quotas in turn — one connected watcher per 2-minute
+slot — and uses the shared login if none has connected or the chosen account
+fails, so one broken connection never silences everyone else's alerts.
+
 The optional `/bikes/account` route first verifies the Supabase user and allows
 only `OWNER_USER_ID`. It logs in lazily with the `MPASS_EMAIL`,
 `MPASS_PASSWORD`, `MPASS_CLIENT_ID`, `MPASS_PASSKEY`, and `MPASS_DEVICE_ID`

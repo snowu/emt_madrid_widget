@@ -26,6 +26,18 @@ crons = ["*/30 * * * *"]
 name = "TRACKING"
 class_name = "TrackingRunner"
 
+[[durable_objects.bindings]]
+name = "BIKE_FEED"
+class_name = "BikeFeed"
+
+[[durable_objects.bindings]]
+name = "STOP_POLLER"
+class_name = "StopPoller"
+
 [[migrations]]
 tag = "tracking-v1"
 new_sqlite_classes = ["TrackingRunner"]
+
+[[migrations]]
+tag = "pollers-v1"
+new_sqlite_classes = ["BikeFeed", "StopPoller"]

@@ -152,40 +152,72 @@ describe("per-user EMT connection", () => {
   });
 });
 
-describe("tracking with a connected EMT account", () => {
-  it("runs bus checks on the user's quota, and on the shared login after disconnecting", async () => {
-    await connect("dave");
-    const runner = env.TRACKING.get(env.TRACKING.idFromName("dave"));
-    expect(await runInDurableObject(runner, (instance) => instance.emtAccount()?.userId)).toBe("dave");
-    await runInDurableObject(runner, (instance) => {
+describe("shared stop pollers and connected EMT accounts", () => {
+  /** A runner for `user` with one device and a bus watch on `stop`, subscribed
+   *  to that stop's poller the way the /tracking routes would. */
+  async function tracker(user, stop) {
+    const stub = env.TRACKING.get(env.TRACKING.idFromName(user));
+    await stub.identify(user);
+    await runInDurableObject(stub, (instance) => {
       instance.ctx.storage.sql.exec("INSERT OR REPLACE INTO devices VALUES ('d', ?)", JSON.stringify({ endpoint: "https://fcm.googleapis.com/fcm/send/x", keys: {} }));
-      instance.save({ id: "w", kind: "bus", targetId: "4242", line: "70", destination: "", label: "", revision: "r", state: {}, lastCheck: null, error: null });
-      instance.dueOverride = true;
+      instance.save({ id: `w-${stop}`, kind: "bus", targetId: stop, line: "70", destination: "", label: "", revision: "r", state: {}, lastCheck: null, error: null });
     });
-    await runInDurableObject(runner, (_, ctx) => ctx.storage.setAlarm(Date.now() + 100));
+    await runInDurableObject(stub, (instance) => instance.sync());
+    return stub;
+  }
+  const pollStop = (stop) => runDurableObjectAlarm(env.STOP_POLLER.get(env.STOP_POLLER.idFromName(stop)));
+
+  it("polls a stop on its watcher's quota, and on the shared login after they disconnect", async () => {
+    await connect("dave");
+    await tracker("dave", "4242");
     upstream.mockClear();
-    await runDurableObjectAlarm(runner);
+    await pollStop("4242");
     expect(arrivalTokens()).toEqual(["bus:dave@example.test"]);
 
     expect((await call("/auth/emt", "dave", "DELETE")).status).toBe(200);
-    expect(await runInDurableObject(runner, (instance) => instance.emtAccount())).toBeNull();
     upstream.mockClear();
-    await runInDurableObject(runner, (_, ctx) => ctx.storage.setAlarm(Date.now() + 100));
-    await runDurableObjectAlarm(runner);
+    await pollStop("4242");
+    expect(arrivalTokens()).toEqual(["shared-token"]);
+  });
+
+  it("takes turns between the connected watchers of a stop, one poll each", async () => {
+    await Promise.all([connect("frank"), connect("gina")]);
+    await tracker("frank", "5555");
+    await tracker("gina", "5555");
+    await tracker("hugo", "5555"); // never connected: watches for free, pays nothing
+    const poller = env.STOP_POLLER.get(env.STOP_POLLER.idFromName("5555"));
+    const tokens = await runInDurableObject(poller, async (instance) => {
+      const seen = [];
+      for (const slot of [0, 1, 2, 3]) {
+        const [first] = await instance.environments(slot * 120_000);
+        seen.push(first.EMT_EMAIL ?? "shared");
+      }
+      return seen;
+    });
+    expect(tokens).toEqual(["frank@example.test", "gina@example.test", "frank@example.test", "gina@example.test"]);
+  });
+
+  it("falls back to the shared login when the watcher's account is rejected, so alerts keep coming", async () => {
+    const connection = await connect("ivy");
+    await tracker("ivy", "6666");
+    await env.KV.delete(`emt:user:ivy:${connection.connectionId}`);
+    clearTokenMemoryForTest();
+    rejectLogin = "89";
+    upstream.mockClear();
+    await pollStop("6666");
+    rejectLogin = null;
     expect(arrivalTokens()).toEqual(["shared-token"]);
   });
 
   it("stores the connection in the runner once, not on every page load", async () => {
     await connect("erin");
     const runner = env.TRACKING.get(env.TRACKING.idFromName("erin"));
-    const writes = await runInDurableObject(runner, (instance) => {
+    await runInDurableObject(runner, (instance) => {
       let count = 0;
       const exec = instance.ctx.storage.sql.exec.bind(instance.ctx.storage.sql);
       instance.ctx.storage.sql.exec = (query, ...args) => { if (/INSERT|DELETE/.test(query)) count++; return exec(query, ...args); };
       instance.countMeta = () => count;
-      return 0;
     });
-    expect(writes).toBe(0);
     await call("/auth/emt", "erin");
     await call("/auth/emt", "erin");
     expect(await runInDurableObject(runner, (instance) => instance.countMeta())).toBe(0);

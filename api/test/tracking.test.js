@@ -2,6 +2,7 @@ import { env, runInDurableObject, runDurableObjectAlarm, createExecutionContext 
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { bikeTransition, busTransition, notificationText, BIKE_INTERVAL, BUS_INTERVAL } from "../src/tracking-rules.js";
 import { validateWatch } from "../src/tracking.js";
+import { bikeFeed, stopPoller } from "../src/pollers.js";
 import { validateSubscription } from "../src/push.js";
 import worker from "../src/index.js";
 
@@ -80,25 +81,26 @@ async function credentials() {
   };
 }
 
+/** A signed-in user's runner, reachable by name the way pollers call it. */
 async function runner() {
-  const stub = env.TRACKING.get(env.TRACKING.newUniqueId());
+  const user = crypto.randomUUID();
+  const stub = env.TRACKING.get(env.TRACKING.idFromName(user));
   const { config, subscription } = await credentials();
   await runInDurableObject(stub, (instance) => { Object.assign(instance.env, config); });
+  await stub.identify(user);
   await stub.subscribe(subscription);
-  return { stub, subscription };
+  return { stub, subscription, user };
 }
-async function dueNow(stub) {
-  await runInDurableObject(stub, (instance) => { instance.dueOverride = true; });
-  await runDurableObjectAlarm(stub);
-}
-/** Counts storage writes to watch rows and alarms while `run` executes. */
+const feedStub = () => bikeFeed(env);
+const pollBikes = () => runDurableObjectAlarm(feedStub());
+const pollStop = (stop) => runDurableObjectAlarm(stopPoller(env, stop));
+const feedUsers = () => runInDurableObject(feedStub(), (instance) => instance.subscribers().map((s) => s.user));
+/** Counts watch-row writes in a runner while `run` executes. */
 async function countWrites(stub, run) {
-  await runInDurableObject(stub, (instance, ctx) => {
+  await runInDurableObject(stub, (instance) => {
     instance.writes = 0;
     const save = instance.save.bind(instance);
     instance.save = (watch) => { instance.writes++; save(watch); };
-    const setAlarm = ctx.storage.setAlarm.bind(ctx.storage);
-    ctx.storage.setAlarm = (at) => { instance.writes++; return setAlarm(at); };
   });
   await run();
   return runInDurableObject(stub, (instance) => instance.writes);
@@ -107,9 +109,9 @@ function feed(count) {
   return Response.json({ data: { stations: [{ station_id: "1", num_bikes_available: count, is_installed: 1, is_renting: 1, is_returning: 1, status: "IN_SERVICE" }] } });
 }
 
-describe("persistent background runner", () => {
-  it("checks bikes every 30 seconds, sends encrypted push and cancels the last alarm on untrack", async () => {
-    const { stub } = await runner();
+describe("shared pollers and per-user runners", () => {
+  it("polls bikes on a 30-second grid, sends encrypted push, and stops once untracked", async () => {
+    const { stub, user } = await runner();
     let count = 0;
     const pushes = [];
     vi.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
@@ -118,16 +120,16 @@ describe("persistent background runner", () => {
       return new Response(null, { status: 201 });
     });
     await stub.add(bikeWatch);
-    await dueNow(stub);
-    const first = (await stub.list()).watches[0];
-    const next = await runInDurableObject(stub, (_, ctx) => ctx.storage.getAlarm());
-    // One aligned 30-second grid for every watch.
+    expect(await feedUsers()).toEqual([user]);
+    await pollBikes();
+    const next = await runInDurableObject(feedStub(), (_, ctx) => ctx.storage.getAlarm());
     expect(next % BIKE_INTERVAL).toBe(0);
     expect(next - Date.now()).toBeLessThanOrEqual(BIKE_INTERVAL);
+    const first = (await stub.list()).watches[0];
     expect(first.rack).toEqual({ bikes: 0, armed: true });
     expect(first.state).toBeUndefined();
     count = 1;
-    await dueNow(stub);
+    await pollBikes();
     expect(pushes).toHaveLength(1);
     expect(new Headers(pushes[0].headers).get("content-encoding")).toBe("aes128gcm");
     expect(new Headers(pushes[0].headers).get("authorization")).toMatch(/^vapid /);
@@ -135,12 +137,14 @@ describe("persistent background runner", () => {
     // The stubbed fetch accepts anything; the real Workers fetch throws on
     // redirect: "error", which silently failed every push in production.
     expect(pushes[0].redirect).toBe("manual");
-    await dueNow(stub);
+    await pollBikes();
     expect(pushes).toHaveLength(1);
     await stub.remove(first.id);
-    expect(await runDurableObjectAlarm(stub)).toBe(false);
+    expect(await feedUsers()).toEqual([]);
+    await pollBikes(); // the pending poll finds nobody and books no other
+    expect(await pollBikes()).toBe(false);
   });
-  it("retries failed push without losing the zero-to-one transition and prunes expired subscriptions", async () => {
+  it("retries failed push without losing the transition and drops expired subscriptions", async () => {
     const { stub, subscription } = await runner();
     let count = 0;
     let status = 503;
@@ -151,34 +155,34 @@ describe("persistent background runner", () => {
       return new Response(null, { status });
     });
     await stub.add(bikeWatch);
-    await dueNow(stub);
+    await pollBikes();
     count = 1;
-    await dueNow(stub);
+    await pollBikes();
     expect((await stub.list()).watches[0].error).toBeTruthy();
     status = 201;
-    await dueNow(stub);
+    await pollBikes();
     expect(sends).toBe(2);
     expect((await stub.list()).watches[0].error).toBeNull();
     count = 2;
     status = 410;
-    await dueNow(stub);
+    await pollBikes();
     expect((await stub.list()).devices).toBe(0);
-    expect(await runDurableObjectAlarm(stub)).toBe(false);
+    await pollBikes(); // nobody to notify: the runner says so and is dropped
+    expect(await feedUsers()).toEqual([]);
     // The browser hands back the same dead subscription: it must not be
     // re-registered, or the next send drops it and checks stop again.
     expect(await stub.subscribe(subscription)).toMatchObject({ expired: true });
     expect((await stub.list()).devices).toBe(0);
     await stub.subscribe({ ...subscription, endpoint: "https://fcm.googleapis.com/fcm/send/fresh" });
     expect((await stub.list()).devices).toBe(1);
-    expect(await runInDurableObject(stub, (_, ctx) => ctx.storage.getAlarm())).not.toBeNull();
   });
-  it("survives upstream failure and retains an alarm; no data means no push", async () => {
+  it("survives upstream failure and keeps polling; no data means no push", async () => {
     const { stub } = await runner();
     vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("offline"));
     await stub.add(bikeWatch);
-    await dueNow(stub);
+    await pollBikes();
     expect((await stub.list()).watches[0].error).toBeTruthy();
-    expect(await runInDurableObject(stub, (_, ctx) => ctx.storage.getAlarm())).toBeGreaterThan(Date.now());
+    expect(await runInDurableObject(feedStub(), (_, ctx) => ctx.storage.getAlarm())).toBeGreaterThan(Date.now());
   });
   it("does not re-send to a device that already accepted a push when another device fails", async () => {
     const { stub, subscription } = await runner();
@@ -192,12 +196,12 @@ describe("persistent background runner", () => {
       return new Response(null, { status: String(url).endsWith("second") && failSecond ? 503 : 201 });
     });
     await stub.add(bikeWatch);
-    await dueNow(stub);
+    await pollBikes();
     count = 1;
-    await dueNow(stub);
+    await pollBikes();
     expect(sends.filter((url) => url.endsWith("/test"))).toHaveLength(1);
     failSecond = false;
-    await dueNow(stub);
+    await pollBikes();
     expect(sends.filter((url) => url.endsWith("/test"))).toHaveLength(1);
     expect(sends.filter((url) => url.endsWith("/second"))).toHaveLength(2);
   });
@@ -208,42 +212,79 @@ describe("persistent background runner", () => {
       return Response.json({ ...body, last_updated: Math.floor(Date.now() / 1000) - 300 });
     });
     await stub.add(bikeWatch);
-    await dueNow(stub);
+    await pollBikes();
     expect((await stub.list()).watches[0].error).toBeTruthy();
     const state = await runInDurableObject(stub, (instance) => instance.rows("watches")[0].state);
     expect(state).toEqual({});
   });
-  it("checks buses every two minutes and isolates different users", async () => {
-    const { stub } = await runner();
-    const { stub: other } = await runner();
+  it("serves two users on one stop with one EMT call per poll, on a two-minute grid", async () => {
+    const alice = await runner();
+    const bob = await runner();
+    const loner = await runner();
     await env.KV.put("emt:token", "test-token");
-    vi.spyOn(globalThis, "fetch").mockImplementation(async () => Response.json({ code: "01", data: [] }));
-    await stub.add(busWatch);
-    await dueNow(stub);
-    const watch = (await stub.list()).watches[0];
-    expect(watch.error).toBeNull();
-    expect(watch.lastCheck).toBeGreaterThan(0);
-    // Buses go on the first tick of each two-minute slot, even after an
-    // eviction has wiped the in-memory check times.
-    const due = await runInDurableObject(stub, (instance) => {
-      instance.checked.clear();
-      instance.dueOverride = false;
-      const stored = instance.rows("watches")[0];
-      const slot = Math.ceil(Date.now() / BUS_INTERVAL) * BUS_INTERVAL + BUS_INTERVAL;
-      return [0, 1, 2, 3].map((tick) => instance.isDue(stored, slot + tick * BIKE_INTERVAL));
+    const boards = [];
+    await alice.stub.add(busWatch);
+    await bob.stub.add(busWatch);
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      if (String(url).includes("/arrives/")) {
+        boards.push(String(url));
+        return Response.json({ code: "00", data: [{ Arrive: [{ line: "70", destination: "PLAZA", bus: 123, estimateArrive: 300, DistanceBus: 800 }] }] });
+      }
+      return new Response(null, { status: 201 });
     });
-    expect(due).toEqual([true, false, false, false]);
-    expect((await other.list()).watches).toEqual([]);
+    await pollStop(busWatch.targetId);
+    expect(boards).toHaveLength(1);
+    for (const { stub } of [alice, bob]) {
+      const watch = (await stub.list()).watches[0];
+      expect(watch.error).toBeNull();
+      expect(watch.lastCheck).toBeGreaterThan(0);
+    }
+    expect((await loner.stub.list()).watches).toEqual([]);
+    const next = await runInDurableObject(stopPoller(env, busWatch.targetId), (_, ctx) => ctx.storage.getAlarm());
+    expect(next % BUS_INTERVAL).toBe(0);
   });
-  it("writes one alarm per tick and nothing else while a rack does not change", async () => {
+  it("writes nothing to a runner while a rack does not change", async () => {
     const { stub } = await runner();
     vi.spyOn(globalThis, "fetch").mockImplementation(async (url) =>
       String(url).includes("station_status") ? feed(7) : new Response(null, { status: 201 }));
     await stub.add(bikeWatch);
-    await dueNow(stub); // first check records the state
-    const writes = await countWrites(stub, async () => { await dueNow(stub); await dueNow(stub); await dueNow(stub); });
-    expect(writes).toBe(3);
+    await pollBikes(); // the first check records the state
+    const writes = await countWrites(stub, async () => { await pollBikes(); await pollBikes(); await pollBikes(); });
+    expect(writes).toBe(0);
     expect((await stub.list()).watches[0].lastCheck).toBeGreaterThan(0);
+  });
+  it("moves a runner from the self-polling era onto the shared feed", async () => {
+    const { stub, user } = await runner();
+    await runInDurableObject(stub, async (instance, ctx) => {
+      // What an old runner looks like: a watch, no subscriptions, a 30 s alarm.
+      instance.save({ ...bikeWatch, id: "old", targetId: "1", revision: "r", state: {}, lastCheck: 1, error: null });
+      instance.setMeta("subscriptions", null);
+      await ctx.storage.setAlarm(Date.now() + 100);
+    });
+    await runDurableObjectAlarm(stub);
+    expect(await feedUsers()).toEqual([user]);
+    const next = await runInDurableObject(stub, (_, ctx) => ctx.storage.getAlarm());
+    expect(next - Date.now()).toBeGreaterThan(23 * 60 * 60_000); // the daily re-sync
+  });
+  it("migrates an old runner that was never told its user, once it is", async () => {
+    const user = crypto.randomUUID();
+    const stub = env.TRACKING.get(env.TRACKING.idFromName(user));
+    const { config, subscription } = await credentials();
+    await runInDurableObject(stub, async (instance, ctx) => {
+      Object.assign(instance.env, config);
+      instance.ctx.storage.sql.exec("INSERT INTO devices VALUES ('d', ?)", JSON.stringify(validateSubscription(subscription)));
+      instance.save({ ...bikeWatch, id: "old", targetId: "1", revision: "r", state: {}, lastCheck: 1, error: null });
+      await ctx.storage.setAlarm(Date.now() + 100);
+    });
+    await runDurableObjectAlarm(stub);
+    const named = await runInDurableObject(stub, (_, ctx) => Boolean(ctx.id.name));
+    // Where the runtime exposes the object's name, the alarm alone is enough;
+    // otherwise the next /tracking request identifies it and it subscribes.
+    if (!named) {
+      expect(await feedUsers()).toEqual([]);
+      await stub.identify(user);
+    }
+    expect(await feedUsers()).toEqual([user]);
   });
   it("does not resurrect a watch removed during upstream I/O", async () => {
     const { stub } = await runner();
@@ -253,13 +294,13 @@ describe("persistent background runner", () => {
     const started = new Promise((resolve) => { entered = resolve; });
     vi.spyOn(globalThis, "fetch").mockImplementation(async () => { entered(); await pending; return feed(0); });
     const { watches } = await stub.add(bikeWatch);
-    const checking = dueNow(stub);
+    const checking = pollBikes();
     await started;
     await stub.remove(watches[0].id);
     release();
     await checking;
     expect((await stub.list()).watches).toEqual([]);
-    expect(await runDurableObjectAlarm(stub)).toBe(false);
+    expect(await feedUsers()).toEqual([]);
   });
 });
 
