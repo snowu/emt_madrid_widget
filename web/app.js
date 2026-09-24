@@ -1018,7 +1018,8 @@ async function api(path, init = {}) {
       const err = new Error(body.message || body.error || `HTTP ${res.status}`);
       err.kind = body.error; // "quota" | "auth" | "not_found" | "upstream"
       if (err.kind === "user_auth") showSignedOut("Session expired — sign in again.");
-      if (err.kind === "emt_account") statusEl.textContent = "EMT rejected your connected account. Reconnect it from the account menu.";
+      // Either "connect your account" or "EMT rejected it": the worker says which.
+      if (err.kind === "emt_account") statusEl.textContent = err.message;
       throw err;
     }
     return res.status === 204 ? null : res.json();

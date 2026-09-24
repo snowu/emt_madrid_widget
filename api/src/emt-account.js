@@ -4,10 +4,14 @@ import { getToken } from "./emt.js";
 
 /* Per-user EMT connections.
  *
- * A user may connect their own EMT email and password, and EMT calls made on
- * their behalf then use their MobilityLabs quota instead of the shared login.
- * Anyone without a connection keeps using the shared login, so nothing breaks
- * for people who have not connected (or are not signed in).
+ * Users connect their own EMT email and password, and EMT calls made on their
+ * behalf use their own MobilityLabs quota. With EMT_ACCOUNT = "required"
+ * (production) that is the only way: nobody, the app's owner included, falls
+ * back to the shared EMT_EMAIL login, because one quota cannot carry every
+ * user of everything planned on top of it. Guests and unconnected users still
+ * get cached public payloads, but anything needing a fresh EMT call fails with
+ * `emt_account`. "optional" (the default when unset, and what the older tests
+ * run with) lets anyone without a connection use the shared login.
  *
  * The credentials are AES-256-GCM encrypted with the EMT_CREDENTIAL_KEY Worker
  * secret, bound to the app user id as associated data, and stored in the
@@ -77,24 +81,40 @@ export function scopedEnvironment(env, credentials, sessionId) {
   };
 }
 
+/** Whether every user must bring their own EMT account. */
+export const accountRequired = (env) => env.EMT_ACCOUNT === "required" && Boolean(env.EMT_CREDENTIAL_KEY);
+
 /** The env for one request, resolving the caller's connection lazily: public
- *  cache hits and GBFS reads never pay for the lookup. It resolves to null —
- *  the shared login — for guests, expired sessions, users without a
- *  connection, and when the account store cannot be reached. A connection
- *  that exists but cannot be used is an error the user needs to see. */
+ *  cache hits and GBFS reads never pay for the lookup. Resolves to the
+ *  caller's own login when they connected one. Without one it resolves to
+ *  null — the shared login — only when accounts are optional; when they are
+ *  required the request fails with `emt_account`, which the page turns into
+ *  "connect your account". A connection that exists but cannot be used also
+ *  fails. */
 export function withEmtAccount(env, request) {
   let pending;
   return {
     ...env,
     EMT_ACCOUNT_CONTEXT: () => pending ??= (async () => {
-      if (!request.headers.has("Authorization") || !env.EMT_CREDENTIAL_KEY) return null;
+      if (!env.EMT_CREDENTIAL_KEY) return null; // feature not configured
+      const required = accountRequired(env);
+      if (!request.headers.has("Authorization")) {
+        if (required) throw new EmtError("emt_account", "Sign in and connect your EMT account to load live times.");
+        return null;
+      }
       let user;
       let row;
       try {
         user = await authenticatedUser(env, request);
         row = await accountRow(env, request, user);
-      } catch { return null; }
-      if (!row) return null;
+      } catch (error) {
+        if (required) throw error; // an expired session, or the store is down
+        return null;
+      }
+      if (!row) {
+        if (required) throw new EmtError("emt_account", "Connect your EMT account from the account menu to load live times.");
+        return null;
+      }
       const credentials = await openCredentials(env, user.id, row.credentials);
       return scopedEnvironment(env, credentials, `${user.id}:${row.connection_id}`);
     })(),
@@ -136,16 +156,18 @@ async function credentialsBody(request) {
  *  tracking runner. */
 export async function manageEmtAccount(env, request, { onChange = async () => {} } = {}) {
   const user = await authenticatedUser(env, request);
+  // Whether live data waits on this user connecting.
+  const required = accountRequired(env);
   if (request.method === "GET") {
     const row = await accountRow(env, request, user);
     await onChange(user, row);
-    return { connected: Boolean(row), connectionId: row?.connection_id ?? null,
+    return { connected: Boolean(row), connectionId: row?.connection_id ?? null, required,
       email: row ? (await openCredentials(env, user.id, row.credentials)).email : null };
   }
   if (request.method === "DELETE") {
     await accountRow(env, request, user, { method: "DELETE" });
     await onChange(user, null);
-    return { connected: false, connectionId: null, email: null };
+    return { connected: false, connectionId: null, required, email: null };
   }
   const input = await credentialsBody(request);
   const credentials = await sealCredentials(env, user.id, input);
@@ -155,5 +177,5 @@ export async function manageEmtAccount(env, request, { onChange = async () => {}
   const row = { user_id: user.id, connection_id: connectionId, credentials };
   await accountRow(env, request, user, { method: "POST", body: JSON.stringify(row) });
   await onChange(user, row);
-  return { connected: true, connectionId, email: input.email };
+  return { connected: true, connectionId, required, email: input.email };
 }

@@ -12,6 +12,10 @@ export default defineWorkersConfig({
             EMT_EMAIL: "test@example.com",
             EMT_PASSWORD: "test-password",
             EMT_CREDENTIAL_KEY: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+            // Most suites predate required connections; the account suite
+            // switches this to "owner" to test the requirement itself.
+            EMT_ACCOUNT: "optional",
+            POLLER_START_DELAY_MS: "3600000", // polls run only when a test asks
             SUPABASE_ANON_KEY: "test-anon-key",
             OWNER_USER_ID: "owner-user-id",
             MPASS_EMAIL: "rider@example.com",

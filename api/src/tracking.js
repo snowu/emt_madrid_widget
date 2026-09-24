@@ -211,7 +211,7 @@ export class TrackingRunner extends DurableObject {
     const watches = this.devices().length
       ? this.rows("watches").filter((w) => w.kind === "bus" && w.targetId === String(stopId)) : [];
     await Promise.all(watches.map((watch) => this.evaluate(watch, payload.fetchedAt, () => {
-      if (payload.error) throw new Error(payload.error);
+      if (payload.error) throw Object.assign(new Error(payload.error), payload.connect ? { userMessage: payload.error } : {});
       return busTransition(watch.state, payload.arrivals ?? [], watch, payload.fetchedAt);
     })));
     return { active: watches.length > 0 };
@@ -272,7 +272,7 @@ export class TrackingRunner extends DurableObject {
       }
     } catch (error) {
       // Never interpret failed/missing data as zero bikes or a bus departure.
-      const message = "Check or notification failed; retrying";
+      const message = error.userMessage ?? "Check or notification failed; retrying";
       if (watch.error !== message && this.watch(watch.id)?.revision === watch.revision) this.save({ ...watch, error: message });
       console.warn(JSON.stringify({ event: "tracking_retry", kind: watch.kind, error: String(error?.message ?? error).slice(0, 200) }));
     } finally {

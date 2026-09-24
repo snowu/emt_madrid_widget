@@ -7,6 +7,15 @@ MobilityLabs quota instead of the shared login's.
 
 ## How it behaves
 
+**Update (2026-09-24): connecting is now required for everyone, the owner
+included.** One shared quota cannot carry every user of everything planned on
+top of it, so production runs with `EMT_ACCOUNT = "required"` and nothing falls
+back to the shared login. Guests and unconnected users still get cached
+payloads and bike counts, but a fresh EMT call fails with `emt_account`, bus
+alerts cannot be added, a stop nobody connected for is not polled, and the page
+opens the connect dialog after sign-in. The fallback described below now
+applies only with `EMT_ACCOUNT = "optional"`.
+
 - **Optional, with a fallback.** Guests, users who never connected, expired
   app sessions and an unreachable account store all use the shared EMT login,
   exactly as before. (The original branch failed closed instead, which would

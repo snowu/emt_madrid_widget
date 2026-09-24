@@ -28,12 +28,18 @@ export function setupEmtAccount({ request }) {
     disconnect.disabled = value;
   }
 
-  byId("open").addEventListener("click", () => {
-    document.getElementById("account-menu").close();
+  let required = false;
+  function open() {
     message.textContent = connected
       ? "Connected: live times use your own EMT quota. Enter your password again to change it."
-      : "Optional. Live times then use your own EMT quota instead of the shared one.";
-    dialog.showModal();
+      : required
+        ? "Hubwise needs your EMT account for live times and bus alerts: each person uses their own EMT quota. Bike counts work without it."
+        : "Optional. Live times then use your own EMT quota instead of the shared one.";
+    if (!dialog.open) dialog.showModal();
+  }
+  byId("open").addEventListener("click", () => {
+    document.getElementById("account-menu").close();
+    open();
   });
   byId("close").addEventListener("click", () => dialog.close());
   dialog.addEventListener("close", () => { password.value = ""; });
@@ -72,13 +78,17 @@ export function setupEmtAccount({ request }) {
       if (dialog.open) dialog.close();
     },
     /** Reading the state also re-syncs the connection to the user's tracking
-     *  runner on the worker. */
+     *  runner on the worker. A user who has to connect is asked straight
+     *  away, once per sign-in, rather than meeting a wall of errors. */
     async load() {
       const current = generation;
       try {
         const result = await request("/auth/emt");
-        if (current === generation) update(result);
-      } catch { /* optional feature: the rest of the page never depends on it */ }
+        if (current !== generation) return;
+        update(result);
+        required = result.required === true;
+        if (required && !connected) open();
+      } catch { /* the page stays usable; EMT errors explain themselves */ }
     },
   };
 }

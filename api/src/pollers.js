@@ -1,7 +1,8 @@
 import { DurableObject } from "cloudflare:workers";
 import { getArrivals } from "./emt.js";
 import { getBikeStationStatus } from "./bikes.js";
-import { openCredentials, scopedEnvironment } from "./emt-account.js";
+import { openCredentials, scopedEnvironment, accountRequired } from "./emt-account.js";
+import { EmtError } from "./errors.js";
 import { BIKE_INTERVAL, BUS_INTERVAL } from "./tracking-rules.js";
 
 /* Shared pollers: fetch once, notify every user who tracks it.
@@ -14,9 +15,11 @@ import { BIKE_INTERVAL, BUS_INTERVAL } from "./tracking-rules.js";
  * delivery.
  *
  * A stop poller spends the EMT quota of the users watching that stop, taking
- * turns between those who connected their own account, and falls back to the
- * shared login when none has (or when the chosen account fails), so one user's
- * broken connection never silences everybody else's alerts.
+ * turns between those who connected their own account; if the chosen account
+ * fails it tries the others, so one user's broken connection never silences
+ * everybody else's alerts. The shared login is a last resort only when
+ * accounts are optional (EMT_ACCOUNT); when required, a stop nobody connected
+ * for is not polled at all.
  */
 
 // get(idFromName()) is getByName() spelled for older runtimes too.
@@ -45,7 +48,10 @@ class Poller extends DurableObject {
     if (row?.value !== JSON.stringify(value)) {
       this.ctx.storage.sql.exec("INSERT OR REPLACE INTO subscribers VALUES (?, ?)", user, JSON.stringify(value));
     }
-    if (await this.ctx.storage.getAlarm() == null) await this.ctx.storage.setAlarm(Date.now() + 100);
+    // Tests set a long delay and run polls explicitly: an alarm firing on its
+    // own mid-test races the test's own calls and its storage reset.
+    const delay = Number(this.env.POLLER_START_DELAY_MS ?? 100);
+    if (await this.ctx.storage.getAlarm() == null) await this.ctx.storage.setAlarm(Date.now() + delay);
   }
 
   drop(user) {
@@ -108,19 +114,24 @@ export class StopPoller extends Poller {
     return row ? JSON.parse(row.value) : null;
   }
 
-  /** Whose quota this poll spends: the connected subscribers take turns, one
-   *  per two-minute slot; with none, the shared login. */
+  /** Whose quota this poll may spend, in the order to try: the connected
+   *  watchers in turn (one starts each two-minute slot), then the shared
+   *  login if this stop is allowed it. */
   async environments(now) {
-    const accounts = this.subscribers().map((s) => s.account).filter(Boolean)
+    const subscribers = this.subscribers();
+    const accounts = subscribers.map((s) => s.account).filter(Boolean)
       .sort((a, b) => a.userId.localeCompare(b.userId));
-    if (!accounts.length) return [this.env];
-    const chosen = accounts[Math.floor(now / BUS_INTERVAL) % accounts.length];
-    try {
-      const credentials = await openCredentials(this.env, chosen.userId, chosen.credentials);
-      return [scopedEnvironment(this.env, credentials, `${chosen.userId}:${chosen.connectionId}`), this.env];
-    } catch {
-      return [this.env];
+    const start = accounts.length ? Math.floor(now / BUS_INTERVAL) % accounts.length : 0;
+    const ordered = [...accounts.slice(start), ...accounts.slice(0, start)];
+    const envs = [];
+    for (const account of ordered) {
+      try {
+        const credentials = await openCredentials(this.env, account.userId, account.credentials);
+        envs.push(scopedEnvironment(this.env, credentials, `${account.userId}:${account.connectionId}`));
+      } catch { /* undecryptable: skip this watcher's account */ }
     }
+    if (!accountRequired(this.env)) envs.push(this.env);
+    return envs;
   }
 
   async alarm() {
@@ -141,7 +152,10 @@ export class StopPoller extends Poller {
         lastError = error;
       }
     }
-    payload ??= { error: String(lastError?.message ?? lastError), fetchedAt: now };
+    payload ??= lastError
+      ? { error: String(lastError?.message ?? lastError), fetchedAt: now }
+      // Nobody here may spend any quota: tell the runners why.
+      : { error: new EmtError("emt_account", "Connect your EMT account to keep bus alerts").message, connect: true, fetchedAt: now };
     await this.fanOut((stub) => stub.onBoard(stopId, payload));
   }
 }
