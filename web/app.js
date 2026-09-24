@@ -5413,7 +5413,6 @@ function closeFullscreenMap() {
   mapEl.classList.remove("map-fullscreen");
   bikeMapEl.classList.remove("map-fullscreen");
   document.body.classList.remove("map-is-fullscreen");
-  mapFullscreenBtn.textContent = "⛶";
   mapFullscreenBtn.title = "Expand map";
   mapFullscreenBtn.setAttribute("aria-label", "Expand map");
   if (wasFullscreen) requestAnimationFrame(() => {
@@ -5492,7 +5491,6 @@ mapFullscreenBtn.addEventListener("click", () => {
   for (const element of [mapEl, bikeMapEl]) element.classList.remove("map-fullscreen");
   activeEl.classList.toggle("map-fullscreen", expanding);
   document.body.classList.toggle("map-is-fullscreen", expanding);
-  mapFullscreenBtn.textContent = expanding ? "×" : "⛶";
   mapFullscreenBtn.title = expanding ? "Close fullscreen map" : "Expand map";
   mapFullscreenBtn.setAttribute("aria-label", mapFullscreenBtn.title);
   requestAnimationFrame(() => activeMap?.resize());

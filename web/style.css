@@ -447,6 +447,9 @@ button:active { transform: scale(0.97); }
 #map-actions[hidden] { display: none; }
 
 #map-actions button {
+  display: grid;
+  place-items: center;
+  padding: 0;
   width: 56px;
   height: 56px;
   min-height: 56px;
@@ -2491,3 +2494,15 @@ body.nav-hidden #fab { transform: translateY(calc(100% + 4.15rem + env(safe-area
   stroke-linecap: round;
   stroke-linejoin: round;
 }
+
+#map-fullscreen svg {
+  display: block;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+#map-fullscreen .map-close-icon,
+.map-is-fullscreen #map-fullscreen .map-expand-icon { display: none; }
+.map-is-fullscreen #map-fullscreen .map-close-icon { display: initial; }
