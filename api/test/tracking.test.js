@@ -1,7 +1,7 @@
 import { env, runInDurableObject, runDurableObjectAlarm, createExecutionContext } from "cloudflare:test";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { bikeTransition, busTransition, notificationText, BIKE_INTERVAL, BUS_INTERVAL } from "../src/tracking-rules.js";
-import { validateWatch } from "../src/tracking.js";
+import { validateWatch, DEVICE_PAUSE, DEVICE_FORGET } from "../src/tracking.js";
 import { bikeFeed, stopPoller } from "../src/pollers.js";
 import { validateSubscription } from "../src/push.js";
 import worker from "../src/index.js";
@@ -105,6 +105,11 @@ async function countWrites(stub, run) {
   await run();
   return runInDurableObject(stub, (instance) => instance.writes);
 }
+/** Pretend every device of a runner was last seen `age` ago. */
+const age = (stub, ms) => runInDurableObject(stub, (instance) => {
+  for (const { id, seenAt, ...subscription } of instance.devices()) instance.putDevice(id, subscription, Date.now() - ms);
+});
+const stopUsers = (stop) => runInDurableObject(stopPoller(env, stop), (instance) => instance.subscribers().map((s) => s.user));
 function feed(count) {
   return Response.json({ data: { stations: [{ station_id: "1", num_bikes_available: count, is_installed: 1, is_renting: 1, is_returning: 1, status: "IN_SERVICE" }] } });
 }
@@ -242,6 +247,81 @@ describe("shared pollers and per-user runners", () => {
     expect((await loner.stub.list()).watches).toEqual([]);
     const next = await runInDurableObject(stopPoller(env, busWatch.targetId), (_, ctx) => ctx.storage.getAlarm());
     expect(next % BUS_INTERVAL).toBe(0);
+  });
+  it("pauses a device not seen for five days and resumes when the app opens there", async () => {
+    const { stub, subscription, user } = await runner();
+    const pushes = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
+      if (String(url).includes("station_status")) return feed(0);
+      pushes.push(init);
+      return new Response(null, { status: 201 });
+    });
+    await stub.add(bikeWatch);
+    await age(stub, DEVICE_PAUSE - 60_000);
+    await pollBikes();
+    expect(await feedUsers()).toEqual([user]); // still seen, still polled
+    await age(stub, DEVICE_PAUSE + 60_000);
+    await pollBikes();
+    expect(await feedUsers()).toEqual([]); // no device seen lately: the feed lets go
+    expect((await stub.list()).devices).toBe(0);
+    await stub.subscribe(subscription); // the app opened on that device again
+    expect(await feedUsers()).toEqual([user]);
+    expect((await stub.list()).devices).toBe(1);
+    expect(pushes).toHaveLength(0);
+  });
+  it("stops a paused user's bus stop pollers too", async () => {
+    const stop = { ...busWatch, targetId: "7777" };
+    const { stub, subscription, user } = await runner();
+    await env.KV.put("emt:token", "test-token");
+    const boards = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      if (String(url).includes("/arrives/")) {
+        boards.push(String(url));
+        return Response.json({ code: "00", data: [{ Arrive: [{ line: "70", destination: "PLAZA", bus: 123, estimateArrive: 300, DistanceBus: 800 }] }] });
+      }
+      return new Response(null, { status: 201 });
+    });
+    await stub.add(stop);
+    await age(stub, DEVICE_PAUSE + 60_000);
+    await pollStop(stop.targetId);
+    expect(await stopUsers(stop.targetId)).toEqual([]);
+    await pollStop(stop.targetId); // nobody left: no EMT call
+    expect(boards).toHaveLength(1);
+    await stub.subscribe(subscription);
+    expect(await stopUsers(stop.targetId)).toEqual([user]);
+  });
+  it("forgets a device after thirty days and lets a paused one make room", async () => {
+    const { stub } = await runner();
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response(null, { status: 201 }));
+    await stub.add(bikeWatch);
+    for (let i = 0; i < 4; i++) {
+      const { subscription } = await credentials();
+      await stub.subscribe({ ...subscription, endpoint: `https://fcm.googleapis.com/fcm/send/extra-${i}` });
+    }
+    await age(stub, DEVICE_PAUSE + 60_000);
+    const { subscription: sixth } = await credentials();
+    await stub.subscribe({ ...sixth, endpoint: "https://fcm.googleapis.com/fcm/send/sixth" });
+    const devices = () => runInDurableObject(stub, (instance) => instance.devices().length);
+    expect(await devices()).toBe(5); // the oldest paused device made room
+    expect((await stub.list()).devices).toBe(1);
+    await age(stub, DEVICE_FORGET + 60_000);
+    expect(await runDurableObjectAlarm(stub)).toBe(true); // the daily re-sync
+    expect(await devices()).toBe(0);
+    expect((await stub.list()).watches).toHaveLength(1); // alerts are the account's, kept
+  });
+  it("counts a device from before check-ins as seen, and does not rewrite it on every visit", async () => {
+    const { stub, subscription } = await runner();
+    await runInDurableObject(stub, (instance) => {
+      for (const { id, seenAt, ...rest } of instance.devices()) {
+        instance.ctx.storage.sql.exec("INSERT OR REPLACE INTO devices VALUES (?, ?)", id, JSON.stringify(rest));
+      }
+    });
+    expect((await stub.list()).devices).toBe(1);
+    await stub.subscribe(subscription);
+    const stamped = await runInDurableObject(stub, (instance) => instance.devices()[0].seenAt);
+    expect(stamped).toBeGreaterThan(0);
+    await stub.subscribe(subscription);
+    expect(await runInDurableObject(stub, (instance) => instance.devices()[0].seenAt)).toBe(stamped);
   });
   it("writes nothing to a runner while a rack does not change", async () => {
     const { stub } = await runner();

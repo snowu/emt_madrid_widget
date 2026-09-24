@@ -71,11 +71,22 @@ export function createTracking({ api, signedIn, changed, locate = () => null }) 
     if (config.available) await register(reg);
   }
 
+  /** An installed app can sit in the background for days without reloading;
+   *  coming back to it counts as a visit too, or the worker would pause
+   *  alerts for a phone that is in daily use. At most every few hours. */
+  let checkedInAt = 0;
+  async function checkIn() {
+    if (!signedIn() || Date.now() - checkedInAt < 6 * 3_600_000) return;
+    checkedInAt = Date.now();
+    try { await resync(); } catch { /* the next visit tries again */ }
+  }
+
   async function load() {
     const current = ++generation;
     watches = [];
     refresh();
     if (!signedIn()) return;
+    checkedInAt = Date.now();
     try { await resync(); } catch { thisDevice = false; }
     try {
       const data = await api("/tracking");
@@ -269,5 +280,5 @@ export function createTracking({ api, signedIn, changed, locate = () => null }) 
     await api("/tracking/subscription", { method: "DELETE", body: JSON.stringify({ endpoint: subscription.endpoint }) });
     await subscription.unsubscribe();
   }
-  return { load, button, setButton, removeAll, count: () => watches.length, indicator, isTracked, renderList, disconnect, clear() { generation++; watches = []; refresh(); } };
+  return { load, checkIn, button, setButton, removeAll, count: () => watches.length, indicator, isTracked, renderList, disconnect, clear() { generation++; watches = []; refresh(); } };
 }

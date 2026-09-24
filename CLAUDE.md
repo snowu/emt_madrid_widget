@@ -153,6 +153,15 @@ slot — trying the others if the chosen account fails, so one broken
 connection never silences everyone else's alerts. The shared login is a last
 resort only with `EMT_ACCOUNT = "optional"`.
 
+**Devices that stop opening the app stop costing anything.** Every page load
+(and a return to the app after a few hours in the background) re-registers
+the device, which stamps its `seenAt`. A device not seen for 5 days
+(`DEVICE_PAUSE`) gets no pushes, and a user with no device seen lately drops
+out of every poller, so a lost phone or wiped browser stops spending EMT quota
+and sending notifications. Opening the app there resumes it; after 30 days
+(`DEVICE_FORGET`) the daily re-sync deletes it. Watches belong to the account
+and are kept.
+
 The optional `/bikes/account` route first verifies the Supabase user and allows
 only `OWNER_USER_ID`. It logs in lazily with the `MPASS_EMAIL`,
 `MPASS_PASSWORD`, `MPASS_CLIENT_ID`, `MPASS_PASSKEY`, and `MPASS_DEVICE_ID`

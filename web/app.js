@@ -4186,6 +4186,7 @@ document.addEventListener("visibilitychange", () => {
     return;
   }
   startLocationRefresh();
+  void tracking.checkIn();
   if (section === "bikes") {
     const c = bikeMap?.getCenter();
     loadBikesNear(c?.lat ?? myLocation?.[0] ?? 40.4168, c?.lng ?? myLocation?.[1] ?? -3.7038);
