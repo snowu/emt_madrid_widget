@@ -37,7 +37,7 @@ api/                 Cloudflare Worker. Holds EMT and optional owner MPass crede
   src/stops.js       Supabase REST for saved bus stops and saved bike stations
   src/errors.js      EmtError kinds → HTTP status
   test/              vitest under workerd, recorded fixtures in test/fixtures/
-  wrangler.toml      name, KV binding, ALLOWED_ORIGIN. No secrets.
+  wrangler.toml      name, bindings, ALLOWED_ORIGIN, PLANNER_TIER. No secrets.
   vitest.config.js   fake credential bindings for tests
 supabase/            bus_stops.sql, bike_stations.sql — run by hand, once
 .github/workflows/pages.yml    deploys web/ and stamps the cache-buster
@@ -158,6 +158,14 @@ Supabase tables are created by hand: paste `supabase/bus_stops.sql` and
 `supabase/bike_stations.sql` into the SQL editor, once. The bikes one is
 optional — without it the favourites call 502s and the page says so rather than
 breaking the section.
+
+**`PLANNER_TIER` sizes hub planning to the Cloudflare plan.** On `"free"` a
+Worker invocation may make only 50 subrequests, so the page sends one hub per
+`/journeys` request and the planner rations routes, transfer boards and
+incident reads. `"paid"` (Workers Paid: 10,000 subrequests) takes every hub in
+one request and widens the search — see `PLANNER_BUDGETS` in `src/index.js`.
+The page learns the batch size from each response's `maxDestinations`, so
+flipping the var and redeploying the worker is the whole switch.
 
 Deploys: pushing to `main` with changes under `web/**` runs the Pages workflow.
 The worker is **not** deployed by CI — `npm run deploy` by hand.

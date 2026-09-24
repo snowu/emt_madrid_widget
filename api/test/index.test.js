@@ -559,3 +559,47 @@ describe("unknown routes", () => {
     expect((await call("/nope")).status).toBe(404);
   });
 });
+
+describe("journey planner budget", () => {
+  const request = (count) => ({
+    method: "POST",
+    headers: { Authorization: "Bearer user-token", "content-type": "application/json" },
+    body: JSON.stringify({
+      origin: { lat: 40.4168, lon: -3.7038 },
+      destinations: Array.from({ length: count }, (_, i) => ({ id: `h${i}`, name: `Hub ${i}`, lat: 40.43 + i / 100, lon: -3.69 })),
+    }),
+  });
+  async function plan(count, tier) {
+    const ctx = createExecutionContext();
+    const res = await worker.fetch(new Request("https://w.dev/journeys", request(count)),
+      tier ? { ...env, PLANNER_TIER: tier } : env, ctx);
+    await waitOnExecutionContext(ctx);
+    return res;
+  }
+  beforeEach(() => {
+    // Signed in, stops found around both ends; every other upstream fails,
+    // which the planner absorbs. Only the budget is under test here.
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      if (String(url).includes("/auth/v1/user")) return Response.json({ id: "user-id" });
+      if (String(url).includes("arroundxy")) return Response.json(arroundxyOk);
+      return new Response("down", { status: 500 });
+    });
+  });
+
+  it("keeps the free plan's three-hub limit, and says so to the page", async () => {
+    const tooMany = await plan(4);
+    expect(tooMany.status).toBe(404);
+    expect((await tooMany.json()).message).toContain("1–3");
+    const ok = await plan(1);
+    expect(ok.status).toBe(200);
+    expect((await ok.json()).maxDestinations).toBe(3);
+  });
+
+  it("takes every hub in one request on the paid tier", async () => {
+    const res = await plan(6, "paid");
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.destinations).toHaveLength(6);
+    expect(body.maxDestinations).toBe(12);
+  });
+});
