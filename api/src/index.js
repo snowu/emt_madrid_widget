@@ -1,6 +1,7 @@
 import { validateWatch } from "./tracking.js";
 import { validateSubscription } from "./push.js";
 export { TrackingRunner } from "./tracking.js";
+export { BikeFeed, StopPoller } from "./pollers.js";
 import {
   getArrivals,
   getStopDetail,
@@ -733,7 +734,10 @@ export default {
       if (pathname === "/tracking" || pathname.startsWith("/tracking/")) {
         const user = await authenticatedUser(env, request);
         if (!env.TRACKING || !env.VAPID_PRIVATE_KEY) return json({ message: "Notifications are not configured yet" }, env, 503);
-        const runner = env.TRACKING.getByName(user.id);
+        // get(idFromName()) is getByName() spelled for older runtimes too.
+        const runner = env.TRACKING.get(env.TRACKING.idFromName(user.id));
+        // Pollers call the runner back by user id, so it needs to know it.
+        await runner.identify(user.id);
         let body;
         if (["POST", "DELETE"].includes(method)) {
           const raw = await request.text();

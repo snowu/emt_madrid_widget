@@ -19,10 +19,12 @@ MobilityLabs quota instead of the shared login's.
   silently.
 - **Tracking uses it too.** Tracking checks run on a timer with no signed-in
   caller, so the user's `TrackingRunner` keeps its own copy of the ciphertext
-  (never plaintext). The worker hands it over whenever the page reads or
-  changes the connection (`GET/PUT/DELETE /auth/emt`), writing only when the
-  connection id changed. Disconnecting removes it; bus checks return to the
-  shared login.
+  (never plaintext), handed over whenever the page reads or changes the
+  connection (`GET/PUT/DELETE /auth/emt`) and written only when the connection
+  id changed. The runner passes it to the `StopPoller` of each stop it
+  watches; a stop's poller rotates between its connected watchers' accounts,
+  one per 2-minute poll, and falls back to the shared login when none is
+  connected or the chosen one fails.
 - **Public data stays shared.** Completed Cache API payloads are shared by
   everyone, whichever account fetched them. A cache miss that another request
   is already loading is still coalesced, so its cost lands on whoever asked
