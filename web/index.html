@@ -16,6 +16,7 @@
     <link rel="stylesheet" href="style.css" />
   </head>
   <body class="ui-signal ui-signal-v2 ui-signal-compact ui-signal-system">
+    <script src="appearance.js"></script>
     <header>
       <button id="auth-button" type="button" aria-label="Account">Sign in</button>
       <div id="header-context" hidden><i aria-hidden="true"></i><span></span></div>
@@ -108,11 +109,18 @@
         </div>
         <p id="account-menu-email" class="muted"></p>
         <section class="theme-settings" aria-labelledby="theme-title">
-          <h3 id="theme-title">Appearance</h3>
+          <h3 id="theme-title">Color theme</h3>
           <div id="theme-selector" class="segmented" role="group" aria-label="Color theme">
             <button type="button" data-theme-choice="system" aria-pressed="true">System</button>
             <button type="button" data-theme-choice="light" aria-pressed="false">Light</button>
             <button type="button" data-theme-choice="dark" aria-pressed="false">Dark</button>
+          </div>
+        </section>
+        <section class="theme-settings" aria-labelledby="style-title">
+          <h3 id="style-title">Interface style</h3>
+          <div id="style-selector" class="segmented" role="group" aria-label="Interface style">
+            <button type="button" data-style-choice="classic" aria-pressed="false">Classic</button>
+            <button type="button" data-style-choice="signal" aria-pressed="true">Signal board</button>
           </div>
         </section>
         <button id="tracking-open" type="button">Tracked alerts</button>

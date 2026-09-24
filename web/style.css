@@ -1224,9 +1224,9 @@ dialog::backdrop { background: rgb(0 0 0 / 0.55); }
 .metrics-table td:last-child, .metrics-table th:last-child { text-align: right; }
 
 .theme-settings h3 { margin: 0 0 0.45rem; font-size: 0.85rem; color: var(--muted); }
-#theme-selector { width: 100%; }
-#theme-selector button { flex: 1; min-width: 0; padding-inline: 0.35rem; font-size: 0.85rem; }
-#theme-selector button[aria-pressed="true"] {
+#theme-selector, #style-selector { width: 100%; }
+#theme-selector button, #style-selector button { flex: 1; min-width: 0; padding-inline: 0.35rem; font-size: 0.85rem; }
+#theme-selector button[aria-pressed="true"], #style-selector button[aria-pressed="true"] {
   background: var(--accent);
   color: var(--accent-ink);
   font-weight: 600;
@@ -2469,8 +2469,8 @@ body.nav-hidden #fab { transform: translateY(calc(100% + 4.15rem + env(safe-area
 .ui-signal-system .age { margin-top: 0.35rem; padding: 0; }
 .ui-signal-system .bike-account { margin-block: 0.4rem 0; padding: 0.5rem 0.65rem; }
 
-.ui-signal-system #view-toggle button { display: grid; place-items: center; }
-.ui-signal-system #view-toggle svg {
+#view-toggle button { display: grid; place-items: center; }
+#view-toggle svg {
   fill: none;
   stroke: currentColor;
   stroke-width: 1.8;

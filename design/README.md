@@ -32,3 +32,12 @@ compatibility date than configured; the tests still pass.
 The account, location, nearby, refresh, and List/Map controls now share one 52px
 toolbar at every checked width. Removed study-only headings and tightened status,
 card headers, and route spacing. All ten screenshots were regenerated.
+
+## Interface style preference
+
+Account → Interface style offers Classic and Signal board independently of the
+color theme. Signal board remains the default; the selection is stored on this
+browser and restored before the page renders. Browser checks exercised both
+buttons, reload persistence, color-theme preservation, unrelated body classes,
+and fallback from an invalid saved value. The account panel captures are
+`options-classic.png` and `options-signal.png`.
