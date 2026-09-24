@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "metrics": "node --env-file-if-exists=../.env.metrics ../tools/emt-metrics.mjs",
+    "metrics": "node ../tools/emt-metrics.mjs",
     "test": "vitest run",
     "check:web": "node ../tools/check-web.mjs",
     "pretest": "node ../tools/check-web.mjs"
