@@ -30,6 +30,7 @@ describe("CORS", () => {
     expect(res.status).toBe(204);
     expect(res.headers.get("access-control-allow-origin")).toBe(env.ALLOWED_ORIGIN);
     expect(res.headers.get("access-control-allow-headers")).toContain("authorization");
+    expect(res.headers.get("access-control-allow-headers")).toContain("x-hubwise-emt");
   });
 
   it("lets browsers reuse the public auth configuration", async () => {

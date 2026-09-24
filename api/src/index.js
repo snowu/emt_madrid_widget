@@ -112,7 +112,7 @@ function cors(env) {
   return {
     "access-control-allow-origin": env.ALLOWED_ORIGIN,
     "access-control-allow-methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
-    "access-control-allow-headers": "content-type,authorization",
+    "access-control-allow-headers": "content-type,authorization,x-hubwise-emt",
   };
 }
 

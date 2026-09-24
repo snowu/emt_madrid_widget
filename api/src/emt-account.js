@@ -81,6 +81,12 @@ export function scopedEnvironment(env, credentials, sessionId) {
   };
 }
 
+export function callerClass(request) {
+  if (!request.headers.has("Authorization")) return "guest";
+  const said = request.headers.get("x-hubwise-emt");
+  return said === "connected" || said === "unconnected" ? said : "signed-in";
+}
+
 /** Whether every user must bring their own EMT account. */
 export const accountRequired = (env) => env.EMT_ACCOUNT === "required" && Boolean(env.EMT_CREDENTIAL_KEY);
 
@@ -95,6 +101,7 @@ export function withEmtAccount(env, request) {
   let pending;
   return {
     ...env,
+    EMT_CALLER: callerClass(request),
     EMT_ACCOUNT_CONTEXT: () => pending ??= (async () => {
       if (!env.EMT_CREDENTIAL_KEY) return null; // feature not configured
       const required = accountRequired(env);

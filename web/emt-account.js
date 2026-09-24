@@ -4,7 +4,7 @@
  * before saving it encrypted; it is never kept in the browser. Once connected,
  * EMT calls made for you use your own MobilityLabs quota. Without a connection
  * the shared login is used, so connecting is optional. */
-export function setupEmtAccount({ request }) {
+export function setupEmtAccount({ request, onState = () => {} }) {
   const byId = (id) => document.getElementById(`emt-account-${id}`);
   const dialog = byId("dialog");
   const email = byId("email");
@@ -21,6 +21,7 @@ export function setupEmtAccount({ request }) {
     disconnect.hidden = !connected;
     byId("save").textContent = connected ? "Change" : "Connect";
     byId("open").textContent = connected ? "EMT account connected" : "Connect EMT account";
+    onState(connected);
   }
   function pending(value) {
     busy = value;
@@ -75,6 +76,7 @@ export function setupEmtAccount({ request }) {
       password.value = "";
       message.textContent = "";
       update({ connected: false });
+      onState(null); // unknown until load() hears back from the worker
       if (dialog.open) dialog.close();
     },
     /** Reading the state also re-syncs the connection to the user's tracking

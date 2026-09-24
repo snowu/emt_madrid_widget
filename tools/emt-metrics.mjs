@@ -38,6 +38,7 @@ const query = `
     blob5 AS outcome,
     blob6 AS error_kind,
     blob7 AS caller,
+    blob8 AS who,
     SUM(_sample_interval) AS events,
     SUM(_sample_interval * double1) AS upstream_calls,
     AVG(double2) AS avg_duration_ms,
@@ -45,7 +46,7 @@ const query = `
     MIN(timestamp) AS first_seen
   FROM ${DATASET}
   WHERE timestamp > NOW() - INTERVAL '${hours}' HOUR
-  GROUP BY kind, endpoint, cache_status, outcome, error_kind, caller
+  GROUP BY kind, endpoint, cache_status, outcome, error_kind, caller, who
   ORDER BY events DESC`;
 
 const response = await fetch(
@@ -107,6 +108,20 @@ if (cache.size) {
   console.log("\nEdge cache");
   for (const [name, count] of [...cache].sort((a, b) => b[1] - a[1])) {
     console.log(`${name.padEnd(16)} ${Math.round(count).toLocaleString()}`);
+  }
+}
+
+const who = new Map();
+for (const row of edge) {
+  const name = row.who || "unrecorded";
+  const entry = who.get(name) ?? { hit: 0, other: 0 };
+  entry[row.cache_status === "hit" ? "hit" : "other"] += Number(row.events || 0);
+  who.set(name, entry);
+}
+if (who.size) {
+  console.log("\nWho asked         cache hits   fetched");
+  for (const [name, { hit, other }] of [...who].sort((a, b) => (b[1].hit + b[1].other) - (a[1].hit + a[1].other))) {
+    console.log(`${name.padEnd(16)} ${String(Math.round(hit).toLocaleString()).padStart(11)}   ${Math.round(other).toLocaleString()}`);
   }
 }
 
