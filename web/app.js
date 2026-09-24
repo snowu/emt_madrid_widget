@@ -5298,7 +5298,18 @@ function rebuildBikeMarkers() {
     }
     const marker = domMarker(html, "bike-pin", station.coordinates);
     const id = station.id;
-    marker.getElement().addEventListener("click", () => showBikePopupAfterPan(bikeById.get(id) ?? station));
+    marker.getElement().addEventListener("click", (event) => {
+      // The popup closes on any map click. Once the station is centred it
+      // opens synchronously, so this same click reaching the map closed it
+      // again at once: the first tap worked (it waited for the pan), every
+      // later tap on that station did nothing. Tapping it again closes it.
+      event.stopPropagation();
+      if (bikePopupControl?.isOpen() && bikePopupStationId === id) {
+        bikePopupControl.remove();
+        return;
+      }
+      showBikePopupAfterPan(bikeById.get(id) ?? station);
+    });
     marker.addTo(bikeMap);
     bikeMarkers.set(id, { marker, html });
   }
