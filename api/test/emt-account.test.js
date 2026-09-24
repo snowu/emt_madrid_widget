@@ -10,12 +10,12 @@ import { getToken, clearTokenMemoryForTest } from "../src/emt.js";
 const rows = new Map();
 let upstream;
 let rejectLogin;
-async function call(path, user = "alice", method = "GET", body) {
+async function call(path, user = "alice", method = "GET", body, overrides = {}) {
   const ctx = createExecutionContext();
   const response = await worker.fetch(new Request(`https://account.test${path}`, {
     method, headers: { ...(user ? { Authorization: `Bearer ${user}` } : {}), "content-type": "application/json" },
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-  }), env, ctx);
+  }), { ...env, ...overrides }, ctx);
   await waitOnExecutionContext(ctx);
   return response;
 }
@@ -221,5 +221,77 @@ describe("shared stop pollers and connected EMT accounts", () => {
     await call("/auth/emt", "erin");
     await call("/auth/emt", "erin");
     expect(await runInDurableObject(runner, (instance) => instance.countMeta())).toBe(0);
+  });
+});
+
+describe("connecting is required when the shared login is the owner's", () => {
+  // Production runs with EMT_SHARED_LOGIN = "owner"; OWNER_USER_ID is
+  // "owner-user-id" in vitest.config.js.
+  const owner = { EMT_SHARED_LOGIN: "owner" };
+  const get = (path, user) => call(path, user, "GET", undefined, owner);
+
+  it("refuses fresh EMT calls for guests and unconnected users, without spending any quota", async () => {
+    for (const user of [null, "carol"]) {
+      const response = await get(`/arrivals?stop=${nextStop()}`, user);
+      expect(response.status).toBe(403);
+      const body = await response.json();
+      expect(body.error).toBe("emt_account");
+      expect(body.message).toMatch(/connect your EMT account/i);
+    }
+    expect(arrivalTokens()).toEqual([]);
+  });
+
+  it("keeps the shared login for the owner", async () => {
+    expect((await get(`/arrivals?stop=${nextStop()}`, "owner-user-id")).status).toBe(200);
+    expect(arrivalTokens()).toEqual(["shared-token"]);
+  });
+
+  it("uses a connected user's own login, and still serves cached payloads to anyone", async () => {
+    await connect("alice");
+    const stop = nextStop();
+    expect((await get(`/arrivals?stop=${stop}`, "alice")).status).toBe(200);
+    expect(arrivalTokens()).toEqual(["bus:alice@example.test"]);
+    upstream.mockClear();
+    expect((await get(`/arrivals?stop=${stop}`, null)).status).toBe(200);
+    expect(upstream).not.toHaveBeenCalled();
+  });
+
+  it("refuses a bus alert from an unconnected user but not a bike alert", async () => {
+    const tracking = { ...owner, VAPID_PUBLIC_KEY: "p", VAPID_PRIVATE_KEY: "k", VAPID_SUBJECT: "s" };
+    const bus = await call("/tracking", "carol", "POST", { kind: "bus", targetId: "5138", line: "70" }, tracking);
+    expect(bus.status).toBe(403);
+    expect((await bus.json()).message).toMatch(/connect your EMT account/i);
+    // With a device to notify, the same user's bike alert goes through: bike
+    // counts come from the operator's feed and spend no EMT quota.
+    const runner = env.TRACKING.get(env.TRACKING.idFromName("carol"));
+    await runInDurableObject(runner, (instance) => {
+      instance.ctx.storage.sql.exec("INSERT OR REPLACE INTO devices VALUES ('d', ?)", JSON.stringify({ endpoint: "https://fcm.googleapis.com/fcm/send/x", keys: {} }));
+    });
+    const bike = await call("/tracking", "carol", "POST", { kind: "bike", targetId: "1" }, tracking);
+    expect(bike.status).toBe(200);
+    expect((await bike.json()).watches).toHaveLength(1);
+  });
+
+  it("does not poll a stop on the shared login unless the owner watches it", async () => {
+    const poll = async (users, stop) => {
+      for (const user of users) {
+        const runner = env.TRACKING.get(env.TRACKING.idFromName(user));
+        await runInDurableObject(runner, (instance) => {
+          Object.assign(instance.env, owner);
+          instance.ctx.storage.sql.exec("INSERT OR REPLACE INTO devices VALUES ('d', ?)", JSON.stringify({ endpoint: "https://fcm.googleapis.com/fcm/send/x", keys: {} }));
+          instance.save({ id: `w-${stop}`, kind: "bus", targetId: stop, line: "70", destination: "", label: "", revision: "r", state: {}, lastCheck: null, error: null });
+        });
+        await runner.identify(user);
+      }
+      const poller = env.STOP_POLLER.get(env.STOP_POLLER.idFromName(stop));
+      await runInDurableObject(poller, (instance) => { Object.assign(instance.env, owner); });
+      upstream.mockClear();
+      await runDurableObjectAlarm(poller);
+      return arrivalTokens();
+    };
+    expect(await poll(["carol"], "7777")).toEqual([]);
+    const carol = env.TRACKING.get(env.TRACKING.idFromName("carol"));
+    expect((await carol.list()).watches[0].error).toMatch(/connect your EMT account/i);
+    expect(await poll(["owner-user-id", "dan"], "8888")).toEqual(["shared-token"]);
   });
 });

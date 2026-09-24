@@ -129,11 +129,16 @@ for each of `EMT_EMAIL`, `EMT_PASSWORD`, `SUPABASE_URL`,
 `SUPABASE_ANON_KEY`, and `OWNER_USER_ID`, plus the optional MPass secrets below.
 Tests get fakes from `vitest.config.js`'s miniflare bindings.
 
-**Per-user EMT accounts are optional.** A signed-in user may connect their own
-EMT email/password (`/auth/emt`); EMT calls made for them — including their
-tracking runner's bus checks — then use their quota. Everyone else uses the
-shared `EMT_EMAIL` login. A connection EMT rejects is an `emt_account` error,
-never a silent fallback. Needs the `EMT_CREDENTIAL_KEY` secret and
+**Every user but the owner brings their own EMT account.** Users connect their
+EMT email/password (`/auth/emt`) and EMT calls made for them — including bus
+checks for their alerts — use their own quota. With `EMT_SHARED_LOGIN =
+"owner"` (production) the shared `EMT_EMAIL` login is `OWNER_USER_ID`'s alone:
+guests and unconnected users get cached payloads but `emt_account` (403) for
+anything needing a fresh EMT call, cannot add bus alerts, and are asked to
+connect right after signing in. Bike counts need no account (public GBFS). A
+stop poller uses its watchers' accounts, and the shared login only if the owner
+watches that stop. `"everyone"` lets anyone use the shared login (the tests
+default to it). Needs the `EMT_CREDENTIAL_KEY` secret and
 `supabase/emt-accounts.sql`; see `docs/emt-account-rollout.md`.
 
 **Tracking is fetched once and shared** (`src/pollers.js`). One `StopPoller`
@@ -144,8 +149,9 @@ every subscribed user's `TrackingRunner` with the result (`onBoard` /
 alert state, keep their poller subscriptions in step via `sync()` (plus a daily
 re-sync alarm), and write storage only when state changes. A stop poller spends
 its watchers' own EMT quotas in turn — one connected watcher per 2-minute
-slot — and uses the shared login if none has connected or the chosen account
-fails, so one broken connection never silences everyone else's alerts.
+slot — trying the others if the chosen account fails, so one broken
+connection never silences everyone else's alerts; the shared login is the last
+resort, and only for a stop the owner watches.
 
 The optional `/bikes/account` route first verifies the Supabase user and allows
 only `OWNER_USER_ID`. It logs in lazily with the `MPASS_EMAIL`,
