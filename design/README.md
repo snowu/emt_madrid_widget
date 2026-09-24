@@ -9,7 +9,7 @@ To inspect light mode, change the root `data-theme` attribute to `light` in DevT
 ## September refinement
 
 Departures now carry the strongest emphasis. Status and navigation have quieter
-borders, hub titles occupy their own row, and arrival times use a consistent green.
+borders, hub titles share a compact row with their actions, and arrival times use a consistent green.
 Route numbers retain their offset shadow. Bike counts use simple dividers, with
 neutral colors for dock and disabled counts. Freshness retains its state colors.
 
@@ -26,3 +26,9 @@ These checks cover static layout, not live map or account interactions.
 Validation: 148 API tests, 19 web tests, 120-element DOM smoke check, and
 `git diff --check` passed. The installed Workers test runtime reports an older
 compatibility date than configured; the tests still pass.
+
+## Single-row toolbar iteration
+
+The account, location, nearby, refresh, and List/Map controls now share one 52px
+toolbar at every checked width. Removed study-only headings and tightened status,
+card headers, and route spacing. All ten screenshots were regenerated.

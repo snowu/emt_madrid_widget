@@ -2296,6 +2296,11 @@ body.nav-hidden #fab { transform: translateY(calc(100% + 4.15rem + env(safe-area
 
 .ui-signal-system header {
   flex-shrink: 0;
+  grid-template-columns: 44px minmax(0, 1fr) 36px 36px auto;
+  grid-template-areas: "auth context near refresh view";
+  gap: 4px;
+  min-height: 52px;
+  padding-block: 4px;
   border-bottom: 1px solid var(--signal-line);
   background: var(--bg);
 }
@@ -2309,8 +2314,8 @@ body.nav-hidden #fab { transform: translateY(calc(100% + 4.15rem + env(safe-area
 }
 
 .ui-signal-system #status {
-  margin-block: 0.7rem;
-  padding: 0.25rem 0;
+  margin-block: 0.35rem;
+  padding: 0;
   border: 0;
   background: transparent;
   color: var(--signal-muted);
@@ -2329,8 +2334,8 @@ body.nav-hidden #fab { transform: translateY(calc(100% + 4.15rem + env(safe-area
 .ui-signal-system .place-card,
 .ui-signal-system .stop,
 .ui-signal-system .bike {
-  margin-top: 0.65rem;
-  padding: 0.8rem;
+  margin-top: 0.4rem;
+  padding: 0.55rem 0.65rem;
   border-radius: 6px;
   background: var(--signal-panel);
   box-shadow: 0 2px 0 color-mix(in srgb, var(--signal-ink) 15%, transparent);
@@ -2344,13 +2349,14 @@ body.nav-hidden #fab { transform: translateY(calc(100% + 4.15rem + env(safe-area
 .ui-signal-system .place-card.reachability-missed { border-left-width: 3px; }
 
 .ui-signal-system .place-card-heading {
-  grid-template-columns: minmax(0, 1fr) repeat(3, 36px);
+  padding: 0;
+  grid-template-columns: minmax(0, 1fr) auto repeat(3, 28px);
   gap: 0.2rem;
 }
 
 .ui-signal-system .place-card-heading h2 {
-  grid-column: 1 / -1;
-  font-size: 1rem;
+  grid-column: auto;
+  font-size: 0.9rem;
   line-height: 1.4;
 }
 
@@ -2367,8 +2373,8 @@ body.nav-hidden #fab { transform: translateY(calc(100% + 4.15rem + env(safe-area
 .ui-signal-system .place-route {
   grid-template-columns: 2.6rem minmax(0, 1fr) 36px auto;
   gap: 0.45rem;
-  margin-top: 0.35rem;
-  padding-top: 0.65rem;
+  margin-top: 0.2rem;
+  padding: 0.45rem 0;
   border-top-style: solid;
 }
 
@@ -2401,7 +2407,7 @@ body.nav-hidden #fab { transform: translateY(calc(100% + 4.15rem + env(safe-area
 .ui-signal-system .stop li::before { content: none; }
 .ui-signal-system .stop li {
   grid-template-columns: 2.6rem minmax(0, 1fr) auto;
-  padding-block: 0.7rem;
+  padding-block: 0.5rem;
   border-bottom-style: solid;
 }
 .ui-signal-system .stop .destination { grid-column: 2; font-size: 0.82rem; }
@@ -2438,3 +2444,27 @@ body.nav-hidden #fab { transform: translateY(calc(100% + 4.15rem + env(safe-area
   border-radius: 6px;
   box-shadow: none;
 }
+
+/* One toolbar row, including the view switch, even on a 320px phone. */
+.ui-signal-system header > button {
+  width: 36px;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0;
+  border-color: transparent;
+  border-radius: 4px;
+  background: transparent;
+}
+.ui-signal-system header #auth-button { width: 44px; font-size: 0.7rem; }
+.ui-signal-system #header-context { min-width: 0; padding: 0; font-size: 0.7rem; }
+.ui-signal-system #header-context span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ui-signal-system #view-toggle { padding: 0; gap: 0; }
+.ui-signal-system #view-toggle button { min-width: 42px; min-height: 42px; padding: 0 0.4rem; font-size: 0.75rem; }
+.ui-signal-system #status:empty { display: none; }
+.ui-signal-system .place-card-heading .place-directions,
+.ui-signal-system .place-card-heading .track-button { width: 28px; min-width: 28px; padding: 0; }
+.ui-signal-system .place-card-heading h2 { flex-wrap: wrap; gap: 0.25rem; }
+.ui-signal-system .place-card-heading .freshness-dot { order: 1; }
+.ui-signal-system .stop ul { margin-block: 0.35rem 0; }
+.ui-signal-system .age { margin-top: 0.35rem; padding: 0; }
+.ui-signal-system .bike-account { margin-block: 0.4rem 0; padding: 0.5rem 0.65rem; }
