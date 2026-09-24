@@ -1224,9 +1224,9 @@ dialog::backdrop { background: rgb(0 0 0 / 0.55); }
 .metrics-table td:last-child, .metrics-table th:last-child { text-align: right; }
 
 .theme-settings h3 { margin: 0 0 0.45rem; font-size: 0.85rem; color: var(--muted); }
-#theme-selector { width: 100%; }
-#theme-selector button { flex: 1; min-width: 0; padding-inline: 0.35rem; font-size: 0.85rem; }
-#theme-selector button[aria-pressed="true"] {
+#theme-selector, #style-selector { width: 100%; }
+#theme-selector button, #style-selector button { flex: 1; min-width: 0; padding-inline: 0.35rem; font-size: 0.85rem; }
+#theme-selector button[aria-pressed="true"], #style-selector button[aria-pressed="true"] {
   background: var(--accent);
   color: var(--accent-ink);
   font-weight: 600;
@@ -1511,3 +1511,983 @@ body.nav-hidden #fab { transform: translateY(calc(100% + 4.15rem + env(safe-area
 }
 .directions-actions #directions-web { text-align: center; color: var(--muted); font-size: 0.85rem; }
 .directions-actions #directions-web[hidden] { display: none; }
+.ui-signal {
+  --signal-lime: #c7f36b;
+  --signal-coral: #ff705f;
+  --signal-cyan: #66e5ff;
+  --signal-ink: #071017;
+  --signal-panel: #111c24;
+  --signal-line: #30434d;
+  --signal-muted: #9aabb2;
+  color-scheme: dark;
+  max-width: 520px;
+  padding: 0.5rem 1rem calc(env(safe-area-inset-bottom, 0px) + 5.8rem);
+  background-color: #071017;
+  background-image: linear-gradient(rgb(103 229 255 / 0.045) 1px, transparent 1px), linear-gradient(90deg, rgb(103 229 255 / 0.045) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+@media (prefers-color-scheme: light) {
+  .ui-signal {
+    --signal-lime: #447000;
+    --signal-coral: #c33b2f;
+    --signal-cyan: #006b80;
+    --signal-ink: #102027;
+    --signal-panel: #f8fbfc;
+    --signal-line: #c4d1d5;
+    --signal-muted: #53666d;
+    color-scheme: light;
+    background-color: #eef3f2;
+    background-image: linear-gradient(rgb(16 32 39 / 0.045) 1px, transparent 1px), linear-gradient(90deg, rgb(16 32 39 / 0.045) 1px, transparent 1px);
+  }
+}
+
+:root[data-theme="light"] .ui-signal {
+  --signal-lime: #447000;
+  --signal-coral: #c33b2f;
+  --signal-cyan: #006b80;
+  --signal-ink: #102027;
+  --signal-panel: #f8fbfc;
+  --signal-line: #c4d1d5;
+  --signal-muted: #53666d;
+  color-scheme: light;
+  background-color: #eef3f2;
+  background-image: linear-gradient(rgb(16 32 39 / 0.045) 1px, transparent 1px), linear-gradient(90deg, rgb(16 32 39 / 0.045) 1px, transparent 1px);
+}
+
+.ui-signal header {
+  min-height: 4.2rem;
+  margin-inline: -1rem;
+  padding: 0.7rem 1rem;
+  border-bottom: 2px solid var(--signal-lime);
+  background: color-mix(in srgb, var(--signal-ink) 92%, transparent);
+  backdrop-filter: blur(10px);
+}
+
+.ui-signal header::after {
+  content: "LIVE / MADRID";
+  order: 9;
+  align-self: center;
+  color: var(--signal-lime);
+  font: 700 0.58rem ui-monospace, monospace;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+
+.ui-signal .segmented {
+  padding: 2px;
+  border: 1px solid var(--signal-line);
+  border-radius: 3px;
+  background: var(--signal-panel);
+}
+
+.ui-signal .segmented button {
+  min-width: 3.6rem;
+  border-radius: 2px;
+  color: var(--signal-muted);
+}
+
+.ui-signal .segmented button[aria-selected="true"] {
+  border: 1px solid var(--signal-lime);
+  background: transparent;
+  color: var(--signal-lime);
+  box-shadow: 3px 3px 0 var(--signal-lime);
+}
+
+.ui-signal #status {
+  min-height: 0;
+  margin: 0.8rem 0 0;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--signal-lime);
+  border-radius: 3px;
+  background: var(--signal-panel);
+  color: var(--signal-lime);
+  font: 700 0.72rem ui-monospace, monospace;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.ui-signal .place-context {
+  margin: 1.2rem 0 0.25rem;
+  color: var(--signal-muted);
+  font: 700 0.67rem ui-monospace, monospace;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.ui-signal .place-context::before {
+  border-radius: 1px;
+  background: var(--signal-coral);
+}
+
+.ui-signal .place-card,
+.ui-signal .stop,
+.ui-signal .place-nearest-bike,
+.ui-signal #route-legend {
+  margin: 0.8rem 0 0;
+  padding: 0.9rem;
+  border: 1px solid var(--signal-line);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--signal-panel) 94%, var(--signal-ink));
+  box-shadow: 5px 5px 0 color-mix(in srgb, var(--signal-ink) 65%, transparent);
+}
+
+.ui-signal .place-card.reachability-comfortable { border-left: 5px solid var(--signal-lime); }
+.ui-signal .place-card.reachability-tight { border-left: 5px solid var(--signal-coral); }
+.ui-signal .place-card.reachability-missed { border-left: 5px solid var(--signal-muted); }
+
+.ui-signal .place-card-heading {
+  grid-template-columns: minmax(0, 1fr) auto repeat(3, 36px);
+  gap: 0.2rem;
+}
+
+.ui-signal .place-card-heading h2,
+.ui-signal .title h2 {
+  gap: 0.45rem;
+  color: var(--fg);
+  font-size: 1.02rem;
+  letter-spacing: -0.02em;
+}
+
+.ui-signal .place-card-heading > span,
+.ui-signal .stop-num,
+.ui-signal .age,
+.ui-signal .freshness-dot,
+.ui-signal .route-later {
+  color: var(--signal-muted);
+}
+
+.ui-signal .place-directions,
+.ui-signal .place-route-directions,
+.ui-signal .icon-btn {
+  width: 36px;
+  min-height: 36px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--signal-cyan);
+}
+
+.ui-signal .place-directions:hover,
+.ui-signal .place-route-directions:hover,
+.ui-signal .icon-btn:hover,
+.ui-signal .icon-btn:active {
+  border-color: var(--signal-cyan);
+  background: color-mix(in srgb, var(--signal-cyan) 12%, transparent);
+}
+
+.ui-signal .place-route {
+  grid-template-columns: 4.5rem minmax(0, 1fr) auto auto;
+  gap: 0.7rem;
+  margin-top: 0.85rem;
+  padding-top: 0.75rem;
+  border-top: 1px dashed var(--signal-line);
+}
+
+.ui-signal .place-line,
+.ui-signal .line {
+  min-height: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--signal-coral);
+  font: 850 2rem/0.9 ui-monospace, monospace;
+  letter-spacing: -0.12em;
+}
+
+.ui-signal .place-route p,
+.ui-signal .place-route p b,
+.ui-signal .stop .destination {
+  color: var(--fg);
+}
+
+.ui-signal .place-route time,
+.ui-signal .eta {
+  color: var(--signal-lime);
+  font: 850 1.2rem ui-monospace, monospace;
+  letter-spacing: -0.05em;
+}
+
+.ui-signal .stop ul {
+  margin-top: 0.75rem;
+}
+
+.ui-signal .stop li {
+  grid-template-columns: 3.5rem minmax(0, 1fr) auto;
+  padding: 0.65rem 0;
+  border-bottom: 1px dashed var(--signal-line);
+}
+
+.ui-signal .stop li:last-child { border-bottom: 0; }
+
+.ui-signal .stop .destination {
+  font-size: 0.83rem;
+  font-weight: 700;
+}
+
+.ui-signal .controls {
+  padding: 0.2rem;
+  border: 1px solid var(--signal-line);
+  border-radius: 3px;
+  background: var(--signal-ink);
+}
+
+.ui-signal #primary-menu {
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  max-width: none;
+  margin-inline: auto;
+  padding: 0.45rem 1rem calc(0.45rem + env(safe-area-inset-bottom, 0px));
+  border: 1px solid var(--signal-line);
+  border-bottom: 0;
+  border-radius: 0;
+  background: color-mix(in srgb, var(--signal-ink) 96%, transparent);
+  box-shadow: 0 -10px 24px rgb(0 0 0 / 0.25);
+  transform: none;
+}
+
+.ui-signal #primary-menu button {
+  min-height: 48px;
+  border-radius: 3px;
+  color: var(--signal-muted);
+  font-size: 0.85rem;
+}
+
+.ui-signal #primary-menu button[aria-selected="true"] {
+  border: 1px solid var(--signal-lime);
+  background: transparent;
+  color: var(--signal-lime);
+  box-shadow: 3px 3px 0 var(--signal-lime);
+}
+
+.ui-signal #fab {
+  right: 1rem;
+  bottom: calc(5.25rem + env(safe-area-inset-bottom, 0px));
+  width: 44px;
+  height: 44px;
+  min-height: 44px;
+  border: 1px solid var(--signal-ink);
+  border-radius: 4px;
+  background: var(--signal-lime);
+  color: var(--fg);
+  box-shadow: 4px 4px 0 var(--signal-ink);
+}
+
+.ui-signal #map-actions {
+  right: 1rem;
+  bottom: calc(5.25rem + env(safe-area-inset-bottom, 0px));
+}
+
+.ui-signal #map-actions button {
+  width: 44px;
+  height: 44px;
+  min-height: 44px;
+  border: 1px solid var(--signal-line);
+  border-radius: 4px;
+  background: var(--signal-panel);
+  color: var(--signal-cyan);
+  box-shadow: 3px 3px 0 var(--signal-ink);
+}
+
+.ui-signal.nav-hidden #primary-menu {
+  transform: translateY(100%);
+}
+
+.ui-signal .line-chip {
+  border-color: var(--signal-line);
+  border-radius: 3px;
+  background: var(--signal-panel);
+}
+
+.ui-signal-v2 {
+  --signal-lime: #d5ff58;
+  --signal-coral: #ff6b5f;
+  --signal-cyan: #64e7ff;
+  --signal-ink: #060c11;
+  --signal-panel: #101a22;
+  --signal-line: #2c4650;
+  --signal-muted: #9eb0b5;
+  background-size: 32px 32px;
+}
+
+.ui-signal-v2 header {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  grid-template-areas: "auth context near refresh" "view view view view";
+  gap: 0.45rem 0.5rem;
+  padding-block: 0.55rem 0.45rem;
+}
+
+.ui-signal-v2 #auth-button { grid-area: auth; }
+.ui-signal-v2 #header-context { grid-area: context; }
+.ui-signal-v2 #nearby-stops-open { grid-area: near; }
+.ui-signal-v2 #refresh-all { grid-area: refresh; }
+.ui-signal-v2 #view-toggle { grid-area: view; justify-self: end; }
+.ui-signal-v2 header::after { display: none; }
+
+.ui-signal-v2 #header-context {
+  align-self: center;
+  padding: 0.45rem 0.55rem;
+  border-left: 3px solid var(--signal-lime);
+  background: color-mix(in srgb, var(--signal-panel) 88%, transparent);
+  font: 700 0.68rem ui-monospace, monospace;
+  letter-spacing: 0.02em;
+}
+
+.ui-signal-v2 #status {
+  position: relative;
+  overflow: hidden;
+  margin-top: 0.65rem;
+  border-left-width: 7px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--signal-panel) 95%, var(--signal-lime)), var(--signal-panel));
+}
+
+.ui-signal-v2 #status::after {
+  content: "SYNCED";
+  float: right;
+  color: var(--signal-muted);
+  font-size: 0.58rem;
+  letter-spacing: 0.12em;
+}
+
+.ui-signal-v2 .place-card,
+.ui-signal-v2 .stop,
+.ui-signal-v2 .place-nearest-bike,
+.ui-signal-v2 #route-legend {
+  position: relative;
+  overflow: hidden;
+  border-color: var(--signal-line);
+  background: color-mix(in srgb, var(--signal-panel) 96%, var(--signal-ink));
+  box-shadow: 6px 6px 0 var(--signal-ink);
+}
+
+.ui-signal-v2 .place-card::before,
+.ui-signal-v2 .stop::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 4.4rem;
+  height: 4px;
+  background: var(--signal-cyan);
+}
+
+.ui-signal-v2 .place-card.reachability-comfortable { border-left-width: 7px; }
+.ui-signal-v2 .place-card.reachability-tight { border-left-width: 7px; }
+
+.ui-signal-v2 .place-card-heading h2,
+.ui-signal-v2 .title h2 {
+  font-size: 1.08rem;
+  letter-spacing: -0.035em;
+}
+
+.ui-signal-v2 .place-line,
+.ui-signal-v2 .line {
+  position: relative;
+  color: var(--signal-coral);
+  font-size: 2.35rem;
+  text-shadow: 3px 3px 0 color-mix(in srgb, var(--signal-coral) 22%, transparent);
+}
+
+.ui-signal-v2 .place-line::after,
+.ui-signal-v2 .line::after {
+  content: "";
+  display: block;
+  width: 2.2rem;
+  height: 3px;
+  margin-top: 0.4rem;
+  background: var(--signal-coral);
+}
+
+.ui-signal-v2 .place-route {
+  grid-template-columns: 5.2rem minmax(0, 1fr) auto auto;
+  gap: 0.8rem;
+}
+
+.ui-signal-v2 .place-route time,
+.ui-signal-v2 .eta {
+  color: var(--signal-lime);
+  text-shadow: 0 0 12px color-mix(in srgb, var(--signal-lime) 30%, transparent);
+}
+
+.ui-signal-v2 .stop li {
+  grid-template-columns: 4.2rem minmax(0, 1fr) auto;
+}
+
+.ui-signal-v2 .stop li::before {
+  content: "";
+  width: 4px;
+  height: 1.2rem;
+  border-radius: 1px;
+  background: var(--signal-cyan);
+}
+
+.ui-signal-v2 .stop li {
+  grid-template-columns: 0.5rem 3.4rem minmax(0, 1fr) auto;
+  gap: 0.5rem;
+}
+
+.ui-signal-v2 .stop .line {
+  font-size: 1.55rem;
+}
+
+.ui-signal-v2 .stop .destination {
+  grid-column: 3;
+}
+
+.ui-signal-v2 .stop .eta {
+  grid-column: 4;
+  font-size: 1.05rem;
+}
+
+.ui-signal-v2 #primary-menu {
+  border-top: 3px solid var(--signal-lime);
+}
+
+.ui-signal-v2 #primary-menu button[aria-selected="true"] {
+  border-color: var(--signal-lime);
+  box-shadow: 4px 4px 0 var(--signal-lime);
+}
+
+.ui-signal-v2 #fab {
+  border-color: var(--signal-ink);
+  background: var(--signal-lime);
+  box-shadow: 5px 5px 0 var(--signal-coral);
+}
+
+.ui-signal-v2 #map-actions button {
+  box-shadow: 4px 4px 0 var(--signal-ink);
+}
+
+@media (prefers-color-scheme: light) {
+  :root[data-theme="dark"] .ui-signal-v2 {
+    --signal-lime: #d5ff58;
+    --signal-coral: #ff6b5f;
+    --signal-cyan: #64e7ff;
+    --signal-ink: #060c11;
+    --signal-panel: #101a22;
+    --signal-line: #2c4650;
+    --signal-muted: #9eb0b5;
+  }
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) .ui-signal-v2 {
+    --signal-lime: #447000;
+    --signal-coral: #c33b2f;
+    --signal-cyan: #006b80;
+    --signal-ink: #102027;
+    --signal-panel: #f8fbfc;
+    --signal-line: #c4d1d5;
+    --signal-muted: #53666d;
+  }
+}
+
+:root[data-theme="light"] .ui-signal-v2 {
+  --signal-lime: #447000;
+  --signal-coral: #c33b2f;
+  --signal-cyan: #006b80;
+  --signal-ink: #102027;
+  --signal-panel: #f8fbfc;
+  --signal-line: #c4d1d5;
+  --signal-muted: #53666d;
+}
+
+.ui-signal-compact .place-card,
+.ui-signal-compact .stop,
+.ui-signal-compact .place-nearest-bike {
+  margin-top: 0.45rem;
+  padding: 0.65rem 0.7rem;
+  box-shadow: 3px 3px 0 var(--signal-ink);
+}
+
+.ui-signal-compact .place-card::before,
+.ui-signal-compact .stop::before {
+  width: 2.8rem;
+  height: 3px;
+}
+
+.ui-signal-compact .place-card-heading h2,
+.ui-signal-compact .title h2 {
+  font-size: 0.9rem;
+}
+
+.ui-signal-compact .place-card-heading > span,
+.ui-signal-compact .stop-num,
+.ui-signal-compact .age {
+  font-size: 0.68rem;
+}
+
+.ui-signal-compact .place-directions,
+.ui-signal-compact .place-route-directions,
+.ui-signal-compact .icon-btn {
+  width: 32px;
+  min-height: 32px;
+}
+
+.ui-signal-compact .place-route {
+  grid-template-columns: 3.6rem minmax(0, 1fr) auto auto;
+  gap: 0.6rem;
+  margin-top: 0.55rem;
+  padding-top: 0.5rem;
+}
+
+.ui-signal-compact .place-line,
+.ui-signal-compact .line {
+  font-size: 1.45rem;
+  font-weight: 750;
+  text-shadow: 2px 2px 0 color-mix(in srgb, var(--signal-coral) 24%, transparent);
+}
+
+.ui-signal-compact .place-line::after,
+.ui-signal-compact .line::after {
+  width: 1.65rem;
+  height: 2px;
+  margin-top: 0.25rem;
+}
+
+.ui-signal-compact .place-route time,
+.ui-signal-compact .eta {
+  font-size: 1rem;
+  text-shadow: 0 0 8px color-mix(in srgb, var(--signal-lime) 26%, transparent);
+}
+
+.ui-signal-compact .stop li {
+  padding: 0.42rem 0;
+}
+
+.ui-signal-compact .stop .destination {
+  font-size: 0.76rem;
+}
+
+.ui-signal-compact #primary-menu button {
+  min-height: 44px;
+}
+
+.ui-signal-system .stop,
+.ui-signal-system .bike,
+.ui-signal-system .place-nearest-bike {
+  border-color: var(--signal-line);
+  border-radius: 3px;
+  background: var(--signal-panel);
+  box-shadow: 3px 3px 0 var(--signal-ink);
+}
+
+.ui-signal-system .stop .head,
+.ui-signal-system .bike-head {
+  align-items: center;
+}
+
+.ui-signal-system .stop .title h2,
+.ui-signal-system .bike-head .title h2 {
+  color: var(--fg);
+  letter-spacing: -0.02em;
+}
+
+.ui-signal-system .stop-num,
+.ui-signal-system .bike-card-distance,
+.ui-signal-system .bike-note {
+  color: var(--signal-muted);
+}
+
+.ui-signal-system .stop li {
+  border-bottom-color: var(--signal-line);
+}
+
+.ui-signal-system .stop li:last-child {
+  border-bottom: 0;
+}
+
+.ui-signal-system .line,
+.ui-signal-system .eta {
+  color: var(--signal-coral);
+}
+
+.ui-signal-system .stop .destination {
+  color: var(--fg);
+  font-weight: 650;
+}
+
+.ui-signal-system .bike-counts {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.25rem;
+  margin: 0.6rem 0 0;
+  padding-top: 0.55rem;
+  border-top: 1px dashed var(--signal-line);
+}
+
+.ui-signal-system .bike-metric {
+  min-height: 2.25rem;
+  padding: 0.25rem 0.4rem;
+  border: 1px solid var(--signal-line);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--signal-ink) 34%, transparent);
+}
+
+.ui-signal-system .bike-metric strong {
+  color: var(--signal-lime);
+  font: 800 1.1rem ui-monospace, monospace;
+}
+
+.ui-signal-system .bike-metric span {
+  color: var(--signal-muted);
+  font: 0.62rem ui-monospace, monospace;
+  text-transform: uppercase;
+}
+
+.ui-signal-system .bike-metric.good strong { color: var(--signal-lime); }
+.ui-signal-system .bike-metric.low strong { color: var(--signal-coral); }
+.ui-signal-system .bike-metric.empty strong { color: var(--signal-coral); }
+
+.ui-signal-system .bike.station-unavailable {
+  border-color: var(--signal-muted);
+  background: color-mix(in srgb, var(--signal-panel) 80%, var(--signal-muted));
+}
+
+.ui-signal-system .bike.station-unavailable .title h2 {
+  color: var(--signal-muted);
+}
+
+.ui-signal-system .bike-account {
+  border: 1px solid var(--signal-line);
+  border-radius: 3px;
+  background: var(--signal-panel);
+  box-shadow: 3px 3px 0 var(--signal-ink);
+}
+
+.ui-signal-system #bike-map,
+.ui-signal-system #map {
+  border: 1px solid var(--signal-line);
+  border-radius: 3px;
+  background-color: #182b31;
+  background-image: linear-gradient(rgb(100 231 255 / 0.08) 1px, transparent 1px), linear-gradient(90deg, rgb(100 231 255 / 0.08) 1px, transparent 1px);
+  background-size: 28px 28px;
+  box-shadow: 4px 4px 0 var(--signal-ink);
+}
+
+.ui-signal-system .maplibregl-popup-content {
+  border: 1px solid var(--signal-line);
+  border-radius: 3px;
+  background: var(--signal-panel);
+  color: var(--fg);
+  box-shadow: 5px 5px 0 var(--signal-ink);
+}
+
+.ui-signal-system .maplibregl-popup-content button {
+  border-color: var(--signal-line);
+  border-radius: 2px;
+  background: transparent;
+  color: var(--signal-cyan);
+}
+
+.ui-signal-system .maplibregl-popup-content .line-chip[aria-pressed="true"] {
+  border-color: var(--signal-lime);
+  color: var(--signal-lime);
+  background: transparent;
+}
+
+.ui-signal-system .route-board,
+.ui-signal-system #route-legend {
+  border-color: var(--signal-line);
+  border-radius: 3px;
+  background: var(--signal-panel);
+  box-shadow: 4px 4px 0 var(--signal-ink);
+}
+
+.ui-signal-system .route-board-head {
+  border-bottom: 1px solid var(--signal-line);
+}
+
+.ui-signal-system .route-board-title,
+.ui-signal-system .route-board-count {
+  color: var(--signal-muted);
+}
+
+.ui-signal-system .route-board-row {
+  border-bottom: 1px dashed var(--signal-line);
+}
+
+.ui-signal-system .route-board-row[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--signal-lime) 10%, transparent);
+}
+
+.ui-signal-system .route-board-number {
+  color: var(--signal-coral);
+  font: 800 1rem ui-monospace, monospace;
+}
+
+.ui-signal-system .route-board-destination {
+  color: var(--fg);
+  font-weight: 650;
+  text-transform: none;
+}
+
+.ui-signal-system .route-board-eta {
+  color: var(--signal-lime);
+  font-weight: 800;
+}
+
+.ui-signal-system dialog {
+  border: 1px solid var(--signal-line);
+  border-radius: 4px;
+  background: var(--signal-panel);
+  color: var(--fg);
+  box-shadow: 7px 7px 0 var(--signal-ink);
+}
+
+.ui-signal-system dialog::backdrop {
+  background: rgb(0 0 0 / 0.62);
+}
+
+.ui-signal-system dialog h2,
+.ui-signal-system dialog h3 {
+  letter-spacing: -0.02em;
+}
+
+.ui-signal-system dialog input,
+.ui-signal-system dialog button {
+  border-color: var(--signal-line);
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--signal-ink) 30%, var(--signal-panel));
+}
+
+.ui-signal-system dialog button:hover,
+.ui-signal-system dialog button:focus-visible {
+  border-color: var(--signal-cyan);
+  color: var(--signal-cyan);
+}
+
+.ui-signal-system #sheet-map,
+.ui-signal-system #bike-sheet-map,
+.ui-signal-system #place-picker-map {
+  border: 1px solid var(--signal-line);
+  border-radius: 3px;
+  background: #182b31;
+}
+
+.ui-signal-system .sheet-title-row {
+  border-bottom: 1px solid var(--signal-line);
+}
+
+.ui-signal-system #sheet-arrivals li {
+  border-bottom-color: var(--signal-line);
+}
+
+.ui-signal-system #sheet-service-wrap {
+  border-top: 1px solid var(--signal-line);
+}
+
+.ui-signal-system .account-menu-heading,
+.ui-signal-system .trip-dialog-head {
+  border-bottom-color: var(--signal-line);
+}
+
+.ui-signal-system .theme-settings,
+.ui-signal-system .metrics-content,
+.ui-signal-system .trip-group,
+.ui-signal-system .trip-card {
+  border-color: var(--signal-line);
+  background: color-mix(in srgb, var(--signal-ink) 22%, var(--signal-panel));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-signal-system *,
+  .ui-signal-system *::before,
+  .ui-signal-system *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
+
+/* System refinement: give departures priority over decorative chrome. */
+:root .ui-signal.ui-signal-system {
+  background-color: var(--bg);
+  background-image: none;
+}
+
+.ui-signal-system header {
+  flex-shrink: 0;
+  grid-template-columns: 44px minmax(0, 1fr) 36px 36px auto;
+  grid-template-areas: "auth context near refresh view";
+  gap: 4px;
+  min-height: 52px;
+  padding-block: 4px;
+  border-bottom: 1px solid var(--signal-line);
+  background: var(--bg);
+}
+
+.ui-signal-system #header-context {
+  padding-left: 0;
+  border: 0;
+  background: transparent;
+  font: 650 0.75rem/1.4 system-ui, sans-serif;
+  letter-spacing: 0;
+}
+
+.ui-signal-system #status {
+  margin-block: 0.35rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--signal-muted);
+  font-size: 0.65rem;
+  letter-spacing: 0.04em;
+}
+
+/* Status text comes from the app; never imply that stale data is synced. */
+.ui-signal-system #status::after { content: none; }
+
+.ui-signal-system .segmented button[aria-selected="true"] {
+  background: color-mix(in srgb, var(--signal-lime) 10%, var(--signal-panel));
+  box-shadow: none;
+}
+
+.ui-signal-system .place-card,
+.ui-signal-system .stop,
+.ui-signal-system .bike {
+  margin-top: 0.4rem;
+  padding: 0.55rem 0.65rem;
+  border-radius: 6px;
+  background: var(--signal-panel);
+  box-shadow: 0 2px 0 color-mix(in srgb, var(--signal-ink) 15%, transparent);
+}
+
+.ui-signal-system .place-card::before,
+.ui-signal-system .stop::before { content: none; }
+
+.ui-signal-system .place-card.reachability-comfortable,
+.ui-signal-system .place-card.reachability-tight,
+.ui-signal-system .place-card.reachability-missed { border-left-width: 3px; }
+
+.ui-signal-system .place-card-heading {
+  padding: 0;
+  grid-template-columns: minmax(0, 1fr) auto repeat(3, 28px);
+  gap: 0.2rem;
+}
+
+.ui-signal-system .place-card-heading h2 {
+  grid-column: auto;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.ui-signal-system .place-card-heading > span { font-size: 0.72rem; }
+
+.ui-signal-system .place-directions,
+.ui-signal-system .place-card-heading .track-button,
+.ui-signal-system .place-route-directions,
+.ui-signal-system .icon-btn {
+  width: 36px;
+  min-height: 36px;
+}
+
+.ui-signal-system .place-route {
+  grid-template-columns: 2.6rem minmax(0, 1fr) 36px auto;
+  gap: 0.45rem;
+  margin-top: 0.2rem;
+  padding: 0.45rem 0;
+  border-top-style: solid;
+}
+
+.ui-signal-system .place-route p { min-width: 0; overflow-wrap: anywhere; }
+.ui-signal-system .place-stop-open { text-align: left; }
+.ui-signal-system .place-line,
+.ui-signal-system .line { letter-spacing: -0.07em; }
+.ui-signal-system .place-line::after,
+.ui-signal-system .line::after { content: none; }
+
+.ui-signal-system .place-route time,
+.ui-signal-system .stop .eta {
+  color: var(--signal-lime);
+  white-space: nowrap;
+  text-shadow: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.ui-signal-system .freshness-dot.fresh { color: var(--success); }
+.ui-signal-system .freshness-dot.aging { color: var(--warning); }
+.ui-signal-system .freshness-dot.stale { color: var(--danger); }
+
+.ui-signal-system .stop .head,
+.ui-signal-system .bike-head { flex-wrap: wrap; gap: 0.4rem; }
+.ui-signal-system .stop .title,
+.ui-signal-system .bike-head .title { min-width: 0; flex: 1 1 11rem; }
+.ui-signal-system .stop .title h2,
+.ui-signal-system .bike-head .title h2 { line-height: 1.4; }
+.ui-signal-system .controls { padding: 0; border: 0; background: transparent; }
+.ui-signal-system .stop li::before { content: none; }
+.ui-signal-system .stop li {
+  grid-template-columns: 2.6rem minmax(0, 1fr) auto;
+  padding-block: 0.5rem;
+  border-bottom-style: solid;
+}
+.ui-signal-system .stop .destination { grid-column: 2; font-size: 0.82rem; }
+.ui-signal-system .stop .eta { grid-column: 3; }
+.ui-signal-system .age { margin-bottom: 0; line-height: 1.5; }
+
+.ui-signal-system .bike-counts { gap: 0; border-top-style: solid; }
+.ui-signal-system .bike-metric { border: 0; border-radius: 0; background: transparent; }
+.ui-signal-system .bike-metric + .bike-metric { border-left: 1px solid var(--signal-line); }
+.ui-signal-system .bike-metric strong { font-size: 1.4rem; }
+.ui-signal-system .bike-metric:not(.good):not(.low):not(.empty) strong { color: var(--fg); }
+
+.ui-signal-system #primary-menu {
+  border-top: 1px solid var(--signal-line);
+  background: var(--bg);
+  box-shadow: 0 -6px 20px rgb(0 0 0 / 0.08);
+}
+.ui-signal-system #primary-menu button[aria-selected="true"] {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--signal-lime) 10%, var(--bg));
+  box-shadow: inset 0 2px var(--signal-lime);
+}
+.ui-signal-system #fab {
+  color: var(--bg);
+  border-color: var(--signal-lime);
+  box-shadow: 3px 3px 0 color-mix(in srgb, var(--signal-lime) 25%, var(--bg));
+}
+.ui-signal-system :is(button, a, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--signal-cyan);
+  outline-offset: 3px;
+}
+
+.ui-signal-system .bike-account {
+  border-radius: 6px;
+  box-shadow: none;
+}
+
+/* One toolbar row, including the view switch, even on a 320px phone. */
+.ui-signal-system header > button {
+  width: 36px;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0;
+  border-color: transparent;
+  border-radius: 4px;
+  background: transparent;
+}
+.ui-signal-system header #auth-button { width: 44px; font-size: 0.7rem; }
+.ui-signal-system #header-context { min-width: 0; padding: 0; font-size: 0.7rem; }
+.ui-signal-system #header-context span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ui-signal-system #view-toggle { padding: 0; gap: 0; }
+.ui-signal-system #view-toggle button { min-width: 42px; min-height: 42px; padding: 0 0.4rem; font-size: 0.75rem; }
+.ui-signal-system #status:empty { display: none; }
+.ui-signal-system .place-card-heading .place-directions,
+.ui-signal-system .place-card-heading .track-button { width: 28px; min-width: 28px; padding: 0; }
+.ui-signal-system .place-card-heading h2 { flex-wrap: wrap; gap: 0.25rem; }
+.ui-signal-system .place-card-heading .freshness-dot { order: 1; }
+.ui-signal-system .stop ul { margin-block: 0.35rem 0; }
+.ui-signal-system .age { margin-top: 0.35rem; padding: 0; }
+.ui-signal-system .bike-account { margin-block: 0.4rem 0; padding: 0.5rem 0.65rem; }
+
+#view-toggle button { display: grid; place-items: center; }
+#view-toggle svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
