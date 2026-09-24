@@ -1,0 +1,8 @@
+{
+  "name": "emt-madrid-widget",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "metrics": "node tools/emt-metrics.mjs"
+  }
+}
