@@ -84,12 +84,25 @@ const WALKING_CACHE_TTL = 7 * 24 * 3600;
 const BIKES_CACHE_TTL = 45;
 // Names and positions only change when a station is built or moved.
 const BIKE_INFO_CACHE_TTL = 24 * 3600;
-const JOURNEY_ORIGIN_STOP_LIMIT = 8;
+/** How much one journey request may do. The Free plan lets one invocation
+ *  make only 50 subrequests, so the page sends one hub per request and the
+ *  planner rations routes, transfer boards and incident reads. Workers Paid
+ *  allows 10,000, so there every hub goes in one request (sharing the origin's
+ *  nearby search, walking matrix and boards) and the search widens. EMT quota
+ *  is not the constraint: planning used ~520 calls a day of 20,000 (Sept 2026).
+ *  Set PLANNER_TIER = "paid" in wrangler.toml once the account is on Workers
+ *  Paid; anything else keeps the free budgets. */
+const PLANNER_BUDGETS = {
+  free: { destinations: 3, originStops: 8, incidentLines: 4, gridCells: 4,
+    routes: { day: 10, night: 14 }, transfers: { day: 3, night: 8 } },
+  paid: { destinations: 12, originStops: 12, incidentLines: 16, gridCells: 12,
+    routes: { day: 24, night: 30 }, transfers: { day: 8, night: 16 } },
+};
+const plannerBudget = (env) => PLANNER_BUDGETS[env.PLANNER_TIER === "paid" ? "paid" : "free"];
 // The pedestrian matrix takes at most 25 destinations in one call.
 const WALKING_MATRIX_LIMIT = 25;
 // Below this the gate stops filtering and simply takes the nearest on foot.
 const JOURNEY_MIN_ORIGIN_STOPS = 3;
-const JOURNEY_INCIDENT_LINE_LIMIT = 4;
 // Cards want the next bus and the one after it; the stop sheet wants the board.
 const DEFAULT_ARRIVALS = 2;
 const MAX_ARRIVALS = 20;
@@ -416,7 +429,7 @@ async function plannerNearby(requestUrl, env, lat, lon, radius, ctx) {
   // night radius the grid needs twelve cells, which on its own broke that
   // ceiling — past a handful, a single direct query is cheaper and faster,
   // and it is cached for a day just the same.
-  if (cells.length > 4) {
+  if (cells.length > plannerBudget(env).gridCells) {
     return cachedNearby(requestUrl, env, lat, lon, radius, ctx, "planner");
   }
   const results = await Promise.all(cells.map((cell) => withinDeadline(
@@ -493,7 +506,8 @@ function transferRadius() {
   return isNight() ? NIGHT_TRANSFER_RADIUS : DAY_TRANSFER_RADIUS;
 }
 
-/** How many transfer stops are worth a board read before ranking.
+/** How many transfer stops are worth a board read before ranking (per tier,
+ *  see PLANNER_BUDGETS).
  *
  * An option whose transfer stop is never read is not merely unranked — it is
  * discarded, because "no live arrivals for the second leg" and "we never
@@ -502,17 +516,12 @@ function transferRadius() {
  * only viable second leg, S10, ranked sixth by walking distance behind four
  * day lines that were asleep.
  */
-const DAY_TRANSFER_CHECKS = 3;
-const NIGHT_TRANSFER_CHECKS = 8;
-const DAY_ROUTE_BUDGET = 10;
-const NIGHT_ROUTE_BUDGET = 14;
-
-function transferChecks() {
-  return isNight() ? NIGHT_TRANSFER_CHECKS : DAY_TRANSFER_CHECKS;
+function transferChecks(env) {
+  return plannerBudget(env).transfers[isNight() ? "night" : "day"];
 }
 
-function routeBudget() {
-  return isNight() ? NIGHT_ROUTE_BUDGET : DAY_ROUTE_BUDGET;
+function routeBudget(env) {
+  return plannerBudget(env).routes[isNight() ? "night" : "day"];
 }
 
 /** Candidates the radius actually reaches, measured the way they are walked.
@@ -533,8 +542,9 @@ function walkingReachable(candidates, radius) {
 
 async function journeys(request, body, env, ctx) {
   const origin = plannerLocation(body?.origin, "origin");
-  if (!Array.isArray(body?.destinations) || body.destinations.length < 1 || body.destinations.length > 3) {
-    throw new EmtError("not_found", "destinations must contain 1–3 places");
+  const budget = plannerBudget(env);
+  if (!Array.isArray(body?.destinations) || body.destinations.length < 1 || body.destinations.length > budget.destinations) {
+    throw new EmtError("not_found", `destinations must contain 1–${budget.destinations} places`);
   }
   const destinations = body.destinations.map((destination, index) => ({
     id: String(destination.id ?? index),
@@ -583,7 +593,7 @@ async function journeys(request, body, env, ctx) {
   const originStops = prioritizeAccessStops(
     walkingReachable(walkingRouted ? routable : originCandidates, accessRadius()),
     destinationStops,
-    JOURNEY_ORIGIN_STOP_LIMIT,
+    budget.originStops,
   );
   // Read all candidate boarding boards first. Individual EMT failures are
   // isolated: one bad stop must not hold or reject the entire journey.
@@ -597,10 +607,13 @@ async function journeys(request, body, env, ctx) {
   // Active lines get the scarce route slots first; static lines remain loaded
   // for the fallback used when EMT supplied no live boards at all.
   const plannerOrigins = activeOriginStops.length ? activeOriginStops : originStops;
-  const routeCodes = prioritizedRouteCodes(plannerOrigins, destinationStops, routeBudget());
+  const routeCodes = prioritizedRouteCodes(plannerOrigins, destinationStops, routeBudget(env));
+  // One line's route failing costs the options on that line, not the plan:
+  // boards and incidents are isolated the same way, and with the paid budget
+  // there are up to 30 routes for one of them to fail.
   const routeEntries = await Promise.all(routeCodes.map(async (code) =>
-    [code, await cachedRoute(request.url, env, code, ctx)]));
-  const routes = new Map(routeEntries);
+    [code, await withinDeadline(cachedRoute(request.url, env, code, ctx), 8_000)]));
+  const routes = new Map(routeEntries.filter(([, route]) => route));
   const planned = destinations.map((destination, index) => {
     const transferRadiusM = transferRadius();
     const active = planJourney({
@@ -642,7 +655,7 @@ async function journeys(request, body, env, ctx) {
         if (code && !perLine.has(code)) perLine.set(code, String(option.transfer.toStop.stopId));
       }
     }
-    transferStopIds = [...new Set(perLine.values())].slice(0, transferChecks());
+    transferStopIds = [...new Set(perLine.values())].slice(0, transferChecks(env));
     const transferLive = new Map(await Promise.all(transferStopIds.map(async (stopId) => {
       return [stopId,
         await withinDeadline(cachedPlannerArrivals(request.url, env, stopId, ctx), 5_000)];
@@ -659,7 +672,7 @@ async function journeys(request, body, env, ctx) {
   }
   const incidentCodes = [...new Set(planned.flatMap((item) => item.options.flatMap((option) =>
     [option.firstLeg?.line, option.secondLeg?.line].filter(Boolean))))]
-    .slice(0, JOURNEY_INCIDENT_LINE_LIMIT);
+    .slice(0, budget.incidentLines);
   const incidentsByLine = new Map(await Promise.all(incidentCodes.map(async (code) => {
     // Incident data improves ranking, but must never make live journeys fail —
     // and 119 of them timed out in a day, each holding a plan for 8 seconds.
@@ -692,6 +705,8 @@ async function journeys(request, body, env, ctx) {
     origin,
     destinations: planned,
     boards,
+    // How many hubs the page may send in its next request.
+    maxDestinations: budget.destinations,
     generatedAt: Date.now(),
     calls: {
       nearby: 1 + destinations.length,

@@ -125,7 +125,10 @@ const API = "https://emt-arrivals.zancato-t.workers.dev";
 const THEME_KEY = "emt:theme";
 const HUB_CARD_LIMIT = 3;
 const NEAREST_BIKE_STATION_LIMIT = 2;
-const JOURNEY_BATCH_SIZE = 1;
+// Hubs per /journeys request. One until the worker says it can take more:
+// each response carries its limit, which is how a plan upgrade reaches the
+// page without a release.
+let journeyBatchSize = 1;
 const savedTheme = localStorage.getItem(THEME_KEY);
 let themeChoice = ["light", "dark"].includes(savedTheme) ? savedTheme : "system";
 if (themeChoice === "system") document.documentElement.removeAttribute("data-theme");
@@ -1119,8 +1122,9 @@ async function loadJourneys({ force = false } = {}) {
   const timeout = setTimeout(() => controller.abort(), 25_000);
   const operation = (async () => { try {
     const batches = [];
-    for (let index = 0; index < destinations.length; index += JOURNEY_BATCH_SIZE) {
-      batches.push(destinations.slice(index, index + JOURNEY_BATCH_SIZE));
+    const size = journeyBatchSize;
+    for (let index = 0; index < destinations.length; index += size) {
+      batches.push(destinations.slice(index, index + size));
     }
     const payloads = await Promise.all(batches.map((batch) => api("/journeys", {
       method: "POST",
@@ -1150,6 +1154,8 @@ async function loadJourneys({ force = false } = {}) {
     for (const payload of payloads) {
       for (const [stopId, board] of Object.entries(payload.boards ?? {})) putBoard(stopId, board);
     }
+    const limit = Math.max(...payloads.map((payload) => Number(payload.maxDestinations) || 1));
+    journeyBatchSize = Math.min(12, Math.max(1, limit));
     render();
   } catch (err) {
     journeyInitialPending = false;
