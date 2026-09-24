@@ -88,10 +88,20 @@ async function runner() {
   return { stub, subscription };
 }
 async function dueNow(stub) {
-  await runInDurableObject(stub, (instance) => {
-    for (const watch of instance.rows("watches")) instance.save({ ...watch, nextCheck: Date.now() - 1 });
-  });
+  await runInDurableObject(stub, (instance) => { instance.dueOverride = true; });
   await runDurableObjectAlarm(stub);
+}
+/** Counts storage writes to watch rows and alarms while `run` executes. */
+async function countWrites(stub, run) {
+  await runInDurableObject(stub, (instance, ctx) => {
+    instance.writes = 0;
+    const save = instance.save.bind(instance);
+    instance.save = (watch) => { instance.writes++; save(watch); };
+    const setAlarm = ctx.storage.setAlarm.bind(ctx.storage);
+    ctx.storage.setAlarm = (at) => { instance.writes++; return setAlarm(at); };
+  });
+  await run();
+  return runInDurableObject(stub, (instance) => instance.writes);
 }
 function feed(count) {
   return Response.json({ data: { stations: [{ station_id: "1", num_bikes_available: count, is_installed: 1, is_renting: 1, is_returning: 1, status: "IN_SERVICE" }] } });
@@ -110,7 +120,10 @@ describe("persistent background runner", () => {
     await stub.add(bikeWatch);
     await dueNow(stub);
     const first = (await stub.list()).watches[0];
-    expect(first.nextCheck - first.lastCheck).toBeGreaterThan(BIKE_INTERVAL - 2000);
+    const next = await runInDurableObject(stub, (_, ctx) => ctx.storage.getAlarm());
+    // One aligned 30-second grid for every watch.
+    expect(next % BIKE_INTERVAL).toBe(0);
+    expect(next - Date.now()).toBeLessThanOrEqual(BIKE_INTERVAL);
     expect(first.rack).toEqual({ bikes: 0, armed: true });
     expect(first.state).toBeUndefined();
     count = 1;
@@ -209,8 +222,28 @@ describe("persistent background runner", () => {
     await dueNow(stub);
     const watch = (await stub.list()).watches[0];
     expect(watch.error).toBeNull();
-    expect(watch.nextCheck - watch.lastCheck).toBeGreaterThan(BUS_INTERVAL - 2000);
+    expect(watch.lastCheck).toBeGreaterThan(0);
+    // Buses go on the first tick of each two-minute slot, even after an
+    // eviction has wiped the in-memory check times.
+    const due = await runInDurableObject(stub, (instance) => {
+      instance.checked.clear();
+      instance.dueOverride = false;
+      const stored = instance.rows("watches")[0];
+      const slot = Math.ceil(Date.now() / BUS_INTERVAL) * BUS_INTERVAL + BUS_INTERVAL;
+      return [0, 1, 2, 3].map((tick) => instance.isDue(stored, slot + tick * BIKE_INTERVAL));
+    });
+    expect(due).toEqual([true, false, false, false]);
     expect((await other.list()).watches).toEqual([]);
+  });
+  it("writes one alarm per tick and nothing else while a rack does not change", async () => {
+    const { stub } = await runner();
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url) =>
+      String(url).includes("station_status") ? feed(7) : new Response(null, { status: 201 }));
+    await stub.add(bikeWatch);
+    await dueNow(stub); // first check records the state
+    const writes = await countWrites(stub, async () => { await dueNow(stub); await dueNow(stub); await dueNow(stub); });
+    expect(writes).toBe(3);
+    expect((await stub.list()).watches[0].lastCheck).toBeGreaterThan(0);
   });
   it("does not resurrect a watch removed during upstream I/O", async () => {
     const { stub } = await runner();

@@ -29,8 +29,22 @@ function watchCoordinates(value) {
   return [Math.round(lon * 1e6) / 1e6, Math.round(lat * 1e6) / 1e6];
 }
 
+/** The runner wakes on one aligned 30-second grid for every watch: bikes on
+ *  every tick, buses on the first tick of each two-minute slot. */
+const TICK = BIKE_INTERVAL;
+const BUS_TICKS = BUS_INTERVAL / BIKE_INTERVAL;
+const nextTick = (now) => (Math.floor(now / TICK) + 1) * TICK;
+
 // One object per authenticated user. Watches are shared by that user's devices;
 // browser subscriptions and mutable alert history never leave this object.
+//
+// Storage writes are the scarce resource: the free plan allows 100k rows
+// written a day, and every setAlarm() is one. Each watch used to keep its own
+// next-check time, so the object woke once per watch per interval and wrote
+// that time, the result and two alarms on every wake — about 160k writes a
+// day for 14 racks. Now there is one wake per tick, one alarm write per tick,
+// and a watch row is written only when its state, error or delivery record
+// actually changes. When it was last checked lives in memory.
 export class TrackingRunner extends DurableObject {
   constructor(ctx, env) {
     super(ctx, env);
@@ -40,6 +54,7 @@ export class TrackingRunner extends DurableObject {
     // handing back its dead subscription, so without this list re-enabling
     // re-registered it, the next send dropped it again, and checks stopped.
     ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS expired (id TEXT PRIMARY KEY, at INTEGER NOT NULL)");
+    this.checked = new Map(); // watch id → last check, deliberately not persisted
   }
 
   rows(table) { return this.ctx.storage.sql.exec(`SELECT id, value FROM ${table}`).toArray().map((r) => ({ id: r.id, ...JSON.parse(r.value) })); }
@@ -52,10 +67,22 @@ export class TrackingRunner extends DurableObject {
     this.ctx.storage.sql.exec("INSERT OR REPLACE INTO expired VALUES (?, ?)", id, Date.now());
   }
 
+  /** A watch never checked goes at once. Otherwise bikes go every tick and
+   *  buses on the first tick of a two-minute slot — worked out from the
+   *  clock, so an evicted object that lost its memory still keeps the bus
+   *  cadence instead of polling EMT every 30 seconds. */
+  isDue(watch, now) {
+    const last = this.checked.get(watch.id) ?? watch.lastCheck;
+    if (last == null || this.dueOverride) return true;
+    if (watch.kind === "bike") return now - last >= TICK - 5_000;
+    return Math.floor(now / TICK) % BUS_TICKS === 0 && now - last >= BUS_INTERVAL - TICK;
+  }
+
   async list() {
     return {
-      watches: this.rows("watches").map(({ state, revision, delivered, ...watch }) => ({
+      watches: this.rows("watches").map(({ state, revision, delivered, nextCheck, lastAttempt, ...watch }) => ({
         ...watch,
+        lastCheck: this.checked.get(watch.id) ?? watch.lastCheck ?? null,
         // A rack only alerts after it has been seen empty, so the page shows
         // where it stands: the last count and whether that has happened.
         ...(watch.kind === "bike" && Number.isInteger(state?.count) ? { rack: { bikes: state.count, armed: state.armed === true } } : {}),
@@ -91,7 +118,7 @@ export class TrackingRunner extends DurableObject {
       return this.list();
     }
     if (this.rows("watches").length >= 20) throw new Error("At most 20 tracked stops or stations are supported");
-    this.save({ ...watch, revision: crypto.randomUUID(), state: {}, nextCheck: Date.now(), lastCheck: null, error: null });
+    this.save({ ...watch, revision: crypto.randomUUID(), state: {}, lastCheck: null, error: null });
     await this.schedule();
     return this.list();
   }
@@ -102,26 +129,29 @@ export class TrackingRunner extends DurableObject {
     return this.list();
   }
 
+  /** Make sure a wake-up is pending while there is work, and none when there
+   *  is not. An existing alarm is left alone: rewriting it costs a write. */
   async schedule() {
-    const watches = this.rows("watches");
-    if (!watches.length || !this.devices().length) return this.ctx.storage.deleteAlarm();
-    await this.ctx.storage.setAlarm(Math.max(Date.now() + 100, Math.min(...watches.map((w) => w.nextCheck))));
+    const current = await this.ctx.storage.getAlarm();
+    if (!this.rows("watches").length || !this.devices().length) {
+      if (current != null) await this.ctx.storage.deleteAlarm();
+      return;
+    }
+    if (current == null) await this.ctx.storage.setAlarm(Date.now() + 100);
   }
 
   async alarm() {
-    if (!this.devices().length) return;
     const now = Date.now();
-    const due = this.rows("watches").filter((w) => w.nextCheck <= now);
-    // Persist the next wake-up before external I/O. Even a terminated handler
-    // or an upstream outage must not strand the runner.
-    for (const watch of due) {
-      watch.nextCheck = now + (watch.kind === "bike" ? BIKE_INTERVAL : BUS_INTERVAL);
-      this.save(watch);
-    }
-    await this.schedule();
+    const watches = this.rows("watches");
+    if (!watches.length || !this.devices().length) return;
+    // The next tick is booked before any I/O, so an outage or a terminated
+    // handler cannot strand the runner. This is the only per-tick write.
+    await this.ctx.storage.setAlarm(nextTick(now));
+    const due = watches.filter((watch) => this.isDue(watch, now));
     let bikes;
     const boards = new Map();
     for (const watch of due) {
+      this.checked.set(watch.id, now);
       try {
         let result;
         if (watch.kind === "bike") {
@@ -172,13 +202,20 @@ export class TrackingRunner extends DurableObject {
           }
         }
         if (deliveryFailed) throw new Error("Push delivery incomplete");
-        if (this.watch(watch.id)?.revision === watch.revision) this.save({ ...watch, state: result.state, delivered: {}, lastCheck: Date.now(), error: null });
+        const changed = watch.lastCheck == null || watch.error != null ||
+          Object.keys(watch.delivered ?? {}).length > 0 ||
+          JSON.stringify(result.state) !== JSON.stringify(watch.state ?? {});
+        if (changed && this.watch(watch.id)?.revision === watch.revision) {
+          this.save({ ...watch, state: result.state, delivered: {}, lastCheck: now, error: null });
+        }
       } catch (error) {
         // Never interpret failed/missing data as zero bikes or a bus departure.
-        if (this.watch(watch.id)?.revision === watch.revision) this.save({ ...watch, error: "Check or notification failed; retrying", lastAttempt: Date.now() });
+        const message = "Check or notification failed; retrying";
+        if (watch.error !== message && this.watch(watch.id)?.revision === watch.revision) this.save({ ...watch, error: message });
         console.warn(JSON.stringify({ event: "tracking_retry", kind: watch.kind, error: String(error?.message ?? error).slice(0, 200) }));
       }
     }
-    await this.schedule();
+    // Every device expired during this tick: nothing left to notify.
+    if (!this.devices().length) await this.ctx.storage.deleteAlarm();
   }
 }

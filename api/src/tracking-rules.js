@@ -27,6 +27,8 @@ export function busTransition(previous = {}, arrivals, watch, now) {
   // Keep vehicles through temporary board omissions and ETA corrections, but
   // allow the same vehicle to trigger again on a later circuit.
   for (const [key, time] of Object.entries(seen)) if (now - time > 30 * 60_000) delete seen[key];
+  // Every refresh of a time is a storage write, so a sighting is refreshed
+  // at most every five minutes; the 30-minute expiry absorbs the slack.
   const eligible = arrivals.filter((bus) => String(bus.line).toUpperCase() === watch.line &&
     (!watch.destination || bus.destination === watch.destination) &&
     Number.isFinite(bus.seconds) && bus.seconds >= 0 && bus.seconds <= 900);
@@ -38,7 +40,7 @@ export function busTransition(previous = {}, arrivals, watch, now) {
       const minutes = Math.ceil(bus.seconds / 60);
       alerts.push({ minutes, destination: bus.destination ?? "", body: `Line ${route}: ${minutes} min away.`, vehicle: key });
     }
-    seen[key] = now;
+    if (!seen[key] || now - seen[key] >= 5 * 60_000) seen[key] = now;
   }
   return { state: { seen }, alerts };
 }
