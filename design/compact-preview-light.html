@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Hubwise compact signal board</title>
+  <link rel="stylesheet" href="../web/style.css">
+  <style>body { min-height: 100dvh; } .study-label { margin: .75rem 0 .15rem; color: var(--signal-muted); font: 700 .62rem ui-monospace, monospace; letter-spacing: .1em; text-transform: uppercase; }</style>
+</head>
+<body class="ui-signal ui-signal-v2 ui-signal-compact">
+  <header><button id="auth-button" type="button" aria-label="Open account menu">☻</button><div id="header-context"><i aria-hidden="true"></i><span>García Luna · 3 min</span></div><button id="nearby-stops-open" type="button" aria-label="Stops near me">➤</button><button id="refresh-all" type="button" aria-label="Refresh all">↻</button><nav id="view-toggle" class="segmented" aria-label="View"><button type="button" aria-selected="true">List</button><button type="button" aria-selected="false">Map</button></nav></header>
+  <p id="status" role="status">● LIVE DATA IS READY</p><p class="study-label">Nearby · 3 hubs · 2 docks</p>
+  <main id="stops">
+    <article class="place-card reachability-comfortable"><div class="place-card-heading"><h2><span class="freshness-dot fresh">— &lt;1m</span> Madrid Río</h2><span class="muted">280 m</span><button class="place-directions" type="button" aria-label="Directions">⌁</button><button class="place-directions" type="button" aria-label="Track">♢</button><button class="place-directions" type="button" aria-label="More">⋯</button></div><div class="place-route"><span class="place-line">27</span><p><b>Alcalá de Henares</b></p><span class="route-later">then 40 · 52</span><time>4 min</time></div></article>
+    <article class="place-card reachability-tight"><div class="place-card-heading"><h2><span class="freshness-dot aging">— &lt;5m</span> Puerta del Sol</h2><span class="muted">510 m</span><button class="place-directions" type="button" aria-label="Directions">⌁</button><button class="place-directions" type="button" aria-label="Track">♢</button><button class="place-directions" type="button" aria-label="More">⋯</button></div><div class="place-route"><span class="place-line">3</span><p><b>Villaverde</b></p><span class="route-later">then 5 · 40</span><time>7 min</time></div></article>
+    <article class="place-card"><div class="place-card-heading"><h2><span class="freshness-dot fresh">— &lt;1m</span> Tribunal</h2><span class="muted">690 m</span><button class="place-directions" type="button" aria-label="Directions">⌁</button><button class="place-directions" type="button" aria-label="Track">♢</button><button class="place-directions" type="button" aria-label="More">⋯</button></div><div class="place-route"><span class="place-line">10</span><p><b>Puente de Vallecas</b></p><span class="route-later">then 5 · 40</span><time>9 min</time></div></article>
+    <p class="study-label">BiciMAD nearby · 2 docks</p>
+    <article class="place-nearest-bike"><div class="head"><div class="title"><h2><span class="freshness-dot fresh">— &lt;1m</span> Plaza de Chueca</h2><p class="stop-num">18 bikes · 24 docks · 3 min</p></div><div class="controls"><button class="icon-btn" type="button" aria-label="Directions">⌁</button><button class="icon-btn" type="button" aria-label="Track">♧</button></div></div><p class="age">Available now · 18 electric bikes</p></article>
+    <article class="place-nearest-bike"><div class="head"><div class="title"><h2><span class="freshness-dot fresh">— &lt;1m</span> Calle de Bravo Murillo</h2><p class="stop-num">11 bikes · 20 docks · 5 min</p></div><div class="controls"><button class="icon-btn" type="button" aria-label="Directions">⌁</button><button class="icon-btn" type="button" aria-label="Track">♧</button></div></div><p class="age">Available now · 11 electric bikes</p></article>
+  </main>
+  <nav id="primary-menu" aria-label="Main navigation"><button type="button" aria-selected="true">Hubwise</button><button type="button" aria-selected="false">Stops</button><button type="button" aria-selected="false">BiciMAD</button></nav><button id="fab" type="button" aria-label="Add stop">+</button>
+</body>
+</html>
