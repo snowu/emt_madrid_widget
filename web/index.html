@@ -129,6 +129,20 @@
       <span><strong id="push-banner-title"></strong><small id="push-banner-body"></small></span>
     </button>
 
+    <!-- Opened by an alert tap: Maps is launched from here because only a
+         navigation inside the page reaches the Google Maps app. -->
+    <dialog id="directions-dialog" aria-labelledby="directions-title">
+      <form method="dialog">
+        <h2 id="directions-title">Walk there</h2>
+        <p id="directions-place" class="muted"></p>
+        <div class="directions-actions">
+          <a id="directions-app" class="directions-primary" href="#">Open in Google Maps</a>
+          <a id="directions-web" href="#" target="_blank" rel="noopener">Open in browser instead</a>
+          <button type="submit">Close</button>
+        </div>
+      </form>
+    </dialog>
+
     <dialog id="tracking-dialog" aria-labelledby="tracking-title">
       <form method="dialog">
         <h2 id="tracking-title">Tracked alerts</h2>

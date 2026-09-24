@@ -1,4 +1,5 @@
 import { createTracking } from "./tracking.js";
+import { mapsDirections } from "./directions.js";
 import {
   readCache,
   writeArrivalCache,
@@ -5499,9 +5500,38 @@ async function openNotificationTarget(kind, id) {
     }
   } catch (error) { statusEl.textContent = `Could not open notification: ${error.message}`; }
 }
+const directionsDialog = document.getElementById("directions-dialog");
+const directionsApp = document.getElementById("directions-app");
+const directionsWeb = document.getElementById("directions-web");
+
+/** A tapped alert's walk: open the stop or dock, then hand off to the Google
+ *  Maps app. The launch is tried at once; where the system wants a real tap
+ *  for it, the dialog's button is that tap. Leaving for Maps closes it. */
+async function openNotificationDirections(kind, id, coordinates) {
+  await openNotificationTarget(kind, id);
+  const links = mapsDirections(coordinates, navigator.userAgent, navigator.maxTouchPoints);
+  if (!links) return;
+  const place = document.querySelector("#stop-dialog[open] h2, #bike-dialog[open] h2")?.textContent;
+  document.getElementById("directions-place").textContent = place ? `To ${place}` : "";
+  directionsApp.href = links.app ?? links.web;
+  directionsApp.target = links.app ? "" : "_blank";
+  directionsWeb.href = links.web;
+  directionsWeb.hidden = !links.app;
+  directionsDialog.showModal();
+  if (links.app) location.href = links.app;
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden" && directionsDialog.open) directionsDialog.close();
+});
+
 const launchParams = new URLSearchParams(location.search);
 if (launchParams.has("trackId")) {
-  void openNotificationTarget(launchParams.get("trackKind"), launchParams.get("trackId"));
+  const walkTo = launchParams.get("directions")?.split(",").map(Number);
+  if (walkTo?.length === 2) {
+    void openNotificationDirections(launchParams.get("trackKind"), launchParams.get("trackId"), walkTo);
+  } else {
+    void openNotificationTarget(launchParams.get("trackKind"), launchParams.get("trackId"));
+  }
   // Opened once; a reload or a home-screen relaunch should not reopen it.
   history.replaceState(null, "", location.pathname);
 }
@@ -5527,6 +5557,11 @@ function hidePushBanner() {
 navigator.serviceWorker?.addEventListener("message", (event) => {
   if (event.data?.type === "open") {
     void openNotificationTarget(event.data.target?.kind, event.data.target?.id);
+    return;
+  }
+  if (event.data?.type === "directions") {
+    const target = event.data.target ?? {};
+    void openNotificationDirections(target.kind, target.id, target.coordinates);
     return;
   }
   if (event.data?.type !== "push") return;

@@ -5,34 +5,12 @@
 // take over at once, including pages loaded before it existed.
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim()));
-/** Walking directions in the Google Maps app.
- *
- * openWindow() opens its URL as a browser tab, and Android only hands a
- * google.com/maps link to the app when it is followed from inside a page, so
- * the plain link opened Maps in Chrome. On Android an intent: URL names the
- * Maps app outright and falls back to the web page if it is not installed.
- * iOS has no intents; its native Google Maps URL scheme names the app. */
-function webDirections(target) {
+/** A target's [lon, lat], or null. The page turns it into a Maps link: a
+ *  window the worker opens is a browser window, which neither Android nor iOS
+ *  hands to the Maps app, so the worker only ever opens Hubwise. */
+function targetCoordinates(target) {
   const [lon, lat] = Array.isArray(target?.coordinates) ? target.coordinates.map(Number) : [];
-  if (!Number.isFinite(lon) || !Number.isFinite(lat)) return null;
-  const web = new URL("https://www.google.com/maps/dir/");
-  web.searchParams.set("api", "1");
-  web.searchParams.set("destination", `${lat},${lon}`); // GeoJSON is [lon, lat]
-  web.searchParams.set("travelmode", "walking");
-  return web.href;
-}
-
-function directionsUrl(target) {
-  const web = webDirections(target);
-  if (!web) return null;
-  const userAgent = self.navigator?.userAgent ?? "";
-  const [lon, lat] = target.coordinates.map(Number);
-  if (/iPhone|iPad|iPod/i.test(userAgent)) {
-    return `comgooglemaps://?daddr=${lat},${lon}&directionsmode=walking`;
-  }
-  if (!/Android/i.test(userAgent)) return web;
-  return `intent://maps.google.com/maps?daddr=${lat},${lon}&dirflg=w#Intent;scheme=https;` +
-    `package=com.google.android.apps.maps;S.browser_fallback_url=${encodeURIComponent(web)};end`;
+  return Number.isFinite(lon) && Number.isFinite(lat) ? [lon, lat] : null;
 }
 
 self.addEventListener("push", (event) => {
@@ -56,8 +34,8 @@ self.addEventListener("push", (event) => {
       renotify: true,
       timestamp: Number.isFinite(message?.timestamp) ? message.timestamp : Date.now(),
       data: { target: message?.target },
-      // A tap walks you there; the button is for when you want the app.
-      actions: directionsUrl(message?.target) ? [{ action: "open", title: "Open in Hubwise" }] : [],
+      // A tap walks you there (through Hubwise); the button just opens the stop.
+      actions: targetCoordinates(message?.target) ? [{ action: "open", title: "Open in Hubwise" }] : [],
     });
   })());
 });
@@ -66,17 +44,13 @@ self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   const url = new URL(self.registration.scope);
   const target = event.notification.data?.target;
-  const directions = event.action === "open" ? null : directionsUrl(target);
-  if (directions) {
-    // If this browser refuses a native app URL outright, the web page still helps.
-    const fallback = /^(?:intent|comgooglemaps):/.test(directions) ? webDirections(target) : null;
-    event.waitUntil(self.clients.openWindow(directions).catch(() => fallback && self.clients.openWindow(fallback)));
-    return;
-  }
+  const coordinates = event.action === "open" ? null : targetCoordinates(target);
+  const type = coordinates ? "directions" : "open";
   if (["bus", "bike"].includes(target?.kind) && /^\d+$/.test(target?.id)) {
     url.searchParams.set("trackKind", target.kind);
     url.searchParams.set("trackId", target.id);
   }
+  if (coordinates) url.searchParams.set("directions", coordinates.join(","));
   event.waitUntil((async () => {
     const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
     const existing = windows.find((client) => client.url.startsWith(self.registration.scope));
@@ -86,7 +60,7 @@ self.addEventListener("notificationclick", (event) => {
     if (existing) {
       try {
         const focused = await existing.focus();
-        focused.postMessage({ type: "open", target });
+        focused.postMessage({ type, target });
         return;
       } catch { /* fall through to a fresh window */ }
     }

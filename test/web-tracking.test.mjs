@@ -4,6 +4,7 @@ import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import { createTracking } from "../web/tracking.js";
+import { mapsDirections } from "../web/directions.js";
 const { JSDOM } = createRequire(new URL("../api/package.json", import.meta.url))("jsdom");
 const watch = { kind: "bus", targetId: "5138", line: "70", destination: "PLAZA" };
 const id = JSON.stringify(["bus", "5138", "70", "PLAZA"]);
@@ -181,7 +182,7 @@ test("tapping a notification focuses the open app and hands it the target", asyn
   assert.equal(opened.length, 0);
 });
 
-test("a notification with a location opens walking directions; its button opens the app", async () => {
+test("a tap on an alert with a location opens Hubwise for directions; its button opens the stop", async () => {
   const handlers = {};
   const notifications = [];
   const opened = [];
@@ -199,45 +200,39 @@ test("a notification with a location opens walking directions; its button opens 
   assert.equal(actions[0].action, "open");
   handlers.notificationclick({ notification: { close() {}, data }, action: "", waitUntil: (p) => { done = p; } });
   await done;
-  assert.equal(opened[0], "https://www.google.com/maps/dir/?api=1&destination=40.4168%2C-3.7038&travelmode=walking");
+  // Never a Maps URL from the worker: that would open a browser tab.
+  assert.equal(opened[0], "https://example.com/app/?trackKind=bike&trackId=12&directions=-3.7038%2C40.4168");
   handlers.notificationclick({ notification: { close() {}, data }, action: "open", waitUntil: (p) => { done = p; } });
   await done;
   assert.equal(opened[1], "https://example.com/app/?trackKind=bike&trackId=12");
 });
 
-test("on Android a notification hands directions to the Google Maps app", async () => {
+test("an open app is handed the directions instead of a new window", async () => {
   const handlers = {};
-  const opened = [];
+  const posted = [];
+  const page = { url: "https://example.com/app/", focus: async () => page, postMessage: (m) => posted.push(m) };
   const self = {
-    navigator: { userAgent: "Mozilla/5.0 (Linux; Android 15; Pixel 8) Chrome/140 Mobile" },
     addEventListener: (name, callback) => { handlers[name] = callback; },
     registration: { scope: "https://example.com/app/" },
-    clients: { matchAll: async () => [], openWindow: async (url) => { opened.push(url); if (url.startsWith("intent:")) throw new TypeError("unsupported"); } },
+    clients: { matchAll: async () => [page], openWindow: async () => assert.fail("opened a window") },
   };
   vm.runInNewContext(readFileSync(new URL("../web/sw.js", import.meta.url), "utf8"), { self, URL });
   let done;
-  const data = { target: { kind: "bike", id: "12", coordinates: [-3.7038, 40.4168] } };
-  handlers.notificationclick({ notification: { close() {}, data }, action: "", waitUntil: (p) => { done = p; } });
+  const target = { kind: "bus", id: "5138", coordinates: [-3.7038, 40.4168] };
+  handlers.notificationclick({ notification: { close() {}, data: { target } }, action: "", waitUntil: (p) => { done = p; } });
   await done;
-  assert.match(opened[0], /^intent:\/\/maps\.google\.com\/maps\?daddr=40\.4168,-3\.7038&dirflg=w#Intent;.*package=com\.google\.android\.apps\.maps;/);
-  // A browser that refuses intent: URLs still gets the web directions.
-  assert.equal(opened[1], "https://www.google.com/maps/dir/?api=1&destination=40.4168%2C-3.7038&travelmode=walking");
+  assert.equal(JSON.stringify(posted), JSON.stringify([{ type: "directions", target }]));
 });
 
-test("on iPhone a notification hands directions to the Google Maps app", async () => {
-  const handlers = {};
-  const opened = [];
-  const self = {
-    navigator: { userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit Mobile/15E148" },
-    addEventListener: (name, callback) => { handlers[name] = callback; },
-    registration: { scope: "https://example.com/app/" },
-    clients: { matchAll: async () => [], openWindow: async (url) => { opened.push(url); if (url.startsWith("comgooglemaps:")) throw new TypeError("unsupported"); } },
-  };
-  vm.runInNewContext(readFileSync(new URL("../web/sw.js", import.meta.url), "utf8"), { self, URL });
-  let done;
-  const data = { target: { kind: "bike", id: "12", coordinates: [-3.7038, 40.4168] } };
-  handlers.notificationclick({ notification: { close() {}, data }, action: "", waitUntil: (p) => { done = p; } });
-  await done;
-  assert.equal(opened[0], "comgooglemaps://?daddr=40.4168,-3.7038&directionsmode=walking");
-  assert.equal(opened[1], "https://www.google.com/maps/dir/?api=1&destination=40.4168%2C-3.7038&travelmode=walking");
+test("Maps links name the Google Maps app on Android and iPhone, with a web fallback", () => {
+  const at = [-3.7038, 40.4168];
+  const web = "https://www.google.com/maps/dir/?api=1&destination=40.4168%2C-3.7038&travelmode=walking";
+  const android = mapsDirections(at, "Mozilla/5.0 (Linux; Android 15; Pixel 8) Chrome/140 Mobile");
+  assert.match(android.app, /^intent:\/\/maps\.google\.com\/maps\?daddr=40\.4168,-3\.7038&dirflg=w#Intent;.*package=com\.google\.android\.apps\.maps;/);
+  assert.ok(android.app.includes(`S.browser_fallback_url=${encodeURIComponent(web)}`));
+  assert.equal(mapsDirections(at, "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X)").app,
+    "comgooglemaps://?daddr=40.4168,-3.7038&directionsmode=walking");
+  assert.match(mapsDirections(at, "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)", 5).app, /^comgooglemaps:/); // iPadOS
+  assert.deepEqual(mapsDirections(at, "Mozilla/5.0 (X11; Linux x86_64)"), { app: null, web });
+  assert.equal(mapsDirections(null, ""), null);
 });

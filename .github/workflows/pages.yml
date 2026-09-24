@@ -34,6 +34,7 @@ jobs:
           sed -i "s#from \"./cache.js\"#from \"./cache.js?v=$v\"#" web/app.js
           sed -i "s#from \"./trips.js\"#from \"./trips.js?v=$v\"#" web/app.js
           sed -i "s#from \"./tracking.js\"#from \"./tracking.js?v=$v\"#" web/app.js
+          sed -i "s#from \"./directions.js\"#from \"./directions.js?v=$v\"#" web/app.js
           grep -n "?v=" web/index.html web/app.js
       - uses: actions/upload-pages-artifact@v3
         with:

@@ -1496,3 +1496,18 @@ button.place-stop-open { color: var(--fg); font-size: .72rem; font-weight: 700; 
 #primary-menu, #fab { transition: transform 200ms ease, opacity 200ms ease; }
 body.nav-hidden #primary-menu { transform: translate(-50%, calc(100% + 0.5rem + env(safe-area-inset-bottom, 0px))); }
 body.nav-hidden #fab { transform: translateY(calc(100% + 4.15rem + env(safe-area-inset-bottom, 0px))); opacity: 0; pointer-events: none; }
+
+/* The alert's hand-off to Google Maps: one big tap target, fallbacks below. */
+.directions-actions { display: flex; flex-direction: column; gap: 0.6rem; margin-top: 0.5rem; }
+.directions-actions .directions-primary {
+  display: block;
+  padding: 0.9rem 1rem;
+  border-radius: 12px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 700;
+  text-align: center;
+  text-decoration: none;
+}
+.directions-actions #directions-web { text-align: center; color: var(--muted); font-size: 0.85rem; }
+.directions-actions #directions-web[hidden] { display: none; }
