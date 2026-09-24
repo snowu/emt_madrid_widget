@@ -11,7 +11,7 @@ self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim(
  * google.com/maps link to the app when it is followed from inside a page, so
  * the plain link opened Maps in Chrome. On Android an intent: URL names the
  * Maps app outright and falls back to the web page if it is not installed.
- * iOS has no intents; there the universal link is what opens the app. */
+ * iOS has no intents; its native Google Maps URL scheme names the app. */
 function webDirections(target) {
   const [lon, lat] = Array.isArray(target?.coordinates) ? target.coordinates.map(Number) : [];
   if (!Number.isFinite(lon) || !Number.isFinite(lat)) return null;
@@ -24,8 +24,13 @@ function webDirections(target) {
 
 function directionsUrl(target) {
   const web = webDirections(target);
-  if (!web || !/Android/i.test(self.navigator?.userAgent ?? "")) return web;
+  if (!web) return null;
+  const userAgent = self.navigator?.userAgent ?? "";
   const [lon, lat] = target.coordinates.map(Number);
+  if (/iPhone|iPad|iPod/i.test(userAgent)) {
+    return `comgooglemaps://?daddr=${lat},${lon}&directionsmode=walking`;
+  }
+  if (!/Android/i.test(userAgent)) return web;
   return `intent://maps.google.com/maps?daddr=${lat},${lon}&dirflg=w#Intent;scheme=https;` +
     `package=com.google.android.apps.maps;S.browser_fallback_url=${encodeURIComponent(web)};end`;
 }
@@ -63,8 +68,8 @@ self.addEventListener("notificationclick", (event) => {
   const target = event.notification.data?.target;
   const directions = event.action === "open" ? null : directionsUrl(target);
   if (directions) {
-    // If this browser refuses an intent: URL outright, the web page still helps.
-    const fallback = directions.startsWith("intent:") ? webDirections(target) : null;
+    // If this browser refuses a native app URL outright, the web page still helps.
+    const fallback = /^(?:intent|comgooglemaps):/.test(directions) ? webDirections(target) : null;
     event.waitUntil(self.clients.openWindow(directions).catch(() => fallback && self.clients.openWindow(fallback)));
     return;
   }
