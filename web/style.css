@@ -2468,3 +2468,12 @@ body.nav-hidden #fab { transform: translateY(calc(100% + 4.15rem + env(safe-area
 .ui-signal-system .stop ul { margin-block: 0.35rem 0; }
 .ui-signal-system .age { margin-top: 0.35rem; padding: 0; }
 .ui-signal-system .bike-account { margin-block: 0.4rem 0; padding: 0.5rem 0.65rem; }
+
+.ui-signal-system #view-toggle button { display: grid; place-items: center; }
+.ui-signal-system #view-toggle svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
