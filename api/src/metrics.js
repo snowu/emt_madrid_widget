@@ -5,7 +5,7 @@ function safe(value) {
 }
 
 function write(env, { kind, endpoint, cache = "", target = "", outcome = "ok",
-  error = "", caller = "", upstream = 0, duration = 0, status = 0, who = env?.EMT_CALLER ?? "" }) {
+  error = "", caller = "", upstream = 0, duration = 0, status = 0, who = env?.EMT_CALLER ?? "background" }) {
   env?.METRICS?.writeDataPoint({
     indexes: ["emt"],
     blobs: [kind, endpoint, cache, safe(target), outcome, error, caller, who],

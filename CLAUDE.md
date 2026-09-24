@@ -191,8 +191,11 @@ The command reads the ignored root `.env.metrics`; it needs only a Cloudflare
 token scoped to **Account Analytics: Read**. The `hubwise_emt_metrics`
 Analytics Engine dataset records two event kinds: `upstream` is every actual
 EMT HTTP attempt (retries included), while `edge` records cache hit, miss, and
-coalesced application reads. No PII, coordinates, credentials, or response
-bodies are recorded. The owner can view the same aggregates under **Metrics**
+coalesced application reads. `who` (blob8) says who asked: `guest`,
+`connected` or `unconnected` (self-reported by the page in `x-hubwise-emt`),
+`signed-in` when the page did not say yet, or `background` for timer-driven
+calls such as the pollers; rows written before it existed read `unrecorded`.
+No PII, coordinates, credentials, or response bodies are recorded. The owner can view the same aggregates under **Metrics**
 in the account menu. Data retention is three months.
 
 `wrangler.toml`'s `compatibility_date` is ahead of the installed runtime, so

@@ -3,6 +3,7 @@ import { beforeEach, afterEach, describe, it, expect, vi } from "vitest";
 import worker from "../src/index.js";
 import { sealCredentials, openCredentials, withEmtAccount, callerClass } from "../src/emt-account.js";
 import { getToken, clearTokenMemoryForTest } from "../src/emt.js";
+import { recordUpstreamMetric } from "../src/metrics.js";
 
 // Supabase (auth + the emt_accounts table) and EMT are stubbed; the bearer
 // token doubles as the user id. EMT logins answer with a token naming the
@@ -72,6 +73,14 @@ describe("per-user EMT connection", () => {
     expect(callerClass(request({ Authorization: "Bearer alice", "x-hubwise-emt": "unconnected" }))).toBe("unconnected");
     expect(callerClass(request({ Authorization: "Bearer alice", "x-hubwise-emt": "unknown" }))).toBe("signed-in");
     expect(withEmtAccount(env, request({ Authorization: "Bearer alice", "x-hubwise-emt": "connected" })).EMT_CALLER).toBe("connected");
+  });
+
+  it("tags EMT calls made without a request as background", () => {
+    const points = [];
+    const METRICS = { writeDataPoint: (point) => points.push(point) };
+    recordUpstreamMetric({ METRICS }, { endpoint: "arrivals" });
+    recordUpstreamMetric({ METRICS, EMT_CALLER: "guest" }, { endpoint: "arrivals" });
+    expect(points.map((point) => point.blobs[7])).toEqual(["background", "guest"]);
   });
 
   it("uses the shared login for guests and for users who never connected", async () => {

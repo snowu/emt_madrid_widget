@@ -136,7 +136,9 @@ else document.documentElement.dataset.theme = themeChoice;
 let authClient = null;
 let authSession = null;
 let authUser = null;
-let emtConnected = false;
+// null until /auth/emt answers, so requests sent before then are not
+// counted as coming from an unconnected account.
+let emtConnected = null;
 let isOwner = false;
 let myLocation = null;
 let places = [];
@@ -1005,7 +1007,8 @@ async function api(path, init = {}) {
   const requestKey = isWrite ? null : `${authUser?.id ?? "public"}:${path}`;
   if (requestKey && pendingGets.has(requestKey)) return pendingGets.get(requestKey);
   const authorization = authSession?.access_token
-    ? { Authorization: `Bearer ${authSession.access_token}`, "x-hubwise-emt": emtConnected ? "connected" : "unconnected" }
+    ? { Authorization: `Bearer ${authSession.access_token}`,
+        ...(emtConnected === null ? {} : { "x-hubwise-emt": emtConnected ? "connected" : "unconnected" }) }
     : {};
   const operation = (async () => {
     const res = await fetch(`${API}${path}`, {

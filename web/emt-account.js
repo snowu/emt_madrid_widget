@@ -76,6 +76,7 @@ export function setupEmtAccount({ request, onState = () => {} }) {
       password.value = "";
       message.textContent = "";
       update({ connected: false });
+      onState(null); // unknown until load() hears back from the worker
       if (dialog.open) dialog.close();
     },
     /** Reading the state also re-syncs the connection to the user's tracking
