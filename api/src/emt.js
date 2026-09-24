@@ -11,6 +11,7 @@ export function clearTokenMemoryForTest() {
   hotToken = null;
   hotTokenUntil = 0;
   tokenLoad = null;
+  userTokens.clear();
 }
 
 // EMT reports failure as a `code` inside a 200 response, not as an HTTP status.
@@ -106,8 +107,19 @@ async function login(env) {
   };
 }
 
-/** Return a usable EMT access token, logging in only when needed. */
+/** Per-user tokens, keyed by session id (`user:connection`). Never mixed
+ *  with the shared token above. */
+const userTokens = new Map();
+
+/** Return a usable EMT access token, logging in only when needed. A request
+ *  whose caller connected their own EMT account gets their token; everyone
+ *  else gets the shared one. */
 export async function getToken(env, { force = false } = {}) {
+  if (env.EMT_ACCOUNT_CONTEXT) {
+    const scoped = await env.EMT_ACCOUNT_CONTEXT();
+    return getToken(scoped ?? { ...env, EMT_ACCOUNT_CONTEXT: undefined }, { force });
+  }
+  if (env.EMT_SESSION_ID) return getUserToken(env, { force });
   if (!force && hotToken && Date.now() < hotTokenUntil) return hotToken;
   if (!force && tokenLoad) return tokenLoad;
   if (force) {
@@ -136,6 +148,37 @@ export async function getToken(env, { force = false } = {}) {
     return await load;
   } finally {
     if (tokenLoad === load) tokenLoad = null;
+  }
+}
+
+async function getUserToken(env, { force }) {
+  const state = userTokens.get(env.EMT_SESSION_ID) ?? {};
+  userTokens.set(env.EMT_SESSION_ID, state);
+  if (!force && state.token && state.expiresAt > Date.now()) return state.token;
+  if (!force && state.pending) return state.pending;
+  const key = `emt:user:${env.EMT_SESSION_ID}`;
+  const load = (async () => {
+    if (!force) {
+      const cached = await env.KV.get(key, "json");
+      if (cached?.token && cached.expiresAt > Date.now()) return Object.assign(state, cached).token;
+    }
+    try {
+      const { token, ttl } = await login(env);
+      const cached = { token, expiresAt: Date.now() + ttl * 1000 };
+      await env.KV.put(key, JSON.stringify(cached), { expirationTtl: ttl });
+      return Object.assign(state, cached).token;
+    } catch (error) {
+      // Their password changed, or the account is gone. Quota and outages keep
+      // their own kinds: those are not a reason to reconnect.
+      if (error.kind === "auth") throw new EmtError("emt_account", "EMT rejected your account. Reconnect it from the account menu.");
+      throw error;
+    }
+  })();
+  if (!force) state.pending = load;
+  try {
+    return await load;
+  } finally {
+    if (state.pending === load) state.pending = null;
   }
 }
 

@@ -1,5 +1,6 @@
 import { createTracking } from "./tracking.js";
 import { mapsDirections } from "./directions.js";
+import { setupEmtAccount } from "./emt-account.js";
 import {
   readCache,
   writeArrivalCache,
@@ -963,6 +964,7 @@ function render() {
 
 const pendingGets = new Map();
 
+const emtAccount = setupEmtAccount({ request: api });
 const trackingClear = document.getElementById("tracking-clear");
 const tracking = createTracking({
   api, signedIn: () => !!authSession,
@@ -1013,6 +1015,7 @@ async function api(path, init = {}) {
       const err = new Error(body.message || body.error || `HTTP ${res.status}`);
       err.kind = body.error; // "quota" | "auth" | "not_found" | "upstream"
       if (err.kind === "user_auth") showSignedOut("Session expired — sign in again.");
+      if (err.kind === "emt_account") statusEl.textContent = "EMT rejected your connected account. Reconnect it from the account menu.";
       throw err;
     }
     return res.status === 204 ? null : res.json();
@@ -1027,6 +1030,7 @@ async function api(path, init = {}) {
 
 function showSignedOut(message = "") {
   tracking.clear();
+  emtAccount.reset();
   authSession = null;
   authUser = null;
   isOwner = false;
@@ -1055,6 +1059,8 @@ async function applySession(session) {
   authSession = session;
   authUser = session.user;
   setUserCacheScope(authUser.id);
+  emtAccount.reset();
+  void emtAccount.load();
   void tracking.load();
   resetBikePrivateState();
   stops = readStops();
