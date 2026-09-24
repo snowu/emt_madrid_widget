@@ -1,5 +1,21 @@
 #!/usr/bin/env node
 
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
+const envFile = resolve(import.meta.dirname, "../.env.metrics");
+if (existsSync(envFile)) {
+  for (const line of readFileSync(envFile, "utf8").split(/\r?\n/)) {
+    const match = line.match(/^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*?)\s*$/);
+    if (!match || process.env[match[1]] !== undefined) continue;
+    let value = match[2];
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+    process.env[match[1]] = value;
+  }
+}
+
 const DATASET = "hubwise_emt_metrics";
 const ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID || "3dab85270c19e7a426145878daacaad7";
 const token = process.env.CLOUDFLARE_ANALYTICS_TOKEN;
