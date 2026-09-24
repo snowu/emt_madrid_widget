@@ -5,13 +5,13 @@ import { getToken } from "./emt.js";
 /* Per-user EMT connections.
  *
  * Users connect their own EMT email and password, and EMT calls made on their
- * behalf use their own MobilityLabs quota. The shared login (EMT_EMAIL) is the
- * owner's: with EMT_SHARED_LOGIN = "owner" only OWNER_USER_ID may use it, and
- * everyone else must connect before anything needs a fresh EMT call — one
- * quota cannot carry every user of everything planned on top of it. Cached
- * public payloads are still served to anyone. "everyone" (the default when
- * unset, and what the older tests run with) lets anyone without a connection
- * use the shared login.
+ * behalf use their own MobilityLabs quota. With EMT_ACCOUNT = "required"
+ * (production) that is the only way: nobody, the app's owner included, falls
+ * back to the shared EMT_EMAIL login, because one quota cannot carry every
+ * user of everything planned on top of it. Guests and unconnected users still
+ * get cached public payloads, but anything needing a fresh EMT call fails with
+ * `emt_account`. "optional" (the default when unset, and what the older tests
+ * run with) lets anyone without a connection use the shared login.
  *
  * The credentials are AES-256-GCM encrypted with the EMT_CREDENTIAL_KEY Worker
  * secret, bound to the app user id as associated data, and stored in the
@@ -81,45 +81,38 @@ export function scopedEnvironment(env, credentials, sessionId) {
   };
 }
 
-/** Whether this deployment keeps the shared login for its owner alone. */
-export const sharedLoginIsOwners = (env) => env.EMT_SHARED_LOGIN === "owner" && Boolean(env.EMT_CREDENTIAL_KEY);
+/** Whether every user must bring their own EMT account. */
+export const accountRequired = (env) => env.EMT_ACCOUNT === "required" && Boolean(env.EMT_CREDENTIAL_KEY);
 
 /** The env for one request, resolving the caller's connection lazily: public
  *  cache hits and GBFS reads never pay for the lookup. Resolves to the
- *  caller's own login when they connected one, and to null — the shared
- *  login — when the shared login is theirs to use. Otherwise the request
- *  fails with `emt_account`, which the page turns into "connect your
- *  account". A connection that exists but cannot be used also fails. */
+ *  caller's own login when they connected one. Without one it resolves to
+ *  null — the shared login — only when accounts are optional; when they are
+ *  required the request fails with `emt_account`, which the page turns into
+ *  "connect your account". A connection that exists but cannot be used also
+ *  fails. */
 export function withEmtAccount(env, request) {
   let pending;
   return {
     ...env,
     EMT_ACCOUNT_CONTEXT: () => pending ??= (async () => {
       if (!env.EMT_CREDENTIAL_KEY) return null; // feature not configured
-      const ownerOnly = sharedLoginIsOwners(env);
+      const required = accountRequired(env);
       if (!request.headers.has("Authorization")) {
-        if (ownerOnly) throw new EmtError("emt_account", "Sign in and connect your EMT account to load live times.");
+        if (required) throw new EmtError("emt_account", "Sign in and connect your EMT account to load live times.");
         return null;
       }
       let user;
       let row;
       try {
         user = await authenticatedUser(env, request);
-      } catch (error) {
-        if (ownerOnly) throw error; // an expired session: sign in again
-        return null;
-      }
-      const owner = Boolean(env.OWNER_USER_ID) && user.id === env.OWNER_USER_ID;
-      try {
         row = await accountRow(env, request, user);
       } catch (error) {
-        if (ownerOnly && !owner) throw error;
+        if (required) throw error; // an expired session, or the store is down
         return null;
       }
       if (!row) {
-        if (ownerOnly && !owner) {
-          throw new EmtError("emt_account", "Connect your EMT account from the account menu to load live times.");
-        }
+        if (required) throw new EmtError("emt_account", "Connect your EMT account from the account menu to load live times.");
         return null;
       }
       const credentials = await openCredentials(env, user.id, row.credentials);
@@ -163,8 +156,8 @@ async function credentialsBody(request) {
  *  tracking runner. */
 export async function manageEmtAccount(env, request, { onChange = async () => {} } = {}) {
   const user = await authenticatedUser(env, request);
-  // Whether live data waits on this user connecting (everyone but the owner).
-  const required = sharedLoginIsOwners(env) && user.id !== env.OWNER_USER_ID;
+  // Whether live data waits on this user connecting.
+  const required = accountRequired(env);
   if (request.method === "GET") {
     const row = await accountRow(env, request, user);
     await onChange(user, row);

@@ -36,7 +36,7 @@ import {
 import { EmtError, errorResponse } from "./errors.js";
 import { getBikeAccountStatus, getBikeTrips } from "./bicimad-account.js";
 import { authenticatedUser, bearerToken } from "./auth.js";
-import { withEmtAccount, manageEmtAccount, sharedLoginIsOwners } from "./emt-account.js";
+import { withEmtAccount, manageEmtAccount, accountRequired } from "./emt-account.js";
 import { getBikeTripDiagnostics, monitorBikeTrips } from "./trip-monitor.js";
 import { queryMetrics, recordEdgeMetric } from "./metrics.js";
 import {
@@ -765,8 +765,7 @@ export default {
           const watch = validateWatch(body);
           // Bus alerts poll EMT around the clock, so they need a quota of
           // their own. Bike alerts read the operator's public feed and do not.
-          if (watch.kind === "bus" && sharedLoginIsOwners(env) && user.id !== env.OWNER_USER_ID &&
-              !(await runner.emtAccount())) {
+          if (watch.kind === "bus" && accountRequired(env) && !(await runner.emtAccount())) {
             throw new EmtError("emt_account", "Connect your EMT account from the account menu to track buses.");
           }
           result = await runner.add(watch);

@@ -1,7 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import { getArrivals } from "./emt.js";
 import { getBikeStationStatus } from "./bikes.js";
-import { openCredentials, scopedEnvironment, sharedLoginIsOwners } from "./emt-account.js";
+import { openCredentials, scopedEnvironment, accountRequired } from "./emt-account.js";
 import { EmtError } from "./errors.js";
 import { BIKE_INTERVAL, BUS_INTERVAL } from "./tracking-rules.js";
 
@@ -17,8 +17,9 @@ import { BIKE_INTERVAL, BUS_INTERVAL } from "./tracking-rules.js";
  * A stop poller spends the EMT quota of the users watching that stop, taking
  * turns between those who connected their own account; if the chosen account
  * fails it tries the others, so one user's broken connection never silences
- * everybody else's alerts. The shared login is the last resort, and with
- * EMT_SHARED_LOGIN = "owner" only when the owner is one of the watchers.
+ * everybody else's alerts. The shared login is a last resort only when
+ * accounts are optional (EMT_ACCOUNT); when required, a stop nobody connected
+ * for is not polled at all.
  */
 
 // get(idFromName()) is getByName() spelled for older runtimes too.
@@ -129,8 +130,7 @@ export class StopPoller extends Poller {
         envs.push(scopedEnvironment(this.env, credentials, `${account.userId}:${account.connectionId}`));
       } catch { /* undecryptable: skip this watcher's account */ }
     }
-    const ownerWatches = subscribers.some((s) => this.env.OWNER_USER_ID && s.user === this.env.OWNER_USER_ID);
-    if (!sharedLoginIsOwners(this.env) || ownerWatches) envs.push(this.env);
+    if (!accountRequired(this.env)) envs.push(this.env);
     return envs;
   }
 

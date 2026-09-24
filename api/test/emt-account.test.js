@@ -224,14 +224,14 @@ describe("shared stop pollers and connected EMT accounts", () => {
   });
 });
 
-describe("connecting is required when the shared login is the owner's", () => {
-  // Production runs with EMT_SHARED_LOGIN = "owner"; OWNER_USER_ID is
-  // "owner-user-id" in vitest.config.js.
-  const owner = { EMT_SHARED_LOGIN: "owner" };
+describe("connecting is required for everyone", () => {
+  // Production runs with EMT_ACCOUNT = "required". OWNER_USER_ID is
+  // "owner-user-id" in vitest.config.js: the owner gets no exception.
+  const owner = { EMT_ACCOUNT: "required" };
   const get = (path, user) => call(path, user, "GET", undefined, owner);
 
   it("refuses fresh EMT calls for guests and unconnected users, without spending any quota", async () => {
-    for (const user of [null, "carol"]) {
+    for (const user of [null, "carol", "owner-user-id"]) {
       const response = await get(`/arrivals?stop=${nextStop()}`, user);
       expect(response.status).toBe(403);
       const body = await response.json();
@@ -241,9 +241,9 @@ describe("connecting is required when the shared login is the owner's", () => {
     expect(arrivalTokens()).toEqual([]);
   });
 
-  it("keeps the shared login for the owner", async () => {
-    expect((await get(`/arrivals?stop=${nextStop()}`, "owner-user-id")).status).toBe(200);
-    expect(arrivalTokens()).toEqual(["shared-token"]);
+  it("tells the page connecting is required, owner included", async () => {
+    const status = await get("/auth/emt", "owner-user-id");
+    expect(await status.json()).toMatchObject({ connected: false, required: true });
   });
 
   it("uses a connected user's own login, and still serves cached payloads to anyone", async () => {
@@ -272,7 +272,7 @@ describe("connecting is required when the shared login is the owner's", () => {
     expect((await bike.json()).watches).toHaveLength(1);
   });
 
-  it("does not poll a stop on the shared login unless the owner watches it", async () => {
+  it("polls a stop only on its connected watchers' accounts, never the shared login", async () => {
     const poll = async (users, stop) => {
       for (const user of users) {
         const runner = env.TRACKING.get(env.TRACKING.idFromName(user));
@@ -289,9 +289,10 @@ describe("connecting is required when the shared login is the owner's", () => {
       await runDurableObjectAlarm(poller);
       return arrivalTokens();
     };
-    expect(await poll(["carol"], "7777")).toEqual([]);
+    expect(await poll(["carol", "owner-user-id"], "7777")).toEqual([]);
     const carol = env.TRACKING.get(env.TRACKING.idFromName("carol"));
     expect((await carol.list()).watches[0].error).toMatch(/connect your EMT account/i);
-    expect(await poll(["owner-user-id", "dan"], "8888")).toEqual(["shared-token"]);
+    await connect("gina");
+    expect(await poll(["gina", "owner-user-id"], "8888")).toEqual(["bus:gina@example.test"]);
   });
 });
