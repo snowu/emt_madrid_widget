@@ -2,6 +2,8 @@ import { validateWatch } from "./tracking.js";
 import { validateSubscription } from "./push.js";
 export { TrackingRunner } from "./tracking.js";
 export { BikeFeed, StopPoller } from "./pollers.js";
+export { LiveStop } from "./live.js";
+import { openLiveSocket } from "./live.js";
 import {
   getArrivals,
   getStopDetail,
@@ -804,6 +806,10 @@ export default {
         const hours = Math.min(720, Math.max(1,
           Number.parseInt(url.searchParams.get("hours") || "24", 10) || 24));
         return json(await queryMetrics(env, hours), env, 200, { "cache-control": "no-store" });
+      }
+
+      if (pathname === "/live" && method === "GET" && request.headers.get("Upgrade") === "websocket") {
+        return await openLiveSocket(request, env);
       }
 
       if (pathname === "/arrivals" && method === "GET") {

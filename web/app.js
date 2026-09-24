@@ -1,6 +1,7 @@
 import { createTracking } from "./tracking.js";
 import { mapsDirections } from "./directions.js";
 import { setupEmtAccount } from "./emt-account.js";
+import { createLive } from "./live.js";
 import {
   readCache,
   writeArrivalCache,
@@ -136,6 +137,12 @@ else document.documentElement.dataset.theme = themeChoice;
 let authClient = null;
 let authSession = null;
 let authUser = null;
+// The map's boards arrive over sockets; polling covers whatever is not live.
+const live = createLive({
+  base: API,
+  token: () => authSession?.access_token ?? null,
+  onBoard: (board) => putBoard(board.stopId, board),
+});
 // null until /auth/emt answers, so requests sent before then are not
 // counted as coming from an unconnected account.
 let emtConnected = null;
@@ -1037,6 +1044,7 @@ async function api(path, init = {}) {
 }
 
 function showSignedOut(message = "") {
+  live.reset();
   tracking.clear();
   emtAccount.reset();
   authSession = null;
@@ -1066,6 +1074,8 @@ async function applySession(session) {
   if (authSession?.access_token === session.access_token && authUser) return;
   authSession = session;
   authUser = session.user;
+  // Reopen with the new token, i.e. with this user's EMT account.
+  live.reset();
   setUserCacheScope(authUser.id);
   emtAccount.reset();
   void emtAccount.load();
@@ -1607,12 +1617,16 @@ async function refreshAll({ force = false } = {}) {
 }
 
 async function refreshMapArrivals() {
-  if (!leafletMap || mapEl.hidden || shownRoutes.size === 0) return;
   // A backgrounded tab still runs its interval. Left on the map view in a
   // pocket, this polled EMT every five seconds for as long as the phone was
   // asleep — most of a 20,000/day quota, spent on buses nobody was watching.
   // visibilitychange refreshes on the way back, so nothing is lost by waiting.
-  if (document.visibilityState !== "visible") return;
+  // The same goes for live sockets: an open one keeps its stop ticking.
+  if (!leafletMap || mapEl.hidden || shownRoutes.size === 0 ||
+      document.visibilityState !== "visible") {
+    live.want([]);
+    return;
+  }
   const bounds = paddedBounds(leafletMap, 0.25);
   const stopIds = new Set();
   // A stop's arrivals only ever describe buses still heading for it, so the
@@ -1629,9 +1643,10 @@ async function refreshMapArrivals() {
       stopIds.add(marker.busSourceStopId);
     }
   }
-  await Promise.all([
-    ...[...stopIds].map((stopId) => refreshStop(stopId, { force: true })),
-  ]);
+  live.want(stopIds);
+  await Promise.all([...stopIds]
+    .filter((stopId) => !live.fresh(stopId))
+    .map((stopId) => refreshStop(stopId, { force: true })));
 }
 
 /** The one stop worth polling for a displayed direction: the stop the route
@@ -4161,6 +4176,7 @@ function tickStopList() {
 // Update only time-bearing text. Rebuilding every card once a second caused
 // needless layout, garbage collection and event-listener churn.
 setInterval(() => {
+  if (section === "bikes" || mapEl.hidden) live.want([]);
   if (section === "bikes") {
     bikeAgeEl.textContent = bikeAgeText();
     const accountAge = bikeAccountText.querySelector("[data-checked-at]");
@@ -4183,6 +4199,7 @@ setInterval(() => {
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState !== "visible") {
     stopLocationRefresh();
+    live.want([]);
     return;
   }
   startLocationRefresh();

@@ -41,6 +41,10 @@ class_name = "BikeFeed"
 name = "STOP_POLLER"
 class_name = "StopPoller"
 
+[[durable_objects.bindings]]
+name = "LIVE_STOP"
+class_name = "LiveStop"
+
 [[migrations]]
 tag = "tracking-v1"
 new_sqlite_classes = ["TrackingRunner"]
@@ -48,3 +52,7 @@ new_sqlite_classes = ["TrackingRunner"]
 [[migrations]]
 tag = "pollers-v1"
 new_sqlite_classes = ["BikeFeed", "StopPoller"]
+
+[[migrations]]
+tag = "live-v1"
+new_sqlite_classes = ["LiveStop"]
