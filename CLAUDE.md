@@ -60,6 +60,7 @@ that authenticated user.
 GET    /auth/config                public Supabase URL + publishable/anon key
 GET    /auth/me                    current user summary + owner flag
 GET    /arrivals?stop=&limit=      limit 1–20, default 2
+GET    /live?stop=                 WebSocket (subprotocol "hubwise"): live map boards
 GET    /stops                      saved stops (Supabase rows)
 POST   /stops                      {stopId, label?}          → 201
 PATCH  /stops/:rowId               {label}                    empty label → EMT's name
@@ -172,6 +173,18 @@ incident reads. `"paid"` (Workers Paid: 10,000 subrequests) takes every hub in
 one request and widens the search — see `PLANNER_BUDGETS` in `src/index.js`.
 The page learns the batch size from each response's `maxDestinations`, so
 flipping the var and redeploying the worker is the whole switch.
+
+**The live map is pushed** (`src/live.js`, `web/live.js`). While the map
+shows a route, the page opens one WebSocket per probed stop to that stop's
+`LiveStop` object, which fetches the board every 5 seconds for everyone
+watching and pushes it to every socket: one EMT call per stop per tick however
+many people look. Browsers cannot set socket headers, so the page offers its
+sign-in token as a second subprotocol; the worker checks `Origin`, resolves
+the viewer's EMT account once, and only echoes `hubwise`. Connected viewers'
+quotas are spent in turn; guests may listen but a stop with no connected
+viewer is not polled (with `EMT_ACCOUNT = "required"`). Pages close their
+sockets when the map is hidden or the tab is backgrounded, and poll
+`/arrivals` for any stop whose socket has not delivered lately.
 
 Deploys: pushing to `main` with changes under `web/**` runs the Pages workflow.
 The worker is **not** deployed by CI — `npm run deploy` by hand.
