@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-/** Hubwise's pixel-art icon: one drawing, every file Android and iOS need.
+/** Hubward's pixel-art icon, a compass whose points all lead to the hub: one
+ *  drawing, every file Android and iOS need.
  *
- * The art lives below as rows of characters, one per pixel. This writes the
+ * The art is drawn on a small grid below, one cell per pixel. This writes the
  * SVGs (crisp-edged rects, so they scale like pixels) and the PNGs, which are
  * rasterised here with nearest-neighbour sampling: no rsvg or ImageMagick
  * needed, and no blurry pixel edges. Run from the repo root:
@@ -15,54 +16,67 @@ import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
+// "Octarine night": gold north, blue points, and a hub glinting octarine.
 const palette = {
-  k: "#12141a", // night background, the app's theme colour
-  D: "#2a63b8", // bus outline and bumper
-  B: "#4ea3ff", // bus body, the app's accent
-  L: "#a9d6ff", // highlight down the left side
-  W: "#dff2ff", // windscreen
-  e: "#12141a", // eyes
-  m: "#12141a", // smile
-  p: "#ff8fb1", // cheeks
-  Y: "#ffd54a", // destination sign, headlights, sparkle
-  g: "#3a3f4b", // tyres
+  k: "#141430", // night sky
+  h: "#231d4d", // glow behind the hub
+  r: "#6a5acd", // ring, lit side
+  R: "#3b3380", // ring, shaded side
+  n: "#ffe27a", N: "#e0a82e", o: "#fff4c2", // north point: lit, shade, hub-lit
+  b: "#8ec5ff", d: "#4a7fd6", l: "#d6ecff", // other points: lit, shade, hub-lit
+  x: "#9d8cff", // diagonal points
+  P: "#8a4dff", E: "#c79bff", W: "#b8ff6a", // hub: gem, core, octarine glint
+  s: "#b8ff6a", // sparkle
+  w: "#e8e4ff", // stars
 };
 
-// The bus, facing you: mirrors out, sign lit, a face in the windscreen.
-const bus = [
-  "...DDDDDDDDDD...",
-  "..DBYYYYYYYYBD..",
-  "..DBBBBBBBBBBD..",
-  "DDDLWWWWWWWWBDDD",
-  "D.DLWWWWWWWWBD.D",
-  "D.DLWWeWWeWWBD.D",
-  "..DLWWeWWeWWBD..",
-  "..DLWWWWWWWWBD..",
-  "..DLWpmWWmpWBD..",
-  "..DLWWWmmWWWBD..",
-  "..DBBBBBBBBBBD..",
-  "..DBYYBBBBYYBD..",
-  "..DBBBDDDDBBBD..",
-  "..DDDDDDDDDDDD..",
-  "...ggg....ggg...",
-  "...ggg....ggg...",
-];
-// ...and a sparkle, because it is on time.
-const sparkle = [".Y.", "YYY", ".Y."];
+const SIZE = 24;
+const set = (grid, x, y, c) => {
+  x = Math.round(x); y = Math.round(y);
+  if (y >= 0 && y < grid.length && x >= 0 && x < grid.length) grid[y][x] = c;
+};
+const shape = (grid, test, c) => grid.forEach((row, y) => row.forEach((_, x) => { if (test(x, y)) row[x] = c; }));
 
-/** A `size`-cell square filled with `fill`, with each [art, x, y] drawn on
- *  it, top-left corner at (x, y). */
-function canvas(size, fill, layers) {
-  const grid = Array.from({ length: size }, () => Array(size).fill(fill));
-  for (const [art, x, y] of layers) {
-    art.forEach((row, dy) => [...row].forEach((cell, dx) => {
-      if (cell !== ".") grid[y + dy][x + dx] = cell;
-    }));
+/** The Hubward compass on a SIZE-cell grid: every point leads to the hub.
+ *  `mode` "badge" keeps only a silhouette for the status bar. */
+function compass() {
+  const g = Array.from({ length: SIZE }, () => Array(SIZE).fill("k"));
+  const c = 11.5;
+  const dist = (x, y) => Math.hypot(x - c, y - c);
+  // A soft halo behind the hub: solid, then dithered.
+  shape(g, (x, y) => dist(x, y) < 4.5 || (dist(x, y) < 6 && (x + y) % 2 === 0), "h");
+  // The ring, lit on the upper left.
+  shape(g, (x, y) => dist(x, y) >= 10 && dist(x, y) < 10.9, "r");
+  shape(g, (x, y) => dist(x, y) >= 10 && dist(x, y) < 10.9 && x + y > 25, "R");
+  // One point, up from the centre, as [half-width, row]; the rows nearest
+  // the hub take its light. The other three are the same point turned.
+  const rows = [[1, 1], [1, 2], [1, 3], [2, 4], [2, 5], [2, 6], [3, 7], [3, 8]];
+  const turn = { n: (x, y) => [x, y], s: (x, y) => [x, 23 - y], w: (x, y) => [y, x], e: (x, y) => [23 - y, x] };
+  for (const [dir, map] of Object.entries(turn)) {
+    const [lit, shade, hubLit] = dir === "n" ? ["n", "N", "o"] : ["b", "d", "l"];
+    for (const [half, y] of rows) {
+      for (let x = 12 - half; x < 12 + half; x++) set(g, ...map(x, y), x < 12 ? (y >= 7 ? hubLit : lit) : shade);
+    }
   }
-  return grid;
+  for (const [dx, dy] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+    for (let i = 3; i <= 6; i++) set(g, c + dx * (i + 0.5), c + dy * (i + 0.5), "x");
+  }
+  // The hub: a gem, a bright core and an octarine glint.
+  shape(g, (x, y) => dist(x, y) < 2.6, "P");
+  shape(g, (x, y) => dist(x, y) < 1.5, "E");
+  set(g, 11, 11, "W");
+  for (const [x, y] of [[20, 3], [19, 3], [21, 3], [20, 2], [20, 4]]) set(g, x, y, "s");
+  for (const [x, y] of [[3, 20], [21, 20], [3, 4]]) set(g, x, y, "w");
+  return g;
 }
 
-/** Knock the corners off a square to round it, in whole pixels. */
+/** `grid` placed at (x, y) on a `size`-cell square of `fill`. */
+function pad(grid, size, x, y, fill) {
+  const out = Array.from({ length: size }, () => Array(size).fill(fill));
+  grid.forEach((row, dy) => row.forEach((cell, dx) => { out[y + dy][x + dx] = cell; }));
+  return out;
+}
+
 function roundCorners(grid, radius) {
   const n = grid.length;
   for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
@@ -73,15 +87,14 @@ function roundCorners(grid, radius) {
   return grid;
 }
 
-// Launcher icon: the bus centred on a rounded night square.
-const icon = roundCorners(canvas(22, "k", [[bus, 3, 3], [sparkle, 18, 1]]), 4);
-// Maskable: full bleed, art inside the central 80% circle launchers keep.
-const maskable = canvas(28, "k", [[bus, 6, 6], [sparkle, 21, 5]]);
-// Status-bar badge: Android keeps only the alpha, so draw the bus solid and
-// cut the windscreen out around the face.
-const hollow = (art) => art.map((row) => [...row].map((c) => (c === "." || c === "W" || c === "p" ? "." : "w")).join(""));
-const badge = canvas(24, ".", [[hollow(bus), 4, 5], [hollow(sparkle), 19, 1]]);
-const badgePalette = { w: "#ffffff" };
+// Launcher icon: the compass on a rounded night square.
+const icon = roundCorners(compass(), 4);
+// Maskable: full bleed, the ring inside the central 80% circle launchers keep.
+const maskable = pad(compass(), 30, 3, 3, "k");
+// Status-bar badge: Android keeps only the alpha. The points and the ring,
+// solid; the halo and sky dropped; the hub cut out so it still reads as one.
+const badge = compass().map((row) => row.map((c) => (c === "k" || c === "h" || c === "w" || c === "s" ? "." : c === "E" || c === "W" ? "." : "f")));
+const badgePalette = { f: "#ffffff" };
 
 function svg(grid, colours, comment) {
   const n = grid.length;
@@ -145,8 +158,8 @@ function png(grid, colours, size) {
 }
 
 const out = (path, data) => writeFileSync(join(root, path), data);
-out("web/icon.svg", svg(icon, palette, "Hubwise launcher icon."));
-out("tools/icons/maskable.svg", svg(maskable, palette, "Full bleed; the bus sits inside the 80% safe zone launchers crop to."));
+out("web/icon.svg", svg(icon, palette, "Hubward launcher icon."));
+out("tools/icons/maskable.svg", svg(maskable, palette, "Full bleed; the compass sits inside the 80% safe zone launchers crop to."));
 out("tools/icons/badge.svg", svg(badge, badgePalette, "Android status-bar badge: only the alpha channel is used."));
 out("web/icon-192.png", png(icon, palette, 192));
 out("web/icon-512.png", png(icon, palette, 512));

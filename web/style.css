@@ -1274,7 +1274,7 @@ dialog input {
   font-weight: 600;
 }
 
-/* Compact list system: Hubwise, Stops and BiciMAD share one quiet card
+/* Compact list system: Hubward, Stops and BiciMAD share one quiet card
    language. Map surfaces and map markers deliberately remain unchanged. */
 body[data-section="buses"] #stops,
 body[data-section="bikes"] #bikes {

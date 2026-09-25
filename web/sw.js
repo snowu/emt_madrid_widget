@@ -7,7 +7,7 @@ self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim()));
 /** A target's [lon, lat], or null. The page turns it into a Maps link: a
  *  window the worker opens is a browser window, which neither Android nor iOS
- *  hands to the Maps app, so the worker only ever opens Hubwise. */
+ *  hands to the Maps app, so the worker only ever opens Hubward. */
 function targetCoordinates(target) {
   const [lon, lat] = Array.isArray(target?.coordinates) ? target.coordinates.map(Number) : [];
   return Number.isFinite(lon) && Number.isFinite(lat) ? [lon, lat] : null;
@@ -24,7 +24,7 @@ self.addEventListener("push", (event) => {
     if (focused) return focused.postMessage({ type: "push", message });
     // Android draws neither an SVG icon nor a coloured badge: without these
     // PNGs it falls back to Chrome's own logo. The badge is read as alpha only.
-    return self.registration.showNotification(message?.title || "Hubwise", {
+    return self.registration.showNotification(message?.title || "Hubward", {
       body: message?.body || "A tracked stop has an update.",
       icon: new URL("icon-192.png", self.registration.scope).href,
       badge: new URL("badge-96.png", self.registration.scope).href,
@@ -34,8 +34,8 @@ self.addEventListener("push", (event) => {
       renotify: true,
       timestamp: Number.isFinite(message?.timestamp) ? message.timestamp : Date.now(),
       data: { target: message?.target },
-      // A tap walks you there (through Hubwise); the button just opens the stop.
-      actions: targetCoordinates(message?.target) ? [{ action: "open", title: "Open in Hubwise" }] : [],
+      // A tap walks you there (through Hubward); the button just opens the stop.
+      actions: targetCoordinates(message?.target) ? [{ action: "open", title: "Open in Hubward" }] : [],
     });
   })());
 });

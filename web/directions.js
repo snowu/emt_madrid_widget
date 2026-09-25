@@ -2,7 +2,7 @@
  *
  * A notification can only open a browser window, and neither Android nor iOS
  * hands a window opened that way to another app. So a notification tap opens
- * Hubwise, and Hubwise launches Maps: a navigation from inside the page is
+ * Hubward, and Hubward launches Maps: a navigation from inside the page is
  * what both systems route to the app.
  *   Android: an intent: URL naming the Maps package, falling back to the web
  *            page if Maps is not installed.

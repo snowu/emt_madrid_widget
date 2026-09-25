@@ -7,6 +7,12 @@ going to any store.
 Design doc: `docs/superpowers/specs/2026-08-18-emt-madrid-web-design.md`.
 Implementation plan: `docs/superpowers/plans/2026-08-18-emt-arrivals-web-app.md`.
 
+**The app is called Hubward** (after the Discworld direction: towards the
+Hub). It was Hubwise until 2026-09-25; internal names keep `hubwise` — the
+manifest `id` (changing it makes every installed copy a different app), the
+`x-hubwise-emt` header, notification tags and the metrics dataset. The icon is
+drawn in `tools/icons/pixel-icon.mjs`.
+
 **The repo is named `emt_madrid_widget` and there is no widget.** This started
 as an Android home screen widget and became a webpage; the name was kept to
 avoid churn. Ignore it.

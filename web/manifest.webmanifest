@@ -1,7 +1,7 @@
 {
   "id": "hubwise",
-  "name": "Hubwise",
-  "short_name": "Hubwise",
+  "name": "Hubward",
+  "short_name": "Hubward",
   "description": "Live EMT Madrid buses and BiciMAD stations, with arrival alerts.",
   "start_url": ".",
   "scope": ".",

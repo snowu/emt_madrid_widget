@@ -60,7 +60,7 @@ npm run metrics
 npm run metrics -- --days 7
 ```
 
-The Hubwise account menu also exposes the same report to the owner. Analytics
+The Hubward account menu also exposes the same report to the owner. Analytics
 Engine retains three months; no KV operations are consumed.
 
 Design: `docs/superpowers/specs/2026-08-18-emt-madrid-web-design.md`

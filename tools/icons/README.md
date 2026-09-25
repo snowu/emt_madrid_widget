@@ -1,4 +1,4 @@
-Hubwise's pixel-art icon. The art is drawn as text rows in `pixel-icon.mjs`,
+Hubward's pixel-art icon, a compass whose points all lead to the hub. The art is drawn as text rows in `pixel-icon.mjs`,
 which writes every icon file from it:
 
 ```bash

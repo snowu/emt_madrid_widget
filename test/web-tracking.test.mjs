@@ -182,7 +182,7 @@ test("tapping a notification focuses the open app and hands it the target", asyn
   assert.equal(opened.length, 0);
 });
 
-test("a tap on an alert with a location opens Hubwise for directions; its button opens the stop", async () => {
+test("a tap on an alert with a location opens Hubward for directions; its button opens the stop", async () => {
   const handlers = {};
   const notifications = [];
   const opened = [];
