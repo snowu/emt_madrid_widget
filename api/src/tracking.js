@@ -33,6 +33,17 @@ function watchCoordinates(value) {
  *  object is evicted, without a write per poll. */
 const LAST_CHECK_WRITE = 10 * 60_000;
 const RESYNC = 24 * 60 * 60_000;
+/** A device is "seen" whenever the page opens on it (it re-registers its push
+ *  subscription then). One not seen for DEVICE_PAUSE gets no alerts, and a
+ *  user with no device left seen stops their pollers, so a lost phone or a
+ *  wiped browser stops spending quota and sending pushes within days. It
+ *  comes back the next time the app opens there. After DEVICE_FORGET it is
+ *  deleted outright. */
+export const DEVICE_PAUSE = 5 * 86_400_000;
+export const DEVICE_FORGET = 30 * 86_400_000;
+/** How stale a device's seenAt may get before a check-in rewrites it: every
+ *  page load checks in, and most of them need not cost a storage write. */
+const SEEN_WRITE = 6 * 60 * 60_000;
 
 // One object per authenticated user: their watches, their devices, their alert
 // state. It fetches nothing itself. The shared pollers in pollers.js fetch each
@@ -63,6 +74,14 @@ export class TrackingRunner extends DurableObject {
   watch(id) { const row = this.ctx.storage.sql.exec("SELECT value FROM watches WHERE id = ?", id).toArray()[0]; return row ? JSON.parse(row.value) : null; }
   save(watch) { this.ctx.storage.sql.exec("INSERT OR REPLACE INTO watches VALUES (?, ?)", watch.id, JSON.stringify(watch)); }
   devices() { return this.rows("devices"); }
+  /** Devices seen lately; the only ones alerts go to. Devices from before
+   *  seenAt existed count as seen until sync() stamps them. */
+  activeDevices(now = Date.now()) {
+    return this.devices().filter((d) => d.seenAt == null || now - d.seenAt < DEVICE_PAUSE);
+  }
+  putDevice(id, subscription, seenAt) {
+    this.ctx.storage.sql.exec("INSERT OR REPLACE INTO devices VALUES (?, ?)", id, JSON.stringify({ ...subscription, seenAt }));
+  }
   expire(id) {
     this.ctx.storage.sql.exec("DELETE FROM devices WHERE id = ?", id);
     this.ctx.storage.sql.exec("DELETE FROM expired WHERE at < ?", Date.now() - 90 * 86_400_000);
@@ -112,7 +131,7 @@ export class TrackingRunner extends DurableObject {
         // whether alerts are armed.
         ...(watch.kind === "bike" && Number.isInteger(state?.count) ? { rack: { bikes: state.count, armed: state.armed === true } } : {}),
       })),
-      devices: this.devices().length,
+      devices: this.activeDevices().length,
     };
   }
 
@@ -120,8 +139,19 @@ export class TrackingRunner extends DurableObject {
     const clean = validateSubscription(subscription);
     const id = await subscriptionId(clean.endpoint);
     if (this.ctx.storage.sql.exec("SELECT 1 FROM expired WHERE id = ?", id).toArray().length) return { id, expired: true };
-    if (!this.devices().some((d) => d.id === id) && this.devices().length >= 5) throw new Error("At most five notification devices are supported");
-    this.ctx.storage.sql.exec("INSERT OR REPLACE INTO devices VALUES (?, ?)", id, JSON.stringify(clean));
+    const now = Date.now();
+    const devices = this.devices();
+    const existing = devices.find((d) => d.id === id);
+    if (!existing && devices.length >= 5) {
+      // A paused device makes room for a new one before the limit bites.
+      const [oldest] = devices.filter((d) => d.seenAt != null && now - d.seenAt >= DEVICE_PAUSE)
+        .sort((a, b) => a.seenAt - b.seenAt);
+      if (!oldest) throw new Error("At most five notification devices are supported");
+      this.ctx.storage.sql.exec("DELETE FROM devices WHERE id = ?", oldest.id);
+    }
+    const { id: _, seenAt, ...stored } = existing ?? {};
+    const same = existing && JSON.stringify(stored) === JSON.stringify(clean);
+    if (!same || seenAt == null || now - seenAt >= SEEN_WRITE) this.putDevice(id, clean, now);
     await this.sync();
     return { id };
   }
@@ -135,7 +165,7 @@ export class TrackingRunner extends DurableObject {
 
   async add(input) {
     const watch = validateWatch(input);
-    if (!this.devices().length) throw new Error("Enable notifications on this device first");
+    if (!this.activeDevices().length) throw new Error("Enable notifications on this device first");
     const existing = this.watch(watch.id);
     if (existing) {
       // Watches made before notifications carried a location learn it here.
@@ -159,7 +189,12 @@ export class TrackingRunner extends DurableObject {
   async sync() {
     const userId = this.userId();
     if (!userId) return; // subscribes once a /tracking request identifies it
-    const watches = this.devices().length ? this.rows("watches") : [];
+    const now = Date.now();
+    for (const { id, seenAt, ...subscription } of this.devices()) {
+      if (seenAt == null) this.putDevice(id, subscription, now);
+      else if (now - seenAt >= DEVICE_FORGET) this.ctx.storage.sql.exec("DELETE FROM devices WHERE id = ?", id);
+    }
+    const watches = this.activeDevices(now).length ? this.rows("watches") : [];
     const account = this.emtAccount();
     const wanted = {
       bikes: [...new Set(watches.filter((w) => w.kind === "bike").map((w) => w.targetId))].sort(),
@@ -178,10 +213,12 @@ export class TrackingRunner extends DurableObject {
       if (!wanted.stops.includes(stop)) await stopPoller(this.env, stop).unsubscribe(userId);
     }
     this.setMeta("subscriptions", wanted);
-    // A daily re-sync repairs anything a failed call above left behind.
+    // A daily re-sync repairs anything a failed call above left behind, and
+    // is what eventually forgets a paused device.
     const alarm = await this.ctx.storage.getAlarm();
-    if (watches.length && alarm == null) await this.ctx.storage.setAlarm(Date.now() + RESYNC);
-    if (!watches.length && alarm != null) await this.ctx.storage.deleteAlarm();
+    const keep = watches.length > 0 || this.devices().length > 0;
+    if (keep && alarm == null) await this.ctx.storage.setAlarm(Date.now() + RESYNC);
+    if (!keep && alarm != null) await this.ctx.storage.deleteAlarm();
   }
 
   async alarm() {
@@ -196,7 +233,8 @@ export class TrackingRunner extends DurableObject {
    *  `payload.error` when the feed failed. Returns whether this runner still
    *  wants bike counts, so the feed can drop runners that went quiet. */
   async onBikes(payload) {
-    const watches = this.devices().length ? this.rows("watches").filter((w) => w.kind === "bike") : [];
+    if (!this.activeDevices().length) return this.pollerDropped({ bikes: [] });
+    const watches = this.rows("watches").filter((w) => w.kind === "bike");
     await Promise.all(watches.map((watch) => this.evaluate(watch, payload.fetchedAt, () => {
       if (payload.error) throw new Error(payload.error);
       const station = payload.stations?.[watch.targetId];
@@ -208,13 +246,24 @@ export class TrackingRunner extends DurableObject {
 
   /** A stop's board from its poller, or `payload.error`. */
   async onBoard(stopId, payload) {
-    const watches = this.devices().length
-      ? this.rows("watches").filter((w) => w.kind === "bus" && w.targetId === String(stopId)) : [];
+    if (!this.activeDevices().length) {
+      const stops = this.meta("subscriptions")?.stops ?? [];
+      return this.pollerDropped({ stops: stops.filter((stop) => stop !== String(stopId)) });
+    }
+    const watches = this.rows("watches").filter((w) => w.kind === "bus" && w.targetId === String(stopId));
     await Promise.all(watches.map((watch) => this.evaluate(watch, payload.fetchedAt, () => {
       if (payload.error) throw Object.assign(new Error(payload.error), payload.connect ? { userMessage: payload.error } : {});
       return busTransition(watch.state, payload.arrivals ?? [], watch, payload.fetchedAt);
     })));
     return { active: watches.length > 0 };
+  }
+
+  /** Nobody is left to notify: the poller drops this runner when told so.
+   *  Record that, so the next check-in's sync() subscribes again. */
+  pollerDropped(change) {
+    const current = this.meta("subscriptions");
+    if (current) this.setMeta("subscriptions", { ...current, ...change });
+    return { active: false };
   }
 
   /** Apply one poll to one watch: send what is news, then persist only what
@@ -234,7 +283,7 @@ export class TrackingRunner extends DurableObject {
         const deliveryKey = alert.vehicle ?? alert.body;
         watch.delivered ??= {};
         watch.delivered[deliveryKey] ??= [];
-        for (const device of this.devices()) {
+        for (const device of this.activeDevices(now)) {
           if (watch.delivered[deliveryKey].includes(device.id)) continue;
           if (this.watch(watch.id)?.revision !== watch.revision) break;
           try {
