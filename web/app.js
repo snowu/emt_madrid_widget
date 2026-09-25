@@ -806,7 +806,7 @@ function renderPlaces() {
       const loader = document.createElement("div");
       loader.className = "hubwise-loader";
       loader.setAttribute("role", "status");
-      loader.setAttribute("aria-label", "Loading Hubwise");
+      loader.setAttribute("aria-label", "Loading Hubward");
       listEl.replaceChildren(loader);
     } else {
       listEl.replaceChildren();
@@ -5393,7 +5393,7 @@ function showSection(next) {
   section = next;
   document.body.dataset.section = next;
   const bikes = next === "bikes";
-  document.title = bikes ? "BiciMAD" : busListMode === "places" ? "Hubwise" : "Stops";
+  document.title = bikes ? "BiciMAD" : busListMode === "places" ? "Hubward" : "Stops";
   busModePlaces.setAttribute("aria-selected", String(!bikes && busListMode === "places"));
   busModeStops.setAttribute("aria-selected", String(!bikes && busListMode === "stops"));
   menuBikes.setAttribute("aria-selected", String(bikes));
@@ -5641,7 +5641,7 @@ navigator.serviceWorker?.addEventListener("message", (event) => {
   }
   if (event.data?.type !== "push") return;
   const message = event.data.message ?? {};
-  document.getElementById("push-banner-title").textContent = message.title || "Hubwise";
+  document.getElementById("push-banner-title").textContent = message.title || "Hubward";
   document.getElementById("push-banner-body").textContent = message.body || "";
   pushBannerTarget = message.target;
   // Below the header, not over it: the List/Map toggle and refresh live there.

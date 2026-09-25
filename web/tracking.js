@@ -14,7 +14,7 @@ export function createTracking({ api, signedIn, changed, locate = () => null }) 
 
   async function enable() {
     if (!signedIn()) throw new Error("Sign in to track buses and bike stations.");
-    if (!supported()) throw new Error("Push notifications are unavailable here. On iPhone or iPad, add Hubwise to your Home Screen and open it there.");
+    if (!supported()) throw new Error("Push notifications are unavailable here. On iPhone or iPad, add Hubward to your Home Screen and open it there.");
     // Keep the permission request before any network await (Safari gesture rule).
     const permission = await window.Notification.requestPermission();
     if (permission !== "granted") throw new Error("Allow notifications in your browser settings to receive alerts.");

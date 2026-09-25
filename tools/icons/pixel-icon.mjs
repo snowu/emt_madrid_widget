@@ -1,0 +1,169 @@
+#!/usr/bin/env node
+/** Hubward's pixel-art icon, a compass whose points all lead to the hub: one
+ *  drawing, every file Android and iOS need.
+ *
+ * The art is drawn on a small grid below, one cell per pixel. This writes the
+ * SVGs (crisp-edged rects, so they scale like pixels) and the PNGs, which are
+ * rasterised here with nearest-neighbour sampling: no rsvg or ImageMagick
+ * needed, and no blurry pixel edges. Run from the repo root:
+ *
+ *   node tools/icons/pixel-icon.mjs
+ */
+import { writeFileSync } from "node:fs";
+import { deflateSync } from "node:zlib";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
+
+// "Octarine night": gold north, blue points, and a hub glinting octarine.
+const palette = {
+  k: "#141430", // night sky
+  h: "#231d4d", // glow behind the hub
+  r: "#6a5acd", // ring, lit side
+  R: "#3b3380", // ring, shaded side
+  n: "#ffe27a", N: "#e0a82e", o: "#fff4c2", // north point: lit, shade, hub-lit
+  b: "#8ec5ff", d: "#4a7fd6", l: "#d6ecff", // other points: lit, shade, hub-lit
+  x: "#9d8cff", // diagonal points
+  P: "#8a4dff", E: "#c79bff", W: "#b8ff6a", // hub: gem, core, octarine glint
+  s: "#b8ff6a", // sparkle
+  w: "#e8e4ff", // stars
+};
+
+const SIZE = 24;
+const set = (grid, x, y, c) => {
+  x = Math.round(x); y = Math.round(y);
+  if (y >= 0 && y < grid.length && x >= 0 && x < grid.length) grid[y][x] = c;
+};
+const shape = (grid, test, c) => grid.forEach((row, y) => row.forEach((_, x) => { if (test(x, y)) row[x] = c; }));
+
+/** The Hubward compass on a SIZE-cell grid: every point leads to the hub.
+ *  `mode` "badge" keeps only a silhouette for the status bar. */
+function compass() {
+  const g = Array.from({ length: SIZE }, () => Array(SIZE).fill("k"));
+  const c = 11.5;
+  const dist = (x, y) => Math.hypot(x - c, y - c);
+  // A soft halo behind the hub: solid, then dithered.
+  shape(g, (x, y) => dist(x, y) < 4.5 || (dist(x, y) < 6 && (x + y) % 2 === 0), "h");
+  // The ring, lit on the upper left.
+  shape(g, (x, y) => dist(x, y) >= 10 && dist(x, y) < 10.9, "r");
+  shape(g, (x, y) => dist(x, y) >= 10 && dist(x, y) < 10.9 && x + y > 25, "R");
+  // One point, up from the centre, as [half-width, row]; the rows nearest
+  // the hub take its light. The other three are the same point turned.
+  const rows = [[1, 1], [1, 2], [1, 3], [2, 4], [2, 5], [2, 6], [3, 7], [3, 8]];
+  const turn = { n: (x, y) => [x, y], s: (x, y) => [x, 23 - y], w: (x, y) => [y, x], e: (x, y) => [23 - y, x] };
+  for (const [dir, map] of Object.entries(turn)) {
+    const [lit, shade, hubLit] = dir === "n" ? ["n", "N", "o"] : ["b", "d", "l"];
+    for (const [half, y] of rows) {
+      for (let x = 12 - half; x < 12 + half; x++) set(g, ...map(x, y), x < 12 ? (y >= 7 ? hubLit : lit) : shade);
+    }
+  }
+  for (const [dx, dy] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+    for (let i = 3; i <= 6; i++) set(g, c + dx * (i + 0.5), c + dy * (i + 0.5), "x");
+  }
+  // The hub: a gem, a bright core and an octarine glint.
+  shape(g, (x, y) => dist(x, y) < 2.6, "P");
+  shape(g, (x, y) => dist(x, y) < 1.5, "E");
+  set(g, 11, 11, "W");
+  for (const [x, y] of [[20, 3], [19, 3], [21, 3], [20, 2], [20, 4]]) set(g, x, y, "s");
+  for (const [x, y] of [[3, 20], [21, 20], [3, 4]]) set(g, x, y, "w");
+  return g;
+}
+
+/** `grid` placed at (x, y) on a `size`-cell square of `fill`. */
+function pad(grid, size, x, y, fill) {
+  const out = Array.from({ length: size }, () => Array(size).fill(fill));
+  grid.forEach((row, dy) => row.forEach((cell, dx) => { out[y + dy][x + dx] = cell; }));
+  return out;
+}
+
+function roundCorners(grid, radius) {
+  const n = grid.length;
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+    const cx = x < radius ? radius - 0.5 : x >= n - radius ? n - radius - 0.5 : x;
+    const cy = y < radius ? radius - 0.5 : y >= n - radius ? n - radius - 0.5 : y;
+    if (Math.hypot(x - cx, y - cy) > radius) grid[y][x] = ".";
+  }
+  return grid;
+}
+
+// Launcher icon: the compass on a rounded night square.
+const icon = roundCorners(compass(), 4);
+// Maskable: full bleed, the ring inside the central 80% circle launchers keep.
+const maskable = pad(compass(), 30, 3, 3, "k");
+// Status-bar badge: Android keeps only the alpha. The points and the ring,
+// solid; the halo and sky dropped; the hub cut out so it still reads as one.
+const badge = compass().map((row) => row.map((c) => (c === "k" || c === "h" || c === "w" || c === "s" ? "." : c === "E" || c === "W" ? "." : "f")));
+const badgePalette = { f: "#ffffff" };
+
+function svg(grid, colours, comment) {
+  const n = grid.length;
+  const paths = {};
+  grid.forEach((row, y) => row.forEach((cell, x) => {
+    if (cell === "." || !colours[cell]) return;
+    (paths[colours[cell]] ??= []).push(`M${x} ${y}h1v1h-1z`);
+  }));
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${n} ${n}" shape-rendering="crispEdges">\n` +
+    `  <!-- ${comment} Generated by tools/icons/pixel-icon.mjs: edit the art there. -->\n` +
+    Object.entries(paths).map(([colour, d]) => `  <path fill="${colour}" d="${d.join("")}"/>`).join("\n") +
+    "\n</svg>\n";
+}
+
+const crcTable = Array.from({ length: 256 }, (_, n) => {
+  let c = n;
+  for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+  return c >>> 0;
+});
+function crc32(bytes) {
+  let c = 0xffffffff;
+  for (const b of bytes) c = crcTable[(c ^ b) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+function chunk(type, data) {
+  const out = Buffer.alloc(12 + data.length);
+  out.writeUInt32BE(data.length, 0);
+  out.write(type, 4, "ascii");
+  data.copy(out, 8);
+  out.writeUInt32BE(crc32(out.subarray(4, 8 + data.length)), 8 + data.length);
+  return out;
+}
+
+/** Nearest-neighbour: every output pixel takes the colour of its cell. */
+function png(grid, colours, size) {
+  const n = grid.length;
+  const raw = Buffer.alloc(size * (size * 4 + 1));
+  for (let y = 0; y < size; y++) {
+    const row = grid[Math.floor(y * n / size)];
+    raw[y * (size * 4 + 1)] = 0; // filter: none
+    for (let x = 0; x < size; x++) {
+      const cell = row[Math.floor(x * n / size)];
+      const hex = cell === "." ? null : colours[cell];
+      const at = y * (size * 4 + 1) + 1 + x * 4;
+      if (!hex) continue; // transparent
+      raw[at] = parseInt(hex.slice(1, 3), 16);
+      raw[at + 1] = parseInt(hex.slice(3, 5), 16);
+      raw[at + 2] = parseInt(hex.slice(5, 7), 16);
+      raw[at + 3] = 255;
+    }
+  }
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(size, 0);
+  header.writeUInt32BE(size, 4);
+  header[8] = 8; // bit depth
+  header[9] = 6; // RGBA
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk("IHDR", header), chunk("IDAT", deflateSync(raw, { level: 9 })), chunk("IEND", Buffer.alloc(0)),
+  ]);
+}
+
+const out = (path, data) => writeFileSync(join(root, path), data);
+out("web/icon.svg", svg(icon, palette, "Hubward launcher icon."));
+out("tools/icons/maskable.svg", svg(maskable, palette, "Full bleed; the compass sits inside the 80% safe zone launchers crop to."));
+out("tools/icons/badge.svg", svg(badge, badgePalette, "Android status-bar badge: only the alpha channel is used."));
+out("web/icon-192.png", png(icon, palette, 192));
+out("web/icon-512.png", png(icon, palette, 512));
+out("web/icon-maskable-512.png", png(maskable, palette, 512));
+out("web/apple-touch-icon.png", png(maskable, palette, 180));
+out("web/badge-96.png", png(badge, badgePalette, 96));
+console.log("icons written");

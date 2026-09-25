@@ -34,7 +34,7 @@ export function setupEmtAccount({ request, onState = () => {} }) {
     message.textContent = connected
       ? "Connected: live times use your own EMT quota. Enter your password again to change it."
       : required
-        ? "Hubwise needs your EMT account for live times and bus alerts: each person uses their own EMT quota. Bike counts work without it."
+        ? "Hubward needs your EMT account for live times and bus alerts: each person uses their own EMT quota. Bike counts work without it."
         : "Optional. Live times then use your own EMT quota instead of the shared one.";
     if (!dialog.open) dialog.showModal();
   }
