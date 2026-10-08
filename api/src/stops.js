@@ -222,3 +222,15 @@ export async function updatePlace(env, accessToken, id, input) {
 export async function removePlace(env, accessToken, id) {
   await call(env, accessToken, `${PLACE_TABLE}?id=eq.${encodeURIComponent(id)}`, { method: "DELETE" });
 }
+
+// Supabase pauses a free project after about a week without database
+// activity, which takes sign-in and every saved list down with it. A daily
+// cron read keeps it awake. Anonymous on purpose: RLS returns no rows, but
+// PostgREST still runs the query, and that is the activity that counts.
+export async function keepSupabaseAwake(env) {
+  const res = await fetch(`${env.SUPABASE_URL}/rest/v1/${TABLE}?select=id&limit=1`, {
+    headers: { apikey: env.SUPABASE_ANON_KEY },
+  });
+  if (!res.ok) throw new EmtError("upstream", `Supabase keepalive HTTP ${res.status}`);
+  await res.body?.cancel();
+}

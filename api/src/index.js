@@ -27,6 +27,7 @@ import {
   addPlace,
   updatePlace,
   removePlace,
+  keepSupabaseAwake,
 } from "./stops.js";
 import {
   getBikeStations,
@@ -54,6 +55,9 @@ import {
   stopsWithLiveLines,
   uniqueLineCodes,
 } from "./journey-planner.js";
+
+// Must match the daily trigger in wrangler.toml.
+const KEEPALIVE_CRON = "17 4 * * *";
 
 // Short-lived, high-traffic data belongs in the Cache API, not KV. Cache API
 // operations do not consume the Workers KV daily operation allowance.
@@ -1019,7 +1023,14 @@ export default {
       return errorResponse(new EmtError("upstream", err.message), cors(env));
     }
   },
-  async scheduled(_controller, env, ctx) {
+  async scheduled(controller, env, ctx) {
+    if (controller.cron === KEEPALIVE_CRON) {
+      ctx.waitUntil(keepSupabaseAwake(env).catch((err) => {
+        console.error(JSON.stringify({ event: "supabase_keepalive_failed", message: err.message }));
+        throw err;
+      }));
+      return;
+    }
     ctx.waitUntil(monitorBikeTrips(env).catch((err) => {
       console.error(JSON.stringify({ event: "bicimad_trip_monitor_failed", message: err.message }));
       throw err;
