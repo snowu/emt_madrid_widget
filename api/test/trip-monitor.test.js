@@ -70,3 +70,16 @@ describe("scheduled trip monitoring", () => {
     expect(spy.mock.calls.filter(([url]) => String(url).includes("/bicimad/trips/"))).toHaveLength(2);
   });
 });
+
+describe("scheduled Supabase keepalive", () => {
+  it("reads one row anonymously and leaves the trip monitor alone", async () => {
+    const spy = vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response("[]"));
+    const ctx = createExecutionContext();
+    await worker.scheduled(createScheduledController({ cron: "17 4 * * *" }), env, ctx);
+    await waitOnExecutionContext(ctx);
+    expect(spy).toHaveBeenCalledTimes(1);
+    const [url, init] = spy.mock.calls[0];
+    expect(String(url)).toBe(`${env.SUPABASE_URL}/rest/v1/bus_stops?select=id&limit=1`);
+    expect(init.headers).toEqual({ apikey: env.SUPABASE_ANON_KEY });
+  });
+});

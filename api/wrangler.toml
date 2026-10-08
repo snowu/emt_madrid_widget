@@ -27,7 +27,8 @@ EMT_ACCOUNT = "required"
 CLOUDFLARE_ACCOUNT_ID = "3dab85270c19e7a426145878daacaad7"
 
 [triggers]
-crons = ["*/30 * * * *"]
+# The second one keeps Supabase awake; see keepSupabaseAwake in src/stops.js.
+crons = ["*/30 * * * *", "17 4 * * *"]
 
 [[durable_objects.bindings]]
 name = "TRACKING"
