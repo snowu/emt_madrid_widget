@@ -1,14 +1,23 @@
 // Runs at the start of <body> so a saved style is applied before rendering.
 (() => {
   const key = "emt:interface-style";
-  const signalClasses = ["ui-signal", "ui-signal-v2", "ui-signal-compact", "ui-signal-system", "ui-hex"];
+  // "signal" is the stored name of the Hex board; it predates the hex look,
+  // and renaming it would reset everyone's saved choice.
+  const styles = {
+    signal: ["ui-signal", "ui-signal-v2", "ui-signal-compact", "ui-signal-system", "ui-hex"],
+    green: ["ui-signal", "ui-signal-v2", "ui-signal-compact", "ui-signal-system", "ui-hex", "ui-hex-green"],
+    classic: [],
+    simple: ["ui-simple"],
+  };
+  const allClasses = [...new Set(Object.values(styles).flat())];
   let choice = "signal";
   try {
-    if (localStorage.getItem(key) === "classic") choice = "classic";
+    const saved = localStorage.getItem(key);
+    if (saved && Object.hasOwn(styles, saved)) choice = saved;
   } catch { /* Keep the default when storage is unavailable. */ }
 
   function applyStyle() {
-    for (const name of signalClasses) document.body.classList.toggle(name, choice === "signal");
+    for (const name of allClasses) document.body.classList.toggle(name, styles[choice].includes(name));
     for (const button of document.querySelectorAll("[data-style-choice]")) {
       button.setAttribute("aria-pressed", String(button.dataset.styleChoice === choice));
     }
@@ -19,7 +28,8 @@
     applyStyle();
     for (const button of document.querySelectorAll("[data-style-choice]")) {
       button.addEventListener("click", () => {
-        choice = button.dataset.styleChoice === "classic" ? "classic" : "signal";
+        const picked = button.dataset.styleChoice;
+        choice = Object.hasOwn(styles, picked) ? picked : "signal";
         applyStyle();
         try { localStorage.setItem(key, choice); } catch { /* The current selection still works. */ }
         // MapLibre tracks window resizing; switching styles can change its container size.
