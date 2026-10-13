@@ -66,3 +66,27 @@ Clarity rules the layer keeps:
 Screenshots in `docs/screenshots/` come from the real page with the Worker
 and Supabase mocked in Playwright (430 × 932, 2×). Checked at 320, 390 and
 430px in both themes on all three tabs: no horizontal overflow.
+
+## Four interface styles
+
+Account → Interface style is now a 2 × 2 picker:
+
+| button | stored value | body classes |
+| --- | --- | --- |
+| Simple | `simple` | `ui-simple` |
+| Classic | `classic` | none |
+| Hex (default) | `signal` | Signal classes + `ui-hex` |
+| Hex green | `green` | Signal classes + `ui-hex` + `ui-hex-green` |
+
+`appearance.js` owns that table; an unknown saved value falls back to Hex.
+
+- **Hex green** is hex-lab's original phosphor palette. It only swaps the
+  `--hx-*` tokens, so every Hex rule applies unchanged. Chrome and countdowns
+  share the green, as in hex-lab; the countdown still leads on size and glow.
+- **Simple** is for people who just want the bus. It builds on Classic, not
+  the Signal layers: system font at 17px, soft shadowed cards, sentence-case
+  headings, line numbers as tinted badges in the line's own colour, big
+  dark countdowns, and green only on a hub you will comfortably make.
+
+Screenshots are in `docs/screenshots/styles/`. All four styles were checked at
+320 and 430px, dark and light, on every tab: no horizontal overflow.
