@@ -3245,3 +3245,32 @@ body.ui-simple {
   display: grid;
   grid-template-columns: 1fr 1fr;
 }
+
+/* An empty board is one sentence ("No buses due right now", "First bus
+   06:30 · 27 · in 4h"), not an arrival row: give it the whole width at a
+   reading size instead of the line-number column, where it wrapped a word
+   per line. */
+body .stop li.muted {
+  display: block;
+  grid-column: 1 / -1;
+  padding-block: 0.55rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+body .stop li.muted::before { content: none; }
+
+/* The nearest-bike block on the Hubward tab is the same card as the BiciMAD
+   tab's, so it takes the same compact counts. :is() lends both the id's
+   specificity, so no style layer can enlarge one and not the other. */
+:is(#bikes > .stop, .place-nearest-bike) .bike-counts {
+  min-height: 47px;
+  margin: 0;
+  padding: 0.38rem 0.7rem;
+}
+:is(#bikes > .stop, .place-nearest-bike) .bike-metric { min-height: 30px; padding: 0; }
+:is(#bikes > .stop, .place-nearest-bike) .bike-metric span { font-size: 0.67rem; }
+:is(#bikes > .stop, .place-nearest-bike) .bike-metric strong { font-size: 1.05rem; font-weight: 800; }
+:is(#bikes > .stop, .place-nearest-bike) .bike-note { font-size: 0.64rem; }
+:is(#bikes > .stop, .place-nearest-bike) { padding: 0; }
