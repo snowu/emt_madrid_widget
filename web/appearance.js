@@ -1,7 +1,7 @@
 // Runs at the start of <body> so a saved style is applied before rendering.
 (() => {
   const key = "emt:interface-style";
-  const signalClasses = ["ui-signal", "ui-signal-v2", "ui-signal-compact", "ui-signal-system"];
+  const signalClasses = ["ui-signal", "ui-signal-v2", "ui-signal-compact", "ui-signal-system", "ui-hex"];
   let choice = "signal";
   try {
     if (localStorage.getItem(key) === "classic") choice = "classic";
