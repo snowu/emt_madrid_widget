@@ -30,7 +30,13 @@ avoid churn. Ignore it.
 ```
 web/                 static page, deployed to GitHub Pages. Holds no secrets.
   index.html         every dialog and view lives here; nothing is templated in JS
-  app.js             the whole page (~1.6k lines), one ES module, no framework
+  app.js             the whole page (~5.7k lines), one ES module, no framework
+  live.js            live-map WebSocket client
+  tracking.js        alert watches + push subscription UI
+  emt-account.js     connect-your-EMT-account dialog
+  directions.js      walking-directions links
+  appearance.js      theme + interface style, applied before first paint
+  sw.js              service worker: notifications only, no offline cache
   cache.js           localStorage read/write helpers
   trips.js           pure trip identity, ordering and incremental-merge helpers
   style.css          system/light/dark themes, phone-first; no preprocessor
@@ -259,7 +265,7 @@ declaration, or a listener bound to an id that is not in `index.html` — both
 of which take the whole ES module down and leave a blank page. `ac20fe6`
 shipped exactly that: syntax-clean, dead on arrival. The check builds a DOM
 from `web/index.html` with jsdom, stubs only what a CDN would have supplied
-(Leaflet, the Supabase SDK, geolocation, `fetch`), imports `app.js`, and then
+(MapLibre, the Supabase SDK, geolocation, `fetch`), imports `app.js`, and then
 asserts every `getElementById` in it resolves against the real HTML.
 
 It runs as `pretest`, so `npm test` covers it, and from `.githooks/pre-push`.
@@ -342,14 +348,15 @@ Line route GET  v2/transport/busemtmad/lines/{line}/route/
 
 The itinerary arrives as ~160 one-segment GeoJSON Features per direction, not
 one line — they are not guaranteed to join end to end, so keep them as separate
-segments and let Leaflet draw the array as one multi-polyline. Coordinates come
+segments and let MapLibre draw the array as one `MultiLineString`. Coordinates come
 with 15 decimal places; rounding to 6 (~10cm) roughly halves the payload, which
 takes a line from 114KB to about 21KB.
 
 **Every coordinate in this API is GeoJSON `[lon, lat]`** — EMT stop detail,
 area search, route geometry, BiciMAD stations. The worker passes them through
-in that order and never flips them; `web/app.js` flips at the Leaflet call,
-which wants `[lat, lon]`. A pin in the sea is this, every time.
+in that order and never flips them. MapLibre also takes `[lng, lat]`, so the
+page passes them through unflipped too (Leaflet, which the page used before,
+wanted `[lat, lon]`). A pin in the sea is a stray flip, every time.
 
 **EMT's own `stroke` is per direction, not per line** (line 27 is `#a95516` out
 and `#a9559c` back) and looks procedurally generated rather than branded, so it
@@ -625,7 +632,8 @@ JWT, and Postgres RLS authorizes the row. Public transport reads stay open so
 all users share the same upstream cache.
 
 **No framework, no build step, no bundler.** `app.js` is one ES module
-importing one other. Leaflet and Supabase Auth come from CDN `<script>` tags.
+importing a few small siblings. MapLibre GL and Supabase Auth come from CDN
+`<script>` tags.
 Every dialog and control is already in `index.html`; JS fills them rather than
 templating. Keeping it that way is why a deploy is "copy `web/` to Pages".
 
