@@ -41,3 +41,28 @@ browser and restored before the page renders. Browser checks exercised both
 buttons, reload persistence, color-theme preservation, unrelated body classes,
 and fallback from an invalid saved value. The account panel captures are
 `options-classic.png` and `options-signal.png`.
+
+## Hex board (October 2026)
+
+The default style now borrows hex-lab's look: violet phosphor chrome on a
+near-black grid, JetBrains Mono throughout, square frames, `// section`
+labels and `./tab` navigation. It is a layer at the end of `web/style.css`
+scoped to `body.ui-hex`, which `appearance.js` toggles together with the
+Signal classes, so **Classic** still switches all of it off. The account
+menu labels it **Hex board**; the stored value is still `signal`.
+
+Clarity rules the layer keeps:
+
+- Countdowns are the one green on the screen (`--hx-good`), larger and
+  brighter than anything around them, in cards, hub rows and the stop sheet.
+- Line numbers keep their per-line `lineColor()` hue. On the light theme only
+  the text labels are darkened with a filter, because the same colour also
+  draws the map route.
+- Reachability keeps a full-height bar: green comfortable, amber tight, faint
+  missed. Bike counts keep green / amber / red.
+- Map pins and status dots stay round; every text frame is square.
+- Below 380px the mono face is tightened so a hub row stays on two lines.
+
+Screenshots in `docs/screenshots/` come from the real page with the Worker
+and Supabase mocked in Playwright (430 × 932, 2×). Checked at 320, 390 and
+430px in both themes on all three tabs: no horizontal overflow.

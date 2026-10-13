@@ -2506,3 +2506,528 @@ body.nav-hidden #fab { transform: translateY(calc(100% + 4.15rem + env(safe-area
 #map-fullscreen .map-close-icon,
 .map-is-fullscreen #map-fullscreen .map-expand-icon { display: none; }
 .map-is-fullscreen #map-fullscreen .map-close-icon { display: initial; }
+
+/* =========================================================
+   Hex: the hex-lab look. Violet phosphor chrome, square frames, one mono
+   face, a faint grid. Departures keep a colour of their own (phosphor green)
+   so the one number you came for still outranks everything around it.
+   Layered last over the Signal rules and switched with them.
+   ========================================================= */
+body.ui-hex {
+  --hx-bg: #07040d;
+  --hx-panel: #0e0918;
+  --hx-panel2: #150e24;
+  --hx-line: #2a1b45;
+  --hx-line2: #443070;
+  --hx-ink: #e6dcf7;
+  --hx-muted: #9a86c4;
+  --hx-faint: #6a5890;
+  --hx-accent: #b98cff;
+  --hx-on-accent: #0b0714;
+  --hx-good: #7dffb2;
+  --hx-amber: #ffb000;
+  --hx-bad: #ff5470;
+  --hx-grid: rgb(185 140 255 / 0.045);
+  --hx-glow: rgb(185 140 255 / 0.11);
+  --hx-text-glow: 14px;
+  --hx-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) body.ui-hex {
+    --hx-bg: #f1eef7;
+    --hx-panel: #fcfbff;
+    --hx-panel2: #f0ecf8;
+    --hx-line: #d0c8e3;
+    --hx-line2: #aa9fc9;
+    --hx-ink: #150e26;
+    --hx-muted: #5d4f82;
+    --hx-faint: #8a7fa8;
+    --hx-accent: #6a2fd0;
+    --hx-on-accent: #fff;
+    --hx-good: #17703a;
+    --hx-amber: #8a5a00;
+    --hx-bad: #b3203d;
+    --hx-grid: rgb(106 47 208 / 0.06);
+    --hx-glow: rgb(106 47 208 / 0.09);
+    --hx-text-glow: 0px;
+  }
+}
+
+:root[data-theme="light"] body.ui-hex {
+  --hx-bg: #f1eef7;
+  --hx-panel: #fcfbff;
+  --hx-panel2: #f0ecf8;
+  --hx-line: #d0c8e3;
+  --hx-line2: #aa9fc9;
+  --hx-ink: #150e26;
+  --hx-muted: #5d4f82;
+  --hx-faint: #8a7fa8;
+  --hx-accent: #6a2fd0;
+  --hx-on-accent: #fff;
+  --hx-good: #17703a;
+  --hx-amber: #8a5a00;
+  --hx-bad: #b3203d;
+  --hx-grid: rgb(106 47 208 / 0.06);
+  --hx-glow: rgb(106 47 208 / 0.09);
+  --hx-text-glow: 0px;
+}
+
+/* Everything else reads these, so mapping them carries the palette into the
+   dialogs, sheets and popups without restating each one. */
+body.ui-hex {
+  --bg: var(--hx-bg);
+  --card: var(--hx-panel);
+  --fg: var(--hx-ink);
+  --muted: var(--hx-muted);
+  --accent: var(--hx-accent);
+  --accent-ink: var(--hx-on-accent);
+  --line: var(--hx-line);
+  --separator: var(--hx-line);
+  --active: var(--hx-panel2);
+  --selected-wash: color-mix(in srgb, var(--hx-accent) 12%, transparent);
+  --success: var(--hx-good);
+  --warning: var(--hx-amber);
+  --danger: var(--hx-bad);
+  --signal-lime: var(--hx-good);
+  --signal-coral: var(--hx-bad);
+  --signal-cyan: var(--hx-accent);
+  --signal-ink: var(--hx-bg);
+  --signal-panel: var(--hx-panel);
+  --signal-line: var(--hx-line);
+  --signal-muted: var(--hx-muted);
+  font-family: var(--hx-mono);
+  font-variant-ligatures: none;
+}
+
+:root .ui-hex.ui-signal-system {
+  background-color: var(--hx-bg);
+  background-image:
+    radial-gradient(ellipse 90% 28% at 50% 0%, var(--hx-glow), transparent 70%),
+    linear-gradient(var(--hx-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--hx-grid) 1px, transparent 1px);
+  background-size: 100% 100%, 32px 32px, 32px 32px;
+  background-attachment: fixed;
+}
+
+.ui-hex button,
+.ui-hex input,
+.ui-hex select,
+.ui-hex textarea { font-family: inherit; }
+
+.ui-hex ::selection { background: var(--hx-accent); color: var(--hx-on-accent); }
+
+/* ---------- header ---------- */
+.ui-hex.ui-signal-system header {
+  border-bottom: 1px solid var(--hx-line2);
+  background: var(--hx-bg);
+}
+
+.ui-hex header > button { color: var(--hx-muted); border-radius: 0; }
+.ui-hex header > button:hover { color: var(--hx-accent); border-color: var(--hx-line2); }
+.ui-hex #nearby-stops-open { color: var(--hx-accent); }
+
+.ui-hex #header-context { color: var(--hx-muted); font-family: var(--hx-mono); }
+.ui-hex #header-context i { border-radius: 0; background: var(--hx-good); box-shadow: 0 0 6px var(--hx-good); }
+
+.ui-hex .segmented {
+  padding: 0;
+  border: 1px solid var(--hx-line2);
+  border-radius: 0;
+  background: var(--hx-panel);
+}
+
+.ui-hex .segmented button {
+  border: 1px solid transparent;
+  border-radius: 0;
+  color: var(--hx-muted);
+}
+
+.ui-hex.ui-signal-system .segmented button[aria-selected="true"] {
+  border-color: var(--hx-accent);
+  background: var(--hx-panel2);
+  color: var(--hx-accent);
+  box-shadow: 0 0 12px -4px var(--hx-accent);
+}
+
+/* ---------- section labels: hex-lab's "// heading" ---------- */
+.ui-hex #status,
+.ui-hex .section-heading,
+.ui-hex .place-context {
+  color: var(--hx-muted);
+  font-family: var(--hx-mono);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.ui-hex #status:not(:empty)::before,
+.ui-hex .section-heading::before {
+  content: "// ";
+  color: var(--hx-accent);
+}
+
+.ui-hex .place-context::before {
+  border-radius: 0;
+  background: var(--hx-good);
+  box-shadow: 0 0 6px var(--hx-good);
+}
+
+/* ---------- cards ---------- */
+.ui-hex.ui-signal-system .place-card,
+.ui-hex.ui-signal-system .stop,
+.ui-hex.ui-signal-system .bike,
+.ui-hex.ui-signal-system .place-nearest-bike {
+  position: relative;
+  border: 1px solid var(--hx-line);
+  border-radius: 0;
+  background: var(--hx-panel);
+  box-shadow: none;
+}
+
+/* hex-lab's track card: a thin accent rule along the top edge. */
+.ui-hex.ui-signal-system .place-card::before,
+.ui-hex.ui-signal-system .stop::before {
+  content: "";
+  position: absolute;
+  inset: -1px -1px auto;
+  width: auto;
+  height: 2px;
+  background: var(--hx-accent);
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.ui-hex.ui-signal-system .place-card:hover,
+.ui-hex.ui-signal-system .stop:hover {
+  border-color: var(--hx-line2);
+  box-shadow: 0 0 22px -12px var(--hx-accent);
+}
+
+/* Reachability is the card's verdict, so it keeps a full-height bar. */
+.ui-hex.ui-signal-system .place-card.reachability-comfortable { border-left: 3px solid var(--hx-good); }
+.ui-hex.ui-signal-system .place-card.reachability-tight { border-left: 3px solid var(--hx-amber); }
+.ui-hex.ui-signal-system .place-card.reachability-missed { border-left: 3px solid var(--hx-faint); }
+
+.ui-hex .place-card-heading h2,
+.ui-hex .title h2 {
+  color: var(--hx-ink);
+  font-family: var(--hx-mono);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+
+.ui-hex .place-card-heading > span,
+.ui-hex .stop-num,
+.ui-hex .age,
+.ui-hex .bike-card-distance,
+.ui-hex .route-later { color: var(--hx-muted); }
+
+.ui-hex.ui-signal-system .place-route,
+.ui-hex.ui-signal-system .stop li { border-color: var(--hx-line); }
+
+.ui-hex.ui-signal-system .place-route p,
+.ui-hex.ui-signal-system .place-route p b,
+.ui-hex.ui-signal-system .stop .destination { color: var(--hx-ink); }
+
+.ui-hex .place-route p span,
+.ui-hex .place-route small { color: var(--hx-muted); }
+
+/* Line numbers keep their per-line colour; the mono face and a soft glow
+   are what make them read as a board. */
+.ui-hex.ui-signal-system .place-line,
+.ui-hex.ui-signal-system .line {
+  font-family: var(--hx-mono);
+  font-weight: 800;
+  letter-spacing: -0.06em;
+  text-shadow: 0 0 var(--hx-text-glow) color-mix(in srgb, currentColor 35%, transparent);
+}
+
+/* The countdown is the answer. Biggest, brightest, tabular. */
+.ui-hex.ui-signal-system .place-route time,
+.ui-hex.ui-signal-system .stop .eta {
+  color: var(--hx-good);
+  font-family: var(--hx-mono);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 var(--hx-text-glow) color-mix(in srgb, var(--hx-good) 40%, transparent);
+}
+
+.ui-hex .place-directions,
+.ui-hex .place-route-directions,
+.ui-hex .icon-btn,
+.ui-hex .track-button {
+  border: 1px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--hx-accent);
+}
+
+.ui-hex .place-directions:hover,
+.ui-hex .place-route-directions:hover,
+.ui-hex .icon-btn:hover,
+.ui-hex .icon-btn:active,
+.ui-hex .track-button:hover {
+  border-color: var(--hx-accent);
+  background: color-mix(in srgb, var(--hx-accent) 10%, transparent);
+}
+
+/* ---------- bikes ---------- */
+.ui-hex.ui-signal-system .bike-counts { border-top: 1px solid var(--hx-line); }
+.ui-hex.ui-signal-system .bike-metric { background: transparent; }
+.ui-hex.ui-signal-system .bike-metric + .bike-metric { border-left-color: var(--hx-line); }
+.ui-hex.ui-signal-system .bike-metric strong {
+  font-family: var(--hx-mono);
+  letter-spacing: -0.04em;
+  font-variant-numeric: tabular-nums;
+}
+.ui-hex.ui-signal-system .bike-metric span {
+  font-family: var(--hx-mono);
+  letter-spacing: 0.06em;
+}
+.ui-hex.ui-signal-system .bike-metric.good strong { color: var(--hx-good); }
+.ui-hex.ui-signal-system .bike-metric.low strong { color: var(--hx-amber); }
+.ui-hex.ui-signal-system .bike-metric.empty strong { color: var(--hx-bad); }
+
+.ui-hex.ui-signal-system .bike-account {
+  border: 1px solid var(--hx-line2);
+  border-left: 3px solid var(--hx-accent);
+  border-radius: 0;
+  background: var(--hx-panel);
+}
+
+/* ---------- bottom navigation: hex-lab's ./path tabs ---------- */
+.ui-hex.ui-signal-system #primary-menu {
+  border-top: 1px solid var(--hx-line2);
+  background: color-mix(in srgb, var(--hx-bg) 94%, transparent);
+  backdrop-filter: blur(8px);
+  box-shadow: none;
+}
+
+.ui-hex #primary-menu button {
+  border: 1px solid transparent;
+  border-radius: 0;
+  color: var(--hx-muted);
+  font-family: var(--hx-mono);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.ui-hex #primary-menu button::before {
+  content: "./";
+  color: var(--hx-faint);
+}
+
+.ui-hex.ui-signal-system #primary-menu button[aria-selected="true"] {
+  border-color: var(--hx-accent);
+  background: var(--hx-panel);
+  color: var(--hx-accent);
+  box-shadow: 0 0 14px -4px var(--hx-accent);
+}
+
+.ui-hex #primary-menu button[aria-selected="true"]::before {
+  content: "> ";
+  color: var(--hx-accent);
+}
+
+/* ---------- floating actions ---------- */
+.ui-hex.ui-signal-system #fab {
+  border: 1px solid var(--hx-accent);
+  border-radius: 0;
+  background: var(--hx-accent);
+  color: var(--hx-on-accent);
+  box-shadow: 0 0 20px -4px var(--hx-accent);
+}
+
+.ui-hex.ui-signal-system #fab:hover {
+  background: var(--hx-panel);
+  color: var(--hx-accent);
+}
+
+.ui-hex #map-actions button {
+  border: 1px solid var(--hx-line2);
+  border-radius: 0;
+  background: var(--hx-panel);
+  color: var(--hx-accent);
+  box-shadow: none;
+}
+
+.ui-hex #map-actions button[aria-pressed="true"] {
+  border-color: var(--hx-accent);
+  box-shadow: 0 0 14px -4px var(--hx-accent);
+}
+
+/* ---------- map ---------- */
+.ui-hex.ui-signal-system #map,
+.ui-hex.ui-signal-system #bike-map {
+  border: 1px solid var(--hx-line2);
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.ui-hex.ui-signal-system .maplibregl-popup-content,
+.ui-hex.ui-signal-system .route-board,
+.ui-hex.ui-signal-system #route-legend {
+  border: 1px solid var(--hx-line2);
+  border-radius: 0;
+  background: var(--hx-panel);
+  color: var(--hx-ink);
+  box-shadow: 0 0 24px -10px var(--hx-accent);
+}
+
+.ui-hex.ui-signal-system .maplibregl-popup-content button,
+.ui-hex .line-chip {
+  border-radius: 0;
+  font-family: var(--hx-mono);
+}
+
+.ui-hex.ui-signal-system .maplibregl-popup-content .line-chip[aria-pressed="true"] {
+  border-color: var(--hx-accent);
+  color: var(--hx-accent);
+}
+
+.ui-hex.ui-signal-system .route-board-number { font-family: var(--hx-mono); }
+.ui-hex.ui-signal-system .route-board-eta { color: var(--hx-good); font-family: var(--hx-mono); }
+.ui-hex.ui-signal-system .route-board-row[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--hx-accent) 10%, transparent);
+}
+
+/* ---------- dialogs and sheets ---------- */
+.ui-hex.ui-signal-system dialog {
+  border: 1px solid var(--hx-line2);
+  border-top: 2px solid var(--hx-accent);
+  border-radius: 0;
+  background: var(--hx-panel);
+  color: var(--hx-ink);
+  box-shadow: 0 0 40px -12px var(--hx-accent);
+}
+
+.ui-hex.ui-signal-system dialog::backdrop {
+  background: color-mix(in srgb, var(--hx-bg) 78%, transparent);
+  backdrop-filter: blur(2px);
+}
+
+.ui-hex dialog h2 { font-family: var(--hx-mono); letter-spacing: -0.03em; }
+.ui-hex dialog h2::before { content: "// "; color: var(--hx-accent); }
+
+.ui-hex.ui-signal-system dialog input,
+.ui-hex.ui-signal-system dialog select,
+.ui-hex.ui-signal-system dialog textarea {
+  border: 1px solid var(--hx-line2);
+  border-radius: 0;
+  background: var(--hx-bg);
+  color: var(--hx-ink);
+}
+
+.ui-hex.ui-signal-system dialog input:focus,
+.ui-hex.ui-signal-system dialog select:focus,
+.ui-hex.ui-signal-system dialog textarea:focus {
+  border-color: var(--hx-accent);
+  outline: none;
+  box-shadow: 0 0 12px -4px var(--hx-accent);
+}
+
+.ui-hex.ui-signal-system dialog button {
+  border: 1px solid var(--hx-line2);
+  border-radius: 0;
+  background: var(--hx-panel);
+  color: var(--hx-ink);
+}
+
+.ui-hex.ui-signal-system dialog button:hover,
+.ui-hex.ui-signal-system dialog button:focus-visible {
+  border-color: var(--hx-accent);
+  color: var(--hx-accent);
+}
+
+.ui-hex.ui-signal-system dialog button[type="submit"][id],
+.ui-hex.ui-signal-system dialog button[aria-pressed="true"] {
+  border-color: var(--hx-accent);
+  background: var(--hx-accent);
+  color: var(--hx-on-accent);
+}
+
+.ui-hex.ui-signal-system #sheet-map,
+.ui-hex.ui-signal-system #bike-sheet-map,
+.ui-hex.ui-signal-system #place-picker-map {
+  border: 1px solid var(--hx-line2);
+  border-radius: 0;
+}
+
+.ui-hex.ui-signal-system .theme-settings {
+  border: 0;
+  background: transparent;
+}
+
+.ui-hex .theme-settings h3 {
+  color: var(--hx-muted);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.ui-hex.ui-signal-system .metrics-content,
+.ui-hex.ui-signal-system .trip-group,
+.ui-hex.ui-signal-system .trip-card {
+  border-color: var(--hx-line);
+  border-radius: 0;
+  background: var(--hx-panel2);
+}
+
+.ui-hex.ui-signal-system :is(button, a, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--hx-accent);
+  outline-offset: 2px;
+}
+
+/* Square frames everywhere the eye reads text. Map pins and status dots stay
+   round: on a map a circle is the marker, not decoration. */
+.ui-hex :is(main, dialog, header, #primary-menu, #map-actions, #bike-account, #route-legend, .maplibregl-popup-content)
+  :is(button, input, select, textarea, .stop, .bike, .place-card, .place-nearest-bike, .bike-counts,
+      .bike-metric, .line-chip, .controls, details, section, article, li, .head, .bike-head) {
+  border-radius: 0;
+}
+
+/* "0/—" must not break across lines in the narrow hub-card column. */
+.ui-hex .bike-metric strong { white-space: nowrap; }
+
+/* The account drawer and sheets carry their own id-level radius. */
+body.ui-hex :is(#add-dialog, #auth-dialog, #account-menu, #directions-dialog, #emt-account-dialog,
+  #tracking-dialog, #metrics-dialog, #places-dialog, #nearby-stops-dialog, #stop-dialog,
+  #bike-dialog, #bike-trips-dialog) {
+  border-radius: 0;
+}
+
+/* Every countdown is green, in the stop sheet as much as on the cards. */
+.ui-hex.ui-signal-system .eta { color: var(--hx-good); font-family: var(--hx-mono); }
+
+body.ui-hex :is(#map, #bike-map, #add-stop-map, #sheet-map, #bike-sheet-map, #place-picker-map) {
+  border-radius: 0;
+}
+
+/* Mono is wider than the system face: tighten it rather than let a stop
+   line wrap to three rows on a small phone. */
+.ui-hex .place-route p,
+.ui-hex .stop .destination,
+.ui-hex .stop-num { letter-spacing: -0.02em; }
+
+@media (max-width: 380px) {
+  .ui-hex .place-route p b,
+  .ui-hex button.place-stop-open { font-size: 0.64rem; letter-spacing: -0.04em; }
+  .ui-hex .place-card-heading h2,
+  .ui-hex .title h2 { font-size: 0.84rem; letter-spacing: -0.04em; }
+  .ui-hex #primary-menu button { font-size: 0.74rem; }
+}
+
+body.ui-hex[data-section="bikes"] #bikes > .stop { border-radius: 0; }
+
+/* lineColor() is tuned for a dark board and shared with the map routes, so
+   on the light theme only the text labels are darkened to keep their
+   contrast. The hue, which is the line's identity, survives. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) .ui-hex :is(main, dialog, .maplibregl-popup-content, #route-legend) [style*="color"] {
+    filter: brightness(0.72) saturate(1.4);
+  }
+}
+:root[data-theme="light"] .ui-hex :is(main, dialog, .maplibregl-popup-content, #route-legend) [style*="color"] {
+  filter: brightness(0.72) saturate(1.4);
+}
