@@ -7,12 +7,13 @@
     signal: ["ui-signal", "ui-signal-v2", "ui-signal-compact", "ui-signal-system", "ui-hex"],
     green: ["ui-signal", "ui-signal-v2", "ui-signal-compact", "ui-signal-system", "ui-hex", "ui-hex-green"],
     classic: [],
-    simple: ["ui-simple"],
   };
   const allClasses = [...new Set(Object.values(styles).flat())];
   let choice = "signal";
   try {
-    const saved = localStorage.getItem(key);
+    // "simple" was a short-lived style built on Classic; keep its users there.
+    const raw = localStorage.getItem(key);
+    const saved = raw === "simple" ? "classic" : raw;
     if (saved && Object.hasOwn(styles, saved)) choice = saved;
   } catch { /* Keep the default when storage is unavailable. */ }
 
