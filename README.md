@@ -77,8 +77,9 @@ data. It's a phone-first web app that installs to your home screen.
   arrive even when the app is closed.
 
 ### 🎨 Everything else
-- Light, dark or system theme, plus two interface styles: *Signal board*
-  (the default) and *Classic*.
+- Light, dark or system theme, plus two interface styles: *Hex board*
+  (the default, borrowed from hex-lab: violet phosphor, mono, square frames)
+  and *Classic*.
 - Installable PWA with its own icon, and works on iOS from the Home Screen.
 - Sign-in by email magic link. Each user's saved data is isolated by Postgres
   row-level security.
@@ -87,19 +88,25 @@ data. It's a phone-first web app that installs to your home screen.
 
 <table>
   <tr>
-    <td align="center"><img src="design/screenshots/system-hubs.png" width="240" alt="Hubs view"><br><sub>Hubs: best bus to each place</sub></td>
-    <td align="center"><img src="design/screenshots/system-stops.png" width="240" alt="Stops view"><br><sub>Saved stops</sub></td>
-    <td align="center"><img src="design/screenshots/system-map.png" width="240" alt="BiciMAD map"><br><sub>BiciMAD map</sub></td>
+    <td align="center"><img src="docs/screenshots/hubs.png" width="240" alt="Hubs view"><br><sub>Hubs: the best bus to each place</sub></td>
+    <td align="center"><img src="docs/screenshots/stops.png" width="240" alt="Saved stops"><br><sub>Saved stops, live countdowns</sub></td>
+    <td align="center"><img src="docs/screenshots/stop-sheet.png" width="240" alt="Stop sheet"><br><sub>Stop sheet: full board and alerts</sub></td>
   </tr>
   <tr>
-    <td align="center"><img src="design/screenshots/system-sheet.png" width="240" alt="Stop sheet"><br><sub>Stop sheet</sub></td>
-    <td align="center"><img src="design/screenshots/system-bikes-light.png" width="240" alt="Bikes, light theme"><br><sub>BiciMAD, light theme</sub></td>
-    <td align="center"><img src="design/screenshots/system-hubs-light.png" width="240" alt="Hubs, light theme"><br><sub>Hubs, light theme</sub></td>
+    <td align="center"><img src="docs/screenshots/bikes.png" width="240" alt="BiciMAD stations"><br><sub>BiciMAD: rentable bikes per station</sub></td>
+    <td align="center"><img src="docs/screenshots/bike-map.png" width="240" alt="BiciMAD map"><br><sub>BiciMAD map</sub></td>
+    <td align="center"><img src="docs/screenshots/account.png" width="240" alt="Account menu"><br><sub>Account: theme, style, alerts</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/screenshots/hubs-light.png" width="240" alt="Hubs, light theme"><br><sub>Hubs, light theme</sub></td>
+    <td align="center"><img src="docs/screenshots/stops-light.png" width="240" alt="Stops, light theme"><br><sub>Stops, light theme</sub></td>
+    <td align="center"><img src="docs/screenshots/bikes-light.png" width="240" alt="BiciMAD, light theme"><br><sub>BiciMAD, light theme</sub></td>
   </tr>
 </table>
 
-<sub>These are captured from the static design fixtures in <code>design/</code>,
-so the data is illustrative.</sub>
+<sub>Captured from the real page in headless Chromium. The Worker and Supabase
+were mocked so it renders signed in, so the stops, hubs and countdowns are demo
+data; the BiciMAD counts come from the live public feed.</sub>
 
 ## How it works
 
