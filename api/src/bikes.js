@@ -1,7 +1,5 @@
 import { EmtError } from "./errors.js";
-import { getToken, emtFetch } from "./emt.js";
-
-const BASE = "https://openapi.emtmadrid.es/";
+import { emtFetch } from "./emt.js";
 
 // PBSC runs BiciMAD, and publishes the system's own GBFS feed. It is the
 // better source: MobilityLabs' dock_bikes counts bikes that are docked, not
@@ -102,33 +100,13 @@ export function mergeBikeStations(info, status) {
   };
 }
 
-async function requestStations(env, token) {
-  // emtFetch, not fetch: Cloudflare's edge intermittently 5xxs on its own TLS
-  // handshake to EMT, and a single retry gets through.
-  const res = await emtFetch(`${BASE}v2/transport/bicimad/stations/`, {
-    method: "GET",
-    headers: { accessToken: token },
-  });
-  if (!res.ok) throw new EmtError("upstream", `BiciMAD stations HTTP ${res.status}`);
-  return res.json();
-}
-
 /** Every BiciMAD station from MobilityLabs — the fallback when GBFS is down.
  *
  * All 680 arrive in one answer, so there is no reason to ask EMT per area —
  * the worker caches this once and slices it for whatever the page asks about.
  */
-export async function getBikeStations(env) {
-  let token = await getToken(env);
-  let body = await requestStations(env, token);
-
-  if (body.code === "80") {
-    token = await getToken(env, { force: true });
-    body = await requestStations(env, token);
-  }
-  if (body.code !== "00") {
-    throw new EmtError("upstream", `unexpected BiciMAD code ${body.code}`);
-  }
+export async function getBikeStations(emt) {
+  const body = await emt.call("v2/transport/bicimad/stations/", { what: "BiciMAD stations" });
 
   return {
     stations: (body.data ?? []).filter((s) => s?.id != null).map(parseStation),

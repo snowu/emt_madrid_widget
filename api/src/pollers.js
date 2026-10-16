@@ -1,7 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
-import { getArrivals } from "./emt.js";
+import { emtClient, getArrivals } from "./emt.js";
 import { getBikeStationStatus } from "./bikes.js";
-import { openCredentials, scopedEnvironment, accountRequired } from "./emt-account.js";
+import { openAccount, accountRequired } from "./emt-account.js";
 import { EmtError } from "./errors.js";
 import { BIKE_INTERVAL, BUS_INTERVAL } from "./tracking-rules.js";
 
@@ -117,21 +117,20 @@ export class StopPoller extends Poller {
   /** Whose quota this poll may spend, in the order to try: the connected
    *  watchers in turn (one starts each two-minute slot), then the shared
    *  login if this stop is allowed it. */
-  async environments(now) {
+  async clients(now) {
     const subscribers = this.subscribers();
     const accounts = subscribers.map((s) => s.account).filter(Boolean)
       .sort((a, b) => a.userId.localeCompare(b.userId));
     const start = accounts.length ? Math.floor(now / BUS_INTERVAL) % accounts.length : 0;
     const ordered = [...accounts.slice(start), ...accounts.slice(0, start)];
-    const envs = [];
+    const clients = [];
     for (const account of ordered) {
       try {
-        const credentials = await openCredentials(this.env, account.userId, account.credentials);
-        envs.push(scopedEnvironment(this.env, credentials, `${account.userId}:${account.connectionId}`));
+        clients.push(emtClient(this.env, { account: await openAccount(this.env, account) }));
       } catch { /* undecryptable: skip this watcher's account */ }
     }
-    if (!accountRequired(this.env)) envs.push(this.env);
-    return envs;
+    if (!accountRequired(this.env)) clients.push(emtClient(this.env));
+    return clients;
   }
 
   async alarm() {
@@ -143,9 +142,9 @@ export class StopPoller extends Poller {
     let lastError;
     // The chosen account first; if EMT refuses it (rejected, out of quota),
     // the shared login keeps everybody's alerts going this slot.
-    for (const env of await this.environments(now)) {
+    for (const emt of await this.clients(now)) {
       try {
-        const board = await getArrivals(env, stopId, "tracking");
+        const board = await getArrivals(emt, stopId, "tracking");
         payload = { arrivals: board.arrivals, fetchedAt: board.fetchedAt ?? now };
         break;
       } catch (error) {

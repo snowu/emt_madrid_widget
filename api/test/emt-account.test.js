@@ -1,8 +1,8 @@
 import { env, createExecutionContext, waitOnExecutionContext, runInDurableObject, runDurableObjectAlarm } from "cloudflare:test";
 import { beforeEach, afterEach, describe, it, expect, vi } from "vitest";
 import worker from "../src/index.js";
-import { sealCredentials, openCredentials, withEmtAccount, callerClass } from "../src/emt-account.js";
-import { getToken, clearTokenMemoryForTest } from "../src/emt.js";
+import { sealCredentials, openCredentials, requestEmt, callerClass } from "../src/emt-account.js";
+import { getArrivals, clearTokenMemoryForTest } from "../src/emt.js";
 import { recordUpstreamMetric } from "../src/metrics.js";
 
 // Supabase (auth + the emt_accounts table) and EMT are stubbed; the bearer
@@ -72,14 +72,14 @@ describe("per-user EMT connection", () => {
     expect(callerClass(request({ Authorization: "Bearer alice", "x-hubwise-emt": "connected" }))).toBe("connected");
     expect(callerClass(request({ Authorization: "Bearer alice", "x-hubwise-emt": "unconnected" }))).toBe("unconnected");
     expect(callerClass(request({ Authorization: "Bearer alice", "x-hubwise-emt": "unknown" }))).toBe("signed-in");
-    expect(withEmtAccount(env, request({ Authorization: "Bearer alice", "x-hubwise-emt": "connected" })).EMT_CALLER).toBe("connected");
+    expect(requestEmt(env, request({ Authorization: "Bearer alice", "x-hubwise-emt": "connected" })).who).toBe("connected");
   });
 
   it("tags EMT calls made without a request as background", () => {
     const points = [];
     const METRICS = { writeDataPoint: (point) => points.push(point) };
     recordUpstreamMetric({ METRICS }, { endpoint: "arrivals" });
-    recordUpstreamMetric({ METRICS, EMT_CALLER: "guest" }, { endpoint: "arrivals" });
+    recordUpstreamMetric({ METRICS }, { endpoint: "arrivals", who: "guest" });
     expect(points.map((point) => point.blobs[7])).toEqual(["background", "guest"]);
   });
 
@@ -108,9 +108,11 @@ describe("per-user EMT connection", () => {
 
   it("spends each connected user's own quota, never another's", async () => {
     await Promise.all([connect("alice"), connect("bob")]);
-    const context = (user) => withEmtAccount(env, new Request("https://account.test", { headers: { Authorization: `Bearer ${user}` } }));
-    expect(await Promise.all([getToken(context("alice")), getToken(context("bob"))]))
-      .toEqual(["bus:alice@example.test", "bus:bob@example.test"]);
+    clearTokenMemoryForTest();
+    const client = (user) => requestEmt(env, new Request("https://account.test", { headers: { Authorization: `Bearer ${user}` } }));
+    upstream.mockClear();
+    await Promise.all([getArrivals(client("alice"), nextStop()), getArrivals(client("bob"), nextStop())]);
+    expect(arrivalTokens().sort()).toEqual(["bus:alice@example.test", "bus:bob@example.test"]);
     upstream.mockClear();
     expect((await call(`/arrivals?stop=${nextStop()}`, "alice")).status).toBe(200);
     expect((await call(`/arrivals?stop=${nextStop()}`, "bob")).status).toBe(200);
@@ -208,8 +210,8 @@ describe("shared stop pollers and connected EMT accounts", () => {
     const tokens = await runInDurableObject(poller, async (instance) => {
       const seen = [];
       for (const slot of [0, 1, 2, 3]) {
-        const [first] = await instance.environments(slot * 120_000);
-        seen.push(first.EMT_EMAIL ?? "shared");
+        const [first] = await instance.clients(slot * 120_000);
+        seen.push((await first.account())?.email ?? "shared");
       }
       return seen;
     });

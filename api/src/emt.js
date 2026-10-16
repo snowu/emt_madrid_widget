@@ -3,15 +3,12 @@ import { emtEndpoint, recordUpstreamMetric } from "./metrics.js";
 
 const BASE = "https://openapi.emtmadrid.es/";
 const TOKEN_KEY = "emt:token";
-let hotToken = null;
-let hotTokenUntil = 0;
-let tokenLoad = null;
+
+/** Tokens in isolate memory, one entry per Account: `{token, expiresAt, pending}`. */
+const tokens = new Map();
 
 export function clearTokenMemoryForTest() {
-  hotToken = null;
-  hotTokenUntil = 0;
-  tokenLoad = null;
-  userTokens.clear();
+  tokens.clear();
 }
 
 // EMT reports failure as a `code` inside a 200 response, not as an HTTP status.
@@ -32,35 +29,92 @@ function raiseForCode(code) {
   throw new EmtError("upstream", `unexpected EMT code ${code}`);
 }
 
+/** The one way to call EMT.
+ *
+ * `account` is whose login, and so whose quota, a call spends: an
+ * `{email, password, session}` for a connected user, a function resolving to
+ * one (called once, on the first call that needs it, so a request answered
+ * from cache never looks the connection up), or null for the shared login.
+ * A resolver may also resolve to null, or throw `emt_account` when the caller
+ * must connect first. `who` is the metrics caller class.
+ *
+ * Everything EMT-specific about a call — the token, re-logging in on code 80,
+ * retrying a 5xx, which codes mean success — happens inside `call`, so a new
+ * endpoint is a path and a parser.
+ */
+export function emtClient(env, { account = null, who = "background" } = {}) {
+  let resolved;
+  const client = {
+    env,
+    who,
+    account: () => resolved ??= Promise.resolve(typeof account === "function" ? account() : account),
+    /** Send one EMT request and return its body once EMT's own code says it
+     *  succeeded. `ok` lists the codes that count as success for this
+     *  endpoint; `what` names it in HTTP error messages; `caller` names the
+     *  feature for metrics. */
+    async call(path, { method = "GET", body, ok = ["00"], what = "request", caller = "" } = {}) {
+      const owner = await client.account();
+      const send = async (token) => {
+        const res = await emtFetch(`${BASE}${path}`, {
+          method,
+          headers: { accessToken: token, ...(body ? { "content-type": "application/json" } : {}) },
+          ...(body ? { body: JSON.stringify(body) } : {}),
+        }, client, caller);
+        if (!res.ok) throw new EmtError("upstream", `${what} HTTP ${res.status}`);
+        return res.json();
+      };
+      let reply = await send(await accountToken(client, owner));
+      // Code 80 is both "not found" and "invalid token", indistinguishable
+      // here, so retry once with a fresh token before believing the former.
+      if (reply.code === "80") reply = await send(await accountToken(client, owner, { force: true }));
+      if (!ok.includes(reply.code)) raiseForCode(reply.code);
+      return reply;
+    },
+  };
+  return client;
+}
+
+/** Log in with the client's Account now, keeping the token. Connecting an
+ *  account uses this to prove the credentials before saving them. */
+export async function signIn(emt) {
+  await accountToken(emt, await emt.account(), { force: true });
+}
+
 /** fetch to EMT with one retry on a 5xx.
  *
  * Cloudflare's edge intermittently fails its own TLS handshake to
  * openapi.emtmadrid.es with an HTTP 5xx (525-class, workerd#776); a single
  * retry gets through. A 4xx is an answer, not a blip — pass it through.
+ *
+ * `caller` names which feature made this call — the live map, the journey
+ * planner — because the endpoint name comes from EMT's own URL and cannot
+ * tell two callers of the same endpoint apart. Without it, diagnosing which
+ * feature is spending the quota is guesswork.
+ *
+ * Exported for BiciMAD's GBFS feed, which needs the same deadline and retry
+ * but no token; called without a client, it records no metrics.
  */
-/** `caller` names which feature made this call — the live map, the journey
- *  planner — because the endpoint name comes from EMT's own URL and cannot
- *  tell two callers of the same endpoint apart. Without it, diagnosing which
- *  feature is spending the quota is guesswork. */
-export async function emtFetch(url, init = {}, env = null, caller = "") {
+export async function emtFetch(url, init, emt = null, caller = "") {
   const fetchWithDeadline = async () => {
     const started = Date.now();
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 8_000);
     try {
       const response = await fetch(url, { ...init, signal: controller.signal });
-      recordUpstreamMetric(env, {
+      recordUpstreamMetric(emt?.env, {
         endpoint: emtEndpoint(url),
         caller,
+        who: emt?.who,
         outcome: response.ok ? "ok" : "http_error",
         duration: Date.now() - started,
         status: response.status,
       });
       return response;
     } catch (error) {
-      recordUpstreamMetric(env, {
+      recordUpstreamMetric(emt?.env, {
         endpoint: emtEndpoint(url),
         caller,
+        who: emt?.who,
         outcome: error.name === "AbortError" ? "timeout" : "network_error",
         error: error.name ?? "error",
         duration: Date.now() - started,
@@ -83,11 +137,11 @@ export async function emtFetch(url, init = {}, env = null, caller = "") {
   return res;
 }
 
-async function login(env) {
+async function login(emt, slot) {
   const res = await emtFetch(`${BASE}v1/mobilitylabs/user/login/`, {
     method: "GET",
-    headers: { email: env.EMT_EMAIL, password: env.EMT_PASSWORD },
-  }, env);
+    headers: { email: slot.email, password: slot.password },
+  }, emt);
 
   if (!res.ok) {
     throw new EmtError("upstream", `EMT login HTTP ${res.status}`);
@@ -107,72 +161,59 @@ async function login(env) {
   };
 }
 
-/** Per-user tokens, keyed by session id (`user:connection`). Never mixed
- *  with the shared token above. */
-const userTokens = new Map();
-
-/** Return a usable EMT access token, logging in only when needed. A request
- *  whose caller connected their own EMT account gets their token; everyone
- *  else gets the shared one. */
-export async function getToken(env, { force = false } = {}) {
-  if (env.EMT_ACCOUNT_CONTEXT) {
-    const scoped = await env.EMT_ACCOUNT_CONTEXT();
-    return getToken(scoped ?? { ...env, EMT_ACCOUNT_CONTEXT: undefined }, { force });
+/** Where one Account's token is kept, and the two ways the shared login
+ *  differs from a connected one. KV keys and formats are the ones each has
+ *  always used, so a deploy forces nobody to log in again. */
+function tokenSlot(env, account) {
+  if (!account) {
+    return {
+      id: "shared", key: TOKEN_KEY, email: env.EMT_EMAIL, password: env.EMT_PASSWORD,
+      // KV owns the shared token's real expiry (KV's own TTL). Trust a copy
+      // read from it for a minute: that removes bursts of repeated KV reads
+      // without holding on to a token another isolate has since replaced.
+      decode: (raw) => (raw ? { token: raw, expiresAt: Date.now() + 60_000 } : null),
+      encode: (token) => token,
+      rejected: null,
+    };
   }
-  if (env.EMT_SESSION_ID) return getUserToken(env, { force });
-  if (!force && hotToken && Date.now() < hotTokenUntil) return hotToken;
-  if (!force && tokenLoad) return tokenLoad;
-  if (force) {
-    hotToken = null;
-    hotTokenUntil = 0;
-  }
-  const load = (async () => {
-    if (!force) {
-      const cached = await env.KV.get(TOKEN_KEY);
-      if (cached) {
-        hotToken = cached;
-        // KV owns the real expiry; this short isolate-local window eliminates
-        // bursts of repeated KV reads without trusting a token for too long.
-        hotTokenUntil = Date.now() + 60_000;
-        return cached;
-      }
-    }
-    const { token, ttl } = await login(env);
-    await env.KV.put(TOKEN_KEY, token, { expirationTtl: ttl });
-    hotToken = token;
-    hotTokenUntil = Date.now() + ttl * 1000;
-    return token;
-  })();
-  if (!force) tokenLoad = load;
-  try {
-    return await load;
-  } finally {
-    if (tokenLoad === load) tokenLoad = null;
-  }
+  return {
+    id: account.session, key: `emt:user:${account.session}`,
+    email: account.email, password: account.password,
+    decode: (raw) => {
+      const cached = raw ? JSON.parse(raw) : null;
+      return cached?.token && cached.expiresAt > Date.now() ? cached : null;
+    },
+    encode: (token, expiresAt) => JSON.stringify({ token, expiresAt }),
+    // Their password changed, or the account is gone. Quota and outages keep
+    // their own kinds: those are not a reason to reconnect.
+    rejected: "EMT rejected your account. Reconnect it from the account menu.",
+  };
 }
 
-async function getUserToken(env, { force }) {
-  const state = userTokens.get(env.EMT_SESSION_ID) ?? {};
-  userTokens.set(env.EMT_SESSION_ID, state);
+/** A usable EMT access token for one Account, logging in only when needed.
+ *  Concurrent callers share one login. */
+async function accountToken(emt, account, { force = false } = {}) {
+  const slot = tokenSlot(emt.env, account);
+  const state = tokens.get(slot.id) ?? {};
+  tokens.set(slot.id, state);
   if (!force && state.token && state.expiresAt > Date.now()) return state.token;
   if (!force && state.pending) return state.pending;
-  const key = `emt:user:${env.EMT_SESSION_ID}`;
+  if (force) state.token = null;
   const load = (async () => {
     if (!force) {
-      const cached = await env.KV.get(key, "json");
-      if (cached?.token && cached.expiresAt > Date.now()) return Object.assign(state, cached).token;
+      const cached = slot.decode(await emt.env.KV.get(slot.key));
+      if (cached) return Object.assign(state, cached).token;
     }
+    let fresh;
     try {
-      const { token, ttl } = await login(env);
-      const cached = { token, expiresAt: Date.now() + ttl * 1000 };
-      await env.KV.put(key, JSON.stringify(cached), { expirationTtl: ttl });
-      return Object.assign(state, cached).token;
+      fresh = await login(emt, slot);
     } catch (error) {
-      // Their password changed, or the account is gone. Quota and outages keep
-      // their own kinds: those are not a reason to reconnect.
-      if (error.kind === "auth") throw new EmtError("emt_account", "EMT rejected your account. Reconnect it from the account menu.");
+      if (slot.rejected && error.kind === "auth") throw new EmtError("emt_account", slot.rejected);
       throw error;
     }
+    const expiresAt = Date.now() + fresh.ttl * 1000;
+    await emt.env.KV.put(slot.key, slot.encode(fresh.token, expiresAt), { expirationTtl: fresh.ttl });
+    return Object.assign(state, { token: fresh.token, expiresAt }).token;
   })();
   if (!force) state.pending = load;
   try {
@@ -180,19 +221,6 @@ async function getUserToken(env, { force }) {
   } finally {
     if (state.pending === load) state.pending = null;
   }
-}
-
-async function requestArrivals(env, stopId, token, caller) {
-  const res = await emtFetch(`${BASE}v2/transport/busemtmad/stops/${stopId}/arrives/`, {
-    method: "POST",
-    headers: { accessToken: token, "content-type": "application/json" },
-    body: JSON.stringify({
-      stopId: String(stopId),
-      Text_EstimationsRequired_YN: "Y",
-    }),
-  }, env, caller);
-  if (!res.ok) throw new EmtError("upstream", `EMT arrivals HTTP ${res.status}`);
-  return res.json();
 }
 
 function parseArrivals(body) {
@@ -217,35 +245,19 @@ function parseArrivals(body) {
     .sort((a, b) => a.seconds - b.seconds);
 }
 
-/** Fetch the next arrivals for one stop, re-logging in once if the token is stale. */
-export async function getArrivals(env, stopId, caller = "") {
-  let token = await getToken(env);
-  let body = await requestArrivals(env, stopId, token, caller);
-
-  // Code 80 is both "stop not found" and "invalid token" — indistinguishable
-  // here, so retry once with a fresh token before believing the stop is bad.
-  if (body.code === "80") {
-    token = await getToken(env, { force: true });
-    body = await requestArrivals(env, stopId, token, caller);
-  }
-
-  // Both are success: "00" carries estimations; "01" is
-  // "No estimations found" with an empty Arrive[] (e.g. night hours).
-  if (body.code !== "00" && body.code !== "01") raiseForCode(body.code);
+/** Fetch the next arrivals for one stop. */
+export async function getArrivals(emt, stopId, caller = "") {
+  const body = await emt.call(`v2/transport/busemtmad/stops/${stopId}/arrives/`, {
+    method: "POST",
+    body: { stopId: String(stopId), Text_EstimationsRequired_YN: "Y" },
+    // Both are success: "00" carries estimations; "01" is
+    // "No estimations found" with an empty Arrive[] (e.g. night hours).
+    ok: ["00", "01"],
+    what: "EMT arrivals",
+    caller,
+  });
 
   return { stopId: String(stopId), arrivals: parseArrivals(body), fetchedAt: Date.now() };
-}
-
-async function requestDetail(env, stopId, token) {
-  // v2 answers identically to the documented v1 (verified live 2026-08-23,
-  // stops 1547/28/29) — keeping every transport call on v2 means versioning
-  // is one less thing to think about. Auth alone stays on v1.
-  const res = await emtFetch(`${BASE}v2/transport/busemtmad/stops/${stopId}/detail/`, {
-    method: "GET",
-    headers: { accessToken: token },
-  }, env);
-  if (!res.ok) throw new EmtError("upstream", `EMT stop detail HTTP ${res.status}`);
-  return res.json();
 }
 
 /** Normalise one line entry into the shape the page renders.
@@ -297,18 +309,13 @@ function parseDetail(body) {
 }
 
 /** Fetch one stop's static detail (name, address, location, lines). */
-export async function getStopDetail(env, stopId) {
-  let token = await getToken(env);
-  let body = await requestDetail(env, stopId, token);
-
-  // Same ambiguity as arrivals: 80 can mean a stale token.
-  if (body.code === "80") {
-    token = await getToken(env, { force: true });
-    body = await requestDetail(env, stopId, token);
-  }
-
-  if (body.code !== "00") raiseForCode(body.code);
-  return parseDetail(body);
+export async function getStopDetail(emt, stopId) {
+  // v2 answers identically to the documented v1 (verified live 2026-08-23,
+  // stops 1547/28/29) — keeping every transport call on v2 means versioning
+  // is one less thing to think about. Auth alone stays on v1.
+  return parseDetail(await emt.call(`v2/transport/busemtmad/stops/${stopId}/detail/`, {
+    what: "EMT stop detail",
+  }));
 }
 
 /** Parse EMT's "18/08/2026 7:00:00" into an instant.
@@ -355,15 +362,10 @@ function serviceWindow(row) {
  * (Sunday/holiday) and V — Friday nights, which only night lines have. A line
  * with no row for today simply does not run today.
  */
-export async function getLineTimetable(env, line) {
-  let token = await getToken(env);
-  let body = await requestTimetable(env, line, token);
-
-  if (body.code === "80") {
-    token = await getToken(env, { force: true });
-    body = await requestTimetable(env, line, token);
-  }
-  if (body.code !== "00") raiseForCode(body.code);
+export async function getLineTimetable(emt, line) {
+  const body = await emt.call(`v2/transport/busemtmad/lines/${line}/timetable/`, {
+    what: "EMT line timetable",
+  });
 
   return {
     line: String(line),
@@ -374,24 +376,6 @@ export async function getLineTimetable(env, line) {
       validTo: row.dateEnd ?? null,
     })),
   };
-}
-
-async function requestTimetable(env, line, token) {
-  const res = await emtFetch(`${BASE}v2/transport/busemtmad/lines/${line}/timetable/`, {
-    method: "GET",
-    headers: { accessToken: token },
-  }, env);
-  if (!res.ok) throw new EmtError("upstream", `EMT line timetable HTTP ${res.status}`);
-  return res.json();
-}
-
-async function requestRoute(env, line, token) {
-  const res = await emtFetch(`${BASE}v2/transport/busemtmad/lines/${line}/route/`, {
-    method: "GET",
-    headers: { accessToken: token },
-  }, env);
-  if (!res.ok) throw new EmtError("upstream", `EMT line route HTTP ${res.status}`);
-  return res.json();
 }
 
 // EMT sends 15 decimal places — nanometres. Six is ~10cm, which is finer than
@@ -445,15 +429,10 @@ function parseRouteStops(collection) {
 }
 
 /** One bus line's route: both directions, drawable. */
-export async function getLineRoute(env, line) {
-  let token = await getToken(env);
-  let body = await requestRoute(env, line, token);
-
-  if (body.code === "80") {
-    token = await getToken(env, { force: true });
-    body = await requestRoute(env, line, token);
-  }
-  if (body.code !== "00") raiseForCode(body.code);
+export async function getLineRoute(emt, line) {
+  const body = await emt.call(`v2/transport/busemtmad/lines/${line}/route/`, {
+    what: "EMT line route",
+  });
 
   const raw = body.data;
   if (!raw?.itinerary) throw new EmtError("not_found", "EMT returned no route");
@@ -474,32 +453,17 @@ export async function getLineRoute(env, line) {
   };
 }
 
-async function requestNearby(env, lat, lon, radius, token, caller) {
-  const res = await emtFetch(
-    `${BASE}v2/transport/busemtmad/stops/arroundxy/${lon}/${lat}/${radius}/`,
-    // v2 only: v1 answers "no records" for this family regardless of input.
-    { method: "GET", headers: { accessToken: token } },
-    env,
-    caller,
-  );
-  if (!res.ok) throw new EmtError("upstream", `EMT area search HTTP ${res.status}`);
-  return res.json();
-}
-
 /** Stops within `radius` metres of a point. */
-export async function getNearbyStops(env, { lat, lon, radius = 500 }, caller = "") {
+export async function getNearbyStops(emt, { lat, lon, radius = 500 }, caller = "") {
   const r = Math.min(3000, Math.max(50, Number(radius) || 500));
-  let token = await getToken(env);
-  let body = await requestNearby(env, lat, lon, r, token, caller);
-
-  if (body.code === "80") {
-    token = await getToken(env, { force: true });
-    body = await requestNearby(env, lat, lon, r, token, caller);
-  }
-
-  // Like arrivals, area search uses 01 for a valid empty result. This is
-  // common for Hubs whose 700 m search area contains no EMT stops.
-  if (body.code !== "00" && body.code !== "01") raiseForCode(body.code);
+  // v2 only: v1 answers "no records" for this family regardless of input.
+  const body = await emt.call(`v2/transport/busemtmad/stops/arroundxy/${lon}/${lat}/${r}/`, {
+    // Like arrivals, area search uses 01 for a valid empty result. This is
+    // common for Hubs whose 700 m search area contains no EMT stops.
+    ok: ["00", "01"],
+    what: "EMT area search",
+    caller,
+  });
 
   return (body.data ?? [])
     .filter((s) => s.stopId != null)
@@ -527,17 +491,6 @@ function areaLine(l) {
   return compact;
 }
 
-async function requestLineIncidents(env, line, token) {
-  // This documented family exists only on v1; v2 responds with an HTML 404.
-  const res = await emtFetch(
-    `${BASE}v1/transport/busemtmad/lines/incidents/${encodeURIComponent(line)}/`,
-    { method: "GET", headers: { accessToken: token } },
-    env,
-  );
-  if (!res.ok) throw new EmtError("upstream", `EMT line incidents HTTP ${res.status}`);
-  return res.json();
-}
-
 function incidentClock(value) {
   const match = /^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})/.exec(String(value ?? ""));
   if (!match) return null;
@@ -555,14 +508,12 @@ function madridClock(now = new Date()) {
 }
 
 /** Currently active published diversions and service incidents for a line. */
-export async function getLineIncidents(env, line) {
-  let token = await getToken(env);
-  let body = await requestLineIncidents(env, line, token);
-  if (body.code === "80") {
-    token = await getToken(env, { force: true });
-    body = await requestLineIncidents(env, line, token);
-  }
-  if (body.code !== "00" && body.code !== "01") raiseForCode(body.code);
+export async function getLineIncidents(emt, line) {
+  // This documented family exists only on v1; v2 responds with an HTML 404.
+  const body = await emt.call(`v1/transport/busemtmad/lines/incidents/${encodeURIComponent(line)}/`, {
+    ok: ["00", "01"],
+    what: "EMT line incidents",
+  });
 
   const now = madridClock();
   const raw = body.data?.flatMap((feed) => Array.isArray(feed.item)

@@ -7,7 +7,9 @@ import {
   mergeBikeStations,
   stationsNear,
 } from "../src/bikes.js";
-import { clearTokenMemoryForTest } from "../src/emt.js";
+import { clearTokenMemoryForTest, emtClient } from "../src/emt.js";
+
+const emt = emtClient(env);
 
 // Recorded live from EMT 2026-08-23; two stations, fields left as EMT sends them.
 const stationsOk = {
@@ -63,7 +65,7 @@ afterEach(() => vi.restoreAllMocks());
 describe("getBikeStations", () => {
   it("trims EMT's record to what the page draws", async () => {
     mockFetch(stationsOk);
-    const { stations } = await getBikeStations(env);
+    const { stations } = await getBikeStations(emt);
     expect(stations[0]).toEqual({
       id: "1409",
       // The number painted on the station is not EMT's key: 1409 is signed "5".
@@ -83,21 +85,26 @@ describe("getBikeStations", () => {
 
   it("reads no_available as out of service", async () => {
     mockFetch(stationsOk);
-    const { stations } = await getBikeStations(env);
+    const { stations } = await getBikeStations(emt);
     expect(stations[1]).toMatchObject({ id: "1", inService: false, reserved: 3, overflow: true });
   });
 
   it("GETs the v2 stations URL and stamps the fetch time", async () => {
     const spy = mockFetch(stationsOk);
     const before = Date.now();
-    const { fetchedAt } = await getBikeStations(env);
+    const { fetchedAt } = await getBikeStations(emt);
     expect(spy.mock.calls[0][0]).toContain("v2/transport/bicimad/stations/");
     expect(fetchedAt).toBeGreaterThanOrEqual(before);
   });
 
   it("raises on an unexpected code rather than serving an empty city", async () => {
+    mockFetch({ code: "42", data: [] });
+    await expect(getBikeStations(emt)).rejects.toMatchObject({ kind: "upstream" });
+  });
+
+  it("reports a spent quota as quota, like every other EMT call", async () => {
     mockFetch({ code: "98", data: [] });
-    await expect(getBikeStations(env)).rejects.toMatchObject({ kind: "upstream" });
+    await expect(getBikeStations(emt)).rejects.toMatchObject({ kind: "quota" });
   });
 });
 

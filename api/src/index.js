@@ -39,7 +39,7 @@ import {
 import { EmtError, errorResponse } from "./errors.js";
 import { getBikeAccountStatus, getBikeTrips } from "./bicimad-account.js";
 import { authenticatedUser, bearerToken } from "./auth.js";
-import { withEmtAccount, manageEmtAccount, accountRequired } from "./emt-account.js";
+import { requestEmt, manageEmtAccount, accountRequired } from "./emt-account.js";
 import { getBikeTripDiagnostics, monitorBikeTrips } from "./trip-monitor.js";
 import { queryMetrics, recordEdgeMetric } from "./metrics.js";
 import {
@@ -137,11 +137,11 @@ function metricCaller(requestUrl) {
   return "direct";
 }
 
-async function edgeCachedJson(requestUrl, key, ttl, load, ctx, env, endpoint = "") {
+async function edgeCachedJson(requestUrl, key, ttl, load, ctx, emt, endpoint = "") {
   const started = Date.now();
   const target = key.includes("/") ? key.slice(key.indexOf("/") + 1) : "";
-  const metric = (cache, outcome = "ok", error = "") => recordEdgeMetric(env, {
-    endpoint, cache, target, outcome, error, caller: metricCaller(requestUrl),
+  const metric = (cache, outcome = "ok", error = "") => recordEdgeMetric(emt?.env, {
+    endpoint, cache, target, outcome, error, caller: metricCaller(requestUrl), who: emt?.who,
     duration: Date.now() - started,
   });
   const cache = caches.default;
@@ -197,34 +197,34 @@ async function edgeCachedJson(requestUrl, key, ttl, load, ctx, env, endpoint = "
 
 /** Arrivals for journey planning: same upstream, longer memory, and tagged
  *  separately so metrics show planner load apart from live-map polling. */
-async function cachedPlannerArrivals(requestUrl, env, stopId, ctx) {
+async function cachedPlannerArrivals(requestUrl, emt, stopId, ctx) {
   return edgeCachedJson(requestUrl, `arrivals-plan/${encodeURIComponent(stopId)}`,
-    PLANNER_ARRIVALS_CACHE_TTL, () => getArrivals(env, stopId, "planner"), ctx, env, "arrivals-plan");
+    PLANNER_ARRIVALS_CACHE_TTL, () => getArrivals(emt, stopId, "planner"), ctx, emt, "arrivals-plan");
 }
 
-async function cachedArrivals(requestUrl, env, stopId, ctx) {
+async function cachedArrivals(requestUrl, emt, stopId, ctx) {
   return edgeCachedJson(requestUrl, `arrivals/${encodeURIComponent(stopId)}`, ARRIVALS_CACHE_TTL,
-    () => getArrivals(env, stopId, "map"), ctx, env, "arrivals");
+    () => getArrivals(emt, stopId, "map"), ctx, emt, "arrivals");
 }
 
-async function cachedStopDetail(requestUrl, env, stopId, ctx) {
+async function cachedStopDetail(requestUrl, emt, stopId, ctx) {
   return edgeCachedJson(requestUrl, `detail-v2/${encodeURIComponent(stopId)}`, DETAIL_CACHE_TTL,
-    () => getStopDetail(env, stopId), ctx, env, "detail");
+    () => getStopDetail(emt, stopId), ctx, emt, "detail");
 }
 
-async function cachedTimetable(requestUrl, env, line, ctx) {
+async function cachedTimetable(requestUrl, emt, line, ctx) {
   return edgeCachedJson(requestUrl, `timetable/${encodeURIComponent(line)}`, TIMETABLE_CACHE_TTL,
-    () => getLineTimetable(env, line), ctx, env, "timetable");
+    () => getLineTimetable(emt, line), ctx, emt, "timetable");
 }
 
-async function cachedRoute(requestUrl, env, line, ctx) {
+async function cachedRoute(requestUrl, emt, line, ctx) {
   return edgeCachedJson(requestUrl, `route/${encodeURIComponent(line)}`, ROUTE_CACHE_TTL,
-    () => getLineRoute(env, line), ctx, env, "route");
+    () => getLineRoute(emt, line), ctx, emt, "route");
 }
 
-async function cachedIncidents(requestUrl, env, line, ctx) {
+async function cachedIncidents(requestUrl, emt, line, ctx) {
   return edgeCachedJson(requestUrl, `incidents/${encodeURIComponent(line)}`, INCIDENT_CACHE_TTL,
-    () => getLineIncidents(env, line), ctx, env, "incidents");
+    () => getLineIncidents(emt, line), ctx, emt, "incidents");
 }
 
 async function cachedBikeInfo(requestUrl, ctx) {
@@ -239,13 +239,13 @@ async function cachedBikeInfo(requestUrl, ctx) {
  * still better than an empty map, so it stands in — flagged, so the page can
  * say the counts are the rougher kind.
  */
-async function cachedBikeStations(requestUrl, env, ctx) {
+async function cachedBikeStations(requestUrl, emt, ctx) {
   return edgeCachedJson(requestUrl, "bikes", BIKES_CACHE_TTL, async () => {
     try {
       const [info, status] = await Promise.all([cachedBikeInfo(requestUrl, ctx), getBikeStationStatus()]);
       return { ...mergeBikeStations(info, status), source: "gbfs" };
     } catch {
-      return { ...(await getBikeStations(env)), source: "mobilitylabs" };
+      return { ...(await getBikeStations(emt)), source: "mobilitylabs" };
     }
   }, ctx);
 }
@@ -255,10 +255,10 @@ function grid3(n) {
   return Number(n).toFixed(3);
 }
 
-async function cachedNearby(requestUrl, env, lat, lon, radius, ctx, caller = "map") {
+async function cachedNearby(requestUrl, emt, lat, lon, radius, ctx, caller = "map") {
   const key = `nearby-v2/${grid3(lon)}/${grid3(lat)}/${radius}`;
   return edgeCachedJson(requestUrl, key, NEARBY_CACHE_TTL,
-    () => getNearbyStops(env, { lat, lon, radius }, caller), ctx, env, "nearby");
+    () => getNearbyStops(emt, { lat, lon, radius }, caller), ctx, emt, "nearby");
 }
 
 async function geocodeMadrid(requestUrl, query, ctx) {
@@ -427,7 +427,7 @@ function metresApart(aLat, aLon, bLat, bLon) {
  * list is not: without it there is no plan at all. So a cold grid falls back
  * to the direct query rather than returning nothing.
  */
-async function plannerNearby(requestUrl, env, lat, lon, radius, ctx) {
+async function plannerNearby(requestUrl, emt, lat, lon, radius, ctx) {
   const cells = cellsCovering(lat, lon, radius);
   // Reading the map's grid is worth a few requests for the cache sharing, but
   // not a dozen: a Worker invocation may make only 50 subrequests in total,
@@ -435,11 +435,11 @@ async function plannerNearby(requestUrl, env, lat, lon, radius, ctx) {
   // night radius the grid needs twelve cells, which on its own broke that
   // ceiling — past a handful, a single direct query is cheaper and faster,
   // and it is cached for a day just the same.
-  if (cells.length > plannerBudget(env).gridCells) {
-    return cachedNearby(requestUrl, env, lat, lon, radius, ctx, "planner");
+  if (cells.length > plannerBudget(emt.env).gridCells) {
+    return cachedNearby(requestUrl, emt, lat, lon, radius, ctx, "planner");
   }
   const results = await Promise.all(cells.map((cell) => withinDeadline(
-    cachedNearby(requestUrl, env, cell.lat, cell.lon, NEARBY_CELL_RADIUS, ctx, "planner"),
+    cachedNearby(requestUrl, emt, cell.lat, cell.lon, NEARBY_CELL_RADIUS, ctx, "planner"),
     6_000, null,
   )));
   const found = new Map();
@@ -453,7 +453,7 @@ async function plannerNearby(requestUrl, env, lat, lon, radius, ctx) {
   }
   if (found.size > 0 || results.some(Boolean)) return [...found.values()];
   // Every cell failed. One direct attempt beats losing the journey outright.
-  return cachedNearby(requestUrl, env, lat, lon, radius, ctx, "planner");
+  return cachedNearby(requestUrl, emt, lat, lon, radius, ctx, "planner");
 }
 
 // Madrid's own clock, which is the one the rider is living in — and it moves
@@ -546,7 +546,8 @@ function walkingReachable(candidates, radius) {
     : byWalk.slice(0, JOURNEY_MIN_ORIGIN_STOPS);
 }
 
-async function journeys(request, body, env, ctx) {
+async function journeys(request, body, emt, ctx) {
+  const { env } = emt;
   const origin = plannerLocation(body?.origin, "origin");
   const budget = plannerBudget(env);
   if (!Array.isArray(body?.destinations) || body.destinations.length < 1 || body.destinations.length > budget.destinations) {
@@ -560,10 +561,10 @@ async function journeys(request, body, env, ctx) {
       Math.max(200, Number(destination.destinationRadiusM) || 700)),
   }));
   const originRaw = await plannerNearby(
-    request.url, env, origin.lat, origin.lon, accessRadius(), ctx);
+    request.url, emt, origin.lat, origin.lon, accessRadius(), ctx);
   const originCandidates = nearbyAccess(originRaw, origin, 50);
   const destinationStops = await Promise.all(destinations.map(async (destination) =>
-    nearbyAccess(await plannerNearby(request.url, env, destination.lat, destination.lon,
+    nearbyAccess(await plannerNearby(request.url, emt, destination.lat, destination.lon,
       destination.radius, ctx), destination, 6)));
 
   // Walk the candidates *before* choosing among them, not after.
@@ -606,7 +607,7 @@ async function journeys(request, body, env, ctx) {
   const liveStopIds = originStops.map((stop) => String(stop.stopId));
   const live = new Map(await Promise.all(liveStopIds.map(async (stopId) => {
     return [stopId,
-      await withinDeadline(cachedPlannerArrivals(request.url, env, stopId, ctx), 5_000)];
+      await withinDeadline(cachedPlannerArrivals(request.url, emt, stopId, ctx), 5_000)];
   })));
   const activeOriginStops = stopsWithLiveLines(originStops, live);
 
@@ -618,7 +619,7 @@ async function journeys(request, body, env, ctx) {
   // boards and incidents are isolated the same way, and with the paid budget
   // there are up to 30 routes for one of them to fail.
   const routeEntries = await Promise.all(routeCodes.map(async (code) =>
-    [code, await withinDeadline(cachedRoute(request.url, env, code, ctx), 8_000)]));
+    [code, await withinDeadline(cachedRoute(request.url, emt, code, ctx), 8_000)]));
   const routes = new Map(routeEntries.filter(([, route]) => route));
   const planned = destinations.map((destination, index) => {
     const transferRadiusM = transferRadius();
@@ -664,7 +665,7 @@ async function journeys(request, body, env, ctx) {
     transferStopIds = [...new Set(perLine.values())].slice(0, transferChecks(env));
     const transferLive = new Map(await Promise.all(transferStopIds.map(async (stopId) => {
       return [stopId,
-        await withinDeadline(cachedPlannerArrivals(request.url, env, stopId, ctx), 5_000)];
+        await withinDeadline(cachedPlannerArrivals(request.url, emt, stopId, ctx), 5_000)];
     })));
     for (const item of planned) {
       item.options = item.options.filter((option) => {
@@ -682,7 +683,7 @@ async function journeys(request, body, env, ctx) {
   const incidentsByLine = new Map(await Promise.all(incidentCodes.map(async (code) => {
     // Incident data improves ranking, but must never make live journeys fail —
     // and 119 of them timed out in a day, each holding a plan for 8 seconds.
-    const payload = await withinDeadline(cachedIncidents(request.url, env, code, ctx), 3_000);
+    const payload = await withinDeadline(cachedIncidents(request.url, emt, code, ctx), 3_000);
     return [code, payload?.incidents ?? []];
   })));
   for (const item of planned) {
@@ -737,7 +738,7 @@ export default {
     try {
       // EMT calls in this request use the caller's own EMT account when they
       // connected one, and the shared login otherwise (see emt-account.js).
-      env = withEmtAccount(env, request);
+      const emt = requestEmt(env, request);
       if (pathname === "/auth/emt" && ["GET", "PUT", "DELETE"].includes(method)) {
         const result = await manageEmtAccount(env, request, {
           // The tracking runner checks on a timer with no signed-in caller, so
@@ -825,7 +826,7 @@ export default {
           MAX_ARRIVALS,
           Math.max(1, Number(url.searchParams.get("limit")) || DEFAULT_ARRIVALS)
         );
-        const payload = await cachedArrivals(request.url, env, stop, ctx);
+        const payload = await cachedArrivals(request.url, emt, stop, ctx);
         return json({ ...payload, arrivals: payload.arrivals.slice(0, limit) }, env);
       }
 
@@ -855,7 +856,7 @@ export default {
 
       if (pathname === "/journeys" && method === "POST") {
         await authenticatedUser(env, request);
-        return json(await journeys(request, await request.json(), env, ctx), env);
+        return json(await journeys(request, await request.json(), emt, ctx), env);
       }
 
       if (pathname === "/walking-distances" && method === "POST") {
@@ -865,7 +866,7 @@ export default {
 
       const detail = pathname.match(/^\/stops\/([^/]+)\/detail$/);
       if (detail && method === "GET") {
-        return json(await cachedStopDetail(request.url, env, decodeURIComponent(detail[1]), ctx), env);
+        return json(await cachedStopDetail(request.url, emt, decodeURIComponent(detail[1]), ctx), env);
       }
 
       if (pathname === "/stops/nearby" && method === "GET") {
@@ -878,7 +879,7 @@ export default {
           return json({ error: "missing lat or lon parameter" }, env, 400);
         }
         const radius = Math.min(3000, Math.max(50, Number(url.searchParams.get("radius")) || 500));
-        return json(await cachedNearby(request.url, env, lat, lon, radius, ctx), env);
+        return json(await cachedNearby(request.url, emt, lat, lon, radius, ctx), env);
       }
 
       const route = pathname.match(/^\/lines\/([^/]+)\/route$/);
@@ -887,7 +888,7 @@ export default {
         if (!/^[0-9A-Za-z]+$/.test(line)) {
           return json({ error: "not a valid line" }, env, 400);
         }
-        return json(await cachedRoute(request.url, env, line, ctx), env);
+        return json(await cachedRoute(request.url, emt, line, ctx), env);
       }
 
       const timetable = pathname.match(/^\/lines\/([^/]+)\/timetable$/);
@@ -896,7 +897,7 @@ export default {
         if (!/^[0-9A-Za-z]+$/.test(line)) {
           return json({ error: "not a valid line" }, env, 400);
         }
-        return json(await cachedTimetable(request.url, env, line, ctx), env);
+        return json(await cachedTimetable(request.url, emt, line, ctx), env);
       }
 
       /* ---- BiciMAD ----------------------------------------------------- */
@@ -947,7 +948,7 @@ export default {
       }
 
       if (pathname === "/bikes/stations" && method === "GET") {
-        const all = await cachedBikeStations(request.url, env, ctx);
+        const all = await cachedBikeStations(request.url, emt, ctx);
         const ids = url.searchParams.get("ids");
         if (!ids) return json(all, env);
         // A page only ever wants its favourites plus what is on screen.
@@ -966,7 +967,7 @@ export default {
           return json({ error: "missing lat or lon parameter" }, env, 400);
         }
         const radius = Math.min(3000, Math.max(50, Number(url.searchParams.get("radius")) || 700));
-        const all = await cachedBikeStations(request.url, env, ctx);
+        const all = await cachedBikeStations(request.url, emt, ctx);
         const savedIds = new Set((url.searchParams.get("ids") || "").split(",").filter(Boolean));
         return json(
           {
