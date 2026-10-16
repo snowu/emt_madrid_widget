@@ -11,7 +11,6 @@ decisions are in `docs/adr/`.
 
 **The app is called Hubward** (after the Discworld direction: towards the
 Hub). It was Hubwise until 2026-09-25; internal names keep `hubwise` — the
-manifest `id` (changing it makes every installed copy a different app), the
 `x-hubwise-emt` header, notification tags and the metrics dataset. The icon is
 drawn in `tools/icons/pixel-icon.mjs`.
 
@@ -20,6 +19,14 @@ started as an Android home screen widget). The page moved with it, from
 `snowu.github.io/emt_madrid_widget/` to `snowu.github.io/hubward/`, and the
 old address is gone: a home-screen copy installed before the rename has to be
 reinstalled from the new one.
+
+**The manifest `id` is `/hubward/`, path and all.** Every app on
+`snowu.github.io` shares one origin, and a manifest `id` resolves against the
+origin, not the page: the old `"id": "hubwise"` meant
+`https://snowu.github.io/hubwise` wherever the page lived, so after the move
+Chrome matched the dead install and refused with "already installed". A
+path-scoped id is unique per app (Spritewright uses `/spritewright/` for the
+same reason). Changing it makes every installed copy a different app.
 
 ## Scope
 
