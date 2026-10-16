@@ -1,9 +1,10 @@
 // Pure transitions: never consume an alert until its push has been accepted.
 export const BUS_INTERVAL = 120_000;
 export const BIKE_INTERVAL = 30_000;
-// A rack arms below 6 bikes and alerts on every bike docked until it holds
-// more than 6; dropping below 6 again re-arms it. Exactly 6 keeps whichever
-// state it had. Requiring exactly zero kept busy racks silent all night.
+// A rack arms below 6 bikes and from then on alerts on every change, a bike
+// docked or taken, so the phone always shows what is there now. The change
+// that takes it above 6 alerts once more and disarms it; dropping below 6
+// again re-arms it. Exactly 6 keeps whichever state it had.
 export const BIKE_ARM_BELOW = 6;
 export const BIKE_DISARM_ABOVE = 6;
 
@@ -12,13 +13,12 @@ export function bikeTransition(previous = {}, station) {
       !Number.isInteger(station.bikes) || station.bikes < 0) return { state: previous, alerts: [] };
   const count = station.bikes;
   const armed = count < BIKE_ARM_BELOW ? true : count > BIKE_DISARM_ABOVE ? false : previous.armed === true;
-  const notify = armed && count > 0 && previous.count != null && count > previous.count;
+  const change = previous.count == null ? 0 : count - previous.count;
+  const notify = change !== 0 && (armed || previous.armed === true);
   return {
     state: { armed, count },
-    alerts: notify ? [{
-      bikes: count,
-      body: `${count} ${count === 1 ? "bike is" : "bikes are"} now available.`,
-    }] : [],
+    // The body is also the delivery key: one change, one alert.
+    alerts: notify ? [{ bikes: count, change, paused: !armed, body: `${previous.count}→${count}` }] : [],
   };
 }
 
@@ -58,9 +58,13 @@ export function notificationText(watch, alert) {
   const place = watch.kind === "bike" ? `station ${watch.targetId}` : `stop ${watch.targetId}`;
   const where = watch.label ? `${watch.label} · ${place}` : place.charAt(0).toUpperCase() + place.slice(1);
   if (watch.kind === "bike") {
+    // Leads with what is there now; then what just happened.
+    const available = alert.bikes === 0 ? "No bikes available" : `${alert.bikes} ${alert.bikes === 1 ? "bike" : "bikes"} available`;
+    const moved = Math.abs(alert.change ?? 0);
+    const event = alert.paused ? "alerts paused above 6" : moved ? `${moved} ${alert.change > 0 ? "docked" : "taken"}` : "";
     return {
       title: watch.label || `Station ${watch.targetId}`,
-      body: `${alert.bikes} ${alert.bikes === 1 ? "bike" : "bikes"} available now${watch.label ? ` · ${place}` : ""}`,
+      body: [available, event, watch.label ? place : ""].filter(Boolean).join(" · "),
     };
   }
   const destination = displayCase(alert.destination || watch.destination);

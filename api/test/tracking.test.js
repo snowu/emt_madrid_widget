@@ -43,25 +43,31 @@ describe("alert thresholds", () => {
     expect(notificationText(busWatch, alert)).toEqual({ title: "70 → Plaza Castilla", body: "In 3 min · Home · stop 5138" });
     expect(notificationText({ ...busWatch, label: "" }, { ...alert, minutes: 0 }).body).toBe("Due now · Stop 5138");
     const armed = bikeTransition({}, station(0)).state;
-    const bikes = bikeTransition(armed, station(1)).alerts[0];
-    expect(notificationText(bikeWatch, bikes)).toEqual({ title: "Rack", body: "1 bike available now · station 1" });
+    const docked = bikeTransition(armed, station(1));
+    expect(notificationText(bikeWatch, docked.alerts[0])).toEqual({ title: "Rack", body: "1 bike available · 1 docked · station 1" });
+    const taken = bikeTransition(docked.state, station(0)).alerts[0];
+    expect(notificationText({ ...bikeWatch, label: "" }, taken)).toEqual({ title: "Station 1", body: "No bikes available · 1 taken" });
+    const full = bikeTransition(docked.state, station(9)).alerts[0];
+    expect(notificationText(bikeWatch, full).body).toBe("9 bikes available · alerts paused above 6 · station 1");
   });
   it("rejects invalid ETAs and other routes/directions", () => {
     const rows = [bus(-1), bus(NaN), bus(999999), { ...bus(10), line: "71" }, { ...bus(10), destination: "ELSEWHERE" }];
     expect(busTransition({}, rows, busWatch, 1000).alerts).toHaveLength(0);
   });
-  it("arms below six, alerts on every bike docked, silences above six and rearms below six", () => {
+  it("arms below six, alerts on every bike docked or taken, once more going above six, and rearms below six", () => {
     let state = {};
     const alerts = [2, 3, 0, 1, 1, 4, 6, 7, 8, 6, 7, 5, 6].map((count) => {
       const result = bikeTransition(state, station(count));
       state = result.state;
       return result.alerts.length;
     });
-    expect(alerts).toEqual([0, 1, 0, 1, 0, 1, 1, 0, 0, 0, 0, 0, 1]);
+    expect(alerts).toEqual([0, 1, 1, 1, 0, 1, 1, 1, 0, 0, 0, 1, 1]);
   });
-  it("does not alert on a jump past six or turn unavailable/missing counts into zero", () => {
+  it("says once that a jump past six pauses alerts, and never turns unavailable/missing counts into zero", () => {
     const empty = bikeTransition({}, station(0)).state;
-    expect(bikeTransition(empty, station(7)).alerts).toHaveLength(0);
+    const jump = bikeTransition(empty, station(7));
+    expect(jump.alerts).toEqual([expect.objectContaining({ bikes: 7, change: 7, paused: true })]);
+    expect(bikeTransition(jump.state, station(9)).alerts).toHaveLength(0);
     for (const value of [null, { ...station(0), renting: false }, station(null), station(-1)]) {
       expect(bikeTransition({ armed: false, count: 6 }, value).state).toEqual({ armed: false, count: 6 });
     }
@@ -142,6 +148,10 @@ describe("shared pollers and per-user runners", () => {
     // The stubbed fetch accepts anything; the real Workers fetch throws on
     // redirect: "error", which silently failed every push in production.
     expect(pushes[0].redirect).toBe("manual");
+    // A rack's count stays true until the next one, which replaces it in the
+    // push service's queue: long TTL, one topic per watch.
+    expect(new Headers(pushes[0].headers).get("ttl")).toBe("900");
+    expect(new Headers(pushes[0].headers).get("topic")).toMatch(/^[0-9a-f]{32}$/);
     await pollBikes();
     expect(pushes).toHaveLength(1);
     await stub.remove(first.id);
@@ -228,17 +238,21 @@ describe("shared pollers and per-user runners", () => {
     const loner = await runner();
     await env.KV.put("emt:token", "test-token");
     const boards = [];
+    const pushes = [];
     await alice.stub.add(busWatch);
     await bob.stub.add(busWatch);
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
       if (String(url).includes("/arrives/")) {
         boards.push(String(url));
         return Response.json({ code: "00", data: [{ Arrive: [{ line: "70", destination: "PLAZA", bus: 123, estimateArrive: 300, DistanceBus: 800 }] }] });
       }
+      pushes.push(new Headers(init.headers));
       return new Response(null, { status: 201 });
     });
     await pollStop(busWatch.targetId);
     expect(boards).toHaveLength(1);
+    // A bus alert is held for a sleeping phone until the bus is due, no longer.
+    expect(pushes.map((headers) => [headers.get("ttl"), headers.get("topic")])).toEqual([["300", null], ["300", null]]);
     for (const { stub } of [alice, bob]) {
       const watch = (await stub.list()).watches[0];
       expect(watch.error).toBeNull();
@@ -289,6 +303,27 @@ describe("shared pollers and per-user runners", () => {
     expect(boards).toHaveLength(1);
     await stub.subscribe(subscription);
     expect(await stopUsers(stop.targetId)).toEqual([user]);
+  });
+  it("repairs a subscription a poller lost the next time the app opens", async () => {
+    const { stub, subscription, user } = await runner();
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response(null, { status: 201 }));
+    await stub.add(bikeWatch);
+    await stub.add({ ...busWatch, targetId: "6666" });
+    await runInDurableObject(feedStub(), (instance) => instance.drop(user));
+    await runInDurableObject(stopPoller(env, "6666"), (instance) => instance.drop(user));
+    await stub.subscribe(subscription);
+    expect(await feedUsers()).toEqual([user]);
+    expect(await stopUsers("6666")).toEqual([user]);
+  });
+  it("keeps a runner that subscribed again while a poll it declined was out", async () => {
+    const { stub, user } = await runner();
+    await stub.add(bikeWatch);
+    // Untrack and track again while the feed waits on this runner's answer.
+    await runInDurableObject(feedStub(), (instance) => instance.fanOut(async (_, subscriber) => {
+      await instance.put(subscriber.user, { stations: ["1"] });
+      return { active: false };
+    }));
+    expect(await feedUsers()).toEqual([user]);
   });
   it("forgets a device after thirty days and lets a paused one make room", async () => {
     const { stub } = await runner();

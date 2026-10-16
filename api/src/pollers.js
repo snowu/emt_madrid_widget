@@ -34,6 +34,11 @@ class Poller extends DurableObject {
     super(ctx, env);
     ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS subscribers (user TEXT PRIMARY KEY, value TEXT NOT NULL)");
     ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS meta (id TEXT PRIMARY KEY, value TEXT NOT NULL)");
+    // user → sequence number of their last put(). A poll's fan-out waits on
+    // every runner; one that answered "nothing here" may have subscribed again
+    // before the poll finished, and that newer subscription must survive.
+    this.touched = new Map();
+    this.sequence = 0;
   }
 
   subscribers() {
@@ -44,6 +49,7 @@ class Poller extends DurableObject {
   /** Store a subscriber only if it changed, and make sure a poll is coming:
    *  a new subscriber should hear something within one interval. */
   async put(user, value) {
+    this.touched.set(user, ++this.sequence);
     const row = this.ctx.storage.sql.exec("SELECT value FROM subscribers WHERE user = ?", user).toArray()[0];
     if (row?.value !== JSON.stringify(value)) {
       this.ctx.storage.sql.exec("INSERT OR REPLACE INTO subscribers VALUES (?, ?)", user, JSON.stringify(value));
@@ -59,13 +65,26 @@ class Poller extends DurableObject {
   }
 
   /** Hand one poll to every subscriber in parallel. A runner that has nothing
-   *  left to watch here says so and is dropped. */
+   *  left to watch here says so and is dropped, unless it subscribed again
+   *  while the poll was out. */
   async fanOut(call) {
     const subscribers = this.subscribers();
+    const started = this.sequence;
     const answers = await Promise.allSettled(subscribers.map((s) => call(runner(this.env, s.user), s)));
+    let dropped = 0;
     answers.forEach((answer, index) => {
-      if (answer.status === "fulfilled" && answer.value?.active === false) this.drop(subscribers[index].user);
+      const { user } = subscribers[index];
+      if (answer.status !== "fulfilled" || answer.value?.active !== false) return;
+      if ((this.touched.get(user) ?? 0) > started) return;
+      this.drop(user);
+      dropped++;
     });
+    const failed = answers.filter((answer) => answer.status === "rejected").length;
+    return { subscribers: subscribers.length, dropped, failed };
+  }
+
+  log(fields) {
+    console.log(JSON.stringify({ event: "poll", poller: this.constructor.name, ...fields }));
   }
 }
 
@@ -85,16 +104,17 @@ export class BikeFeed extends Poller {
       // Deliberately bypasses the page's 45 s cache, and refuses a stale feed.
       status = await getBikeStationStatus({ forTracking: true });
     } catch (error) {
-      await this.fanOut((stub) => stub.onBikes({ error: String(error?.message ?? error), fetchedAt: now }));
+      const message = String(error?.message ?? error);
+      this.log({ error: message.slice(0, 200), ...await this.fanOut((stub) => stub.onBikes({ error: message, fetchedAt: now })) });
       return;
     }
     // Each runner gets only the stations it tracks, not the whole city.
     const byId = new Map(status.status.map((s) => [s.id, s]));
-    await this.fanOut((stub, subscriber) => {
+    this.log(await this.fanOut((stub, subscriber) => {
       const stations = {};
       for (const id of subscriber.stations ?? []) if (byId.has(id)) stations[id] = byId.get(id);
       return stub.onBikes({ stations, fetchedAt: status.fetchedAt });
-    });
+    }));
   }
 }
 
@@ -155,6 +175,7 @@ export class StopPoller extends Poller {
       ? { error: String(lastError?.message ?? lastError), fetchedAt: now }
       // Nobody here may spend any quota: tell the runners why.
       : { error: new EmtError("emt_account", "Connect your EMT account to keep bus alerts").message, connect: true, fetchedAt: now };
-    await this.fanOut((stub) => stub.onBoard(stopId, payload));
+    const outcome = await this.fanOut((stub) => stub.onBoard(stopId, payload));
+    this.log({ stop: stopId, ...(payload.error ? { error: payload.error.slice(0, 200) } : { buses: payload.arrivals.length }), ...outcome });
   }
 }
