@@ -25,7 +25,7 @@ const web = join(root, "web");
 const failures = [];
 
 const dom = new JSDOM(readFileSync(join(web, "index.html"), "utf8"), {
-  url: "https://snowu.github.io/emt_madrid_widget/",
+  url: "https://snowu.github.io/hubward/",
   pretendToBeVisual: true,
 });
 const { window } = dom;

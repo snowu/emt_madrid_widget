@@ -249,8 +249,8 @@ async function geocodeMadrid(requestUrl, query, ctx) {
       }).toString();
       const response = await fetch(target, {
         headers: {
-          "user-agent": "emt-madrid-widget/1.0 (https://snowu.github.io/emt_madrid_widget/)",
-          referer: "https://snowu.github.io/emt_madrid_widget/",
+          "user-agent": "hubward/1.0 (https://snowu.github.io/hubward/)",
+          referer: "https://snowu.github.io/hubward/",
           accept: "application/json",
         },
       });
@@ -286,7 +286,7 @@ async function walkingMatrix(requestUrl, body, ctx) {
       "?sources=0&annotations=distance,duration";
     const response = await fetch(target, {
       headers: {
-        "user-agent": "emt-madrid-widget/1.0 (https://snowu.github.io/emt_madrid_widget/)",
+        "user-agent": "hubward/1.0 (https://snowu.github.io/hubward/)",
         accept: "application/json",
       },
     });
