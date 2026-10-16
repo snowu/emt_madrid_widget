@@ -6,6 +6,7 @@ import {
   linesMatch,
   nearbyAccess,
   compareJourneyOptions,
+  plan,
   planJourney,
   prioritizeAccessStops,
   rankJourneySeconds,
@@ -231,5 +232,238 @@ describe("journey planner", () => {
       ["27", route("27", [stop("x2", -3.67, 40.46), work])],
     ]);
     expect(planJourney({ originStops: [home], destinationStops: [work], routes })).toEqual([]);
+  });
+});
+
+/* ---- plan(): the whole planner, through its sources --------------------- */
+
+// A made-up corner of Madrid, laid out in metres from Sol so each test can say
+// exactly how far apart things are.
+const SOL = { lat: 40.4168, lon: -3.7038 };
+function at(northM, eastM) {
+  return {
+    lat: SOL.lat + northM / 111_320,
+    lon: SOL.lon + eastM / (111_320 * Math.cos((SOL.lat * Math.PI) / 180)),
+  };
+}
+const busStop = (stopId, northM, eastM, lines) => {
+  const { lat, lon } = at(northM, eastM);
+  return stop(stopId, lon, lat, lines);
+};
+const board = (stopId, line, ...seconds) => ({
+  stopId, fetchedAt: 0, arrivals: seconds.map((s) => ({ line, seconds: s })),
+});
+
+/** In-memory Planner sources. Nearby is an exact straight-line disc; walking
+ *  is straight-line unless `walkM` overrides a stop; anything listed in
+ *  `failing` rejects. Every read is recorded. */
+function world({ stops, routes = {}, boards = {}, walkM = {}, walkingDown = false, failing = [] }) {
+  const reads = { nearby: [], board: [], route: [], incidents: [] };
+  const fail = (what) => Promise.reject(new Error(`${what} is down`));
+  return {
+    reads,
+    sources: {
+      async nearby(lat, lon, radius) {
+        reads.nearby.push(radius);
+        return stops.filter((s) => distanceTo(s, { lat, lon }) <= radius);
+      },
+      board(stopId) {
+        reads.board.push(stopId);
+        return failing.includes(`board:${stopId}`) ? fail(stopId) : Promise.resolve(boards[stopId] ?? null);
+      },
+      route(code) {
+        reads.route.push(code);
+        return failing.includes(`route:${code}`) ? fail(code) : Promise.resolve(routes[code] ?? null);
+      },
+      incidents(code) {
+        reads.incidents.push(code);
+        return failing.includes("incidents") ? fail("incidents") : Promise.resolve({ incidents: [] });
+      },
+      async walking({ origin, destinations }) {
+        if (walkingDown) throw new Error("router down");
+        return {
+          routes: destinations.map((d) => {
+            const id = stops.find((s) => s.coordinates[1] === d.lat && s.coordinates[0] === d.lon)?.stopId;
+            const metres = walkM[id] ?? distanceTo({ coordinates: [d.lon, d.lat] }, origin);
+            return { metres, seconds: metres / 1.3 };
+          }),
+        };
+      },
+    },
+  };
+}
+function distanceTo(s, { lat, lon }) {
+  const x = (s.coordinates[0] - lon) * Math.cos((lat * Math.PI) / 180);
+  const y = s.coordinates[1] - lat;
+  return Math.sqrt(x * x + y * y) * 111_320;
+}
+
+// Madrid is UTC+2 in July and UTC+1 in January.
+const SUMMER_NOON = new Date("2026-07-15T10:00:00Z");
+const SUMMER_1AM = new Date("2026-07-15T23:00:00Z");
+const hub = (northM, eastM, extra = {}) => ({ id: "home", name: "Home", ...at(northM, eastM), ...extra });
+const planFor = (w, destinations, now, tier = "free") =>
+  plan({ origin: SOL, destinations }, { sources: w.sources, tier, now });
+const optionsOf = (result) => result.destinations[0].options;
+
+describe("plan: day and night", () => {
+  const quiet = () => world({ stops: [] });
+
+  it("searches 800m around the rider by day and 2km at night", async () => {
+    const day = quiet();
+    await planFor(day, [hub(3000, 0)], SUMMER_NOON);
+    expect(day.reads.nearby[0]).toBe(800);
+    const night = quiet();
+    await planFor(night, [hub(3000, 0)], SUMMER_1AM);
+    expect(night.reads.nearby[0]).toBe(2000);
+  });
+
+  it("starts the night at midnight in Madrid, whatever the UTC offset", async () => {
+    const radiusAt = async (iso) => {
+      const w = quiet();
+      await planFor(w, [hub(3000, 0)], new Date(iso));
+      return w.reads.nearby[0];
+    };
+    expect(await radiusAt("2026-07-15T21:59:00Z")).toBe(800); // 23:59 CEST
+    expect(await radiusAt("2026-07-15T22:00:00Z")).toBe(2000); // 00:00 CEST
+    expect(await radiusAt("2026-01-15T22:30:00Z")).toBe(800); // 23:30 CET
+    expect(await radiusAt("2026-01-15T23:30:00Z")).toBe(2000); // 00:30 CET
+    expect(await radiusAt("2026-07-15T04:00:00Z")).toBe(800); // 06:00 CEST
+  });
+
+  // Line A runs from the rider to X; line B from Y, 400m from X, to the hub.
+  const interchange = () => world({
+    stops: [
+      busStop("O", 100, 0, ["A"]),
+      busStop("X", 2000, 0, ["A"]), busStop("Y", 2000, 400, ["B"]),
+      busStop("D", 4000, 400, ["B"]),
+    ],
+    routes: {
+      A: route("A", [busStop("O", 100, 0), busStop("X", 2000, 0)]),
+      B: route("B", [busStop("Y", 2000, 400), busStop("D", 4000, 400)]),
+    },
+    boards: { O: board("O", "A", 120), Y: board("Y", "B", 900) },
+  });
+
+  it("counts a 400m walk between stops as a transfer at night but not by day", async () => {
+    expect(optionsOf(await planFor(interchange(), [hub(4000, 400)], SUMMER_NOON))).toEqual([]);
+    const night = optionsOf(await planFor(interchange(), [hub(4000, 400)], SUMMER_1AM));
+    expect(night.map((o) => o.type)).toEqual(["one_transfer"]);
+    expect(Math.abs(night[0].transfer.walkM - 400)).toBeLessThan(5);
+  });
+
+  it("drops a transfer whose second board could not be read", async () => {
+    const w = interchange();
+    w.sources.board = (stopId) => Promise.resolve(stopId === "O" ? board("O", "A", 120) : null);
+    expect(optionsOf(await planFor(w, [hub(4000, 400)], SUMMER_1AM))).toEqual([]);
+  });
+});
+
+describe("plan: choosing between rides", () => {
+  it("offers a direct ride ahead of a transfer that arrives sooner", async () => {
+    const w = world({
+      stops: [
+        busStop("O", 100, 0, ["A", "C"]),
+        busStop("X", 1000, 0, ["A"]), busStop("Y", 1000, 50, ["B"]),
+        busStop("D", 2000, 50, ["B", "C"]),
+      ],
+      routes: {
+        A: route("A", [busStop("O", 100, 0), busStop("X", 1000, 0)]),
+        B: route("B", [busStop("Y", 1000, 50), busStop("D", 2000, 50)]),
+        C: route("C", [busStop("O", 100, 0), busStop("Q1", 500, 0), busStop("Q2", 900, 0),
+          busStop("Q3", 1300, 0), busStop("D", 2000, 50)]),
+      },
+      boards: {
+        O: { stopId: "O", fetchedAt: 0, arrivals: [{ line: "A", seconds: 100 }, { line: "C", seconds: 1500 }] },
+        Y: board("Y", "B", 500),
+      },
+    });
+    const options = optionsOf(await planFor(w, [hub(2000, 50)], SUMMER_NOON));
+    const transfers = options.filter((o) => o.type === "one_transfer");
+    expect(options[0].type).toBe("direct");
+    expect(transfers.length).toBeGreaterThan(0);
+    expect(Math.min(...transfers.map((o) => o.estimatedSeconds))).toBeLessThan(options[0].estimatedSeconds);
+  });
+});
+
+describe("plan: walking to the first stop", () => {
+  // Four stops on line A; "near" is 300m across the map but 1300m on foot.
+  const stops = [
+    busStop("near", 300, 0, ["A"]),
+    busStop("s1", 0, 400, ["A"]), busStop("s2", 0, -500, ["A"]), busStop("s3", -600, 0, ["A"]),
+  ];
+
+  it("skips a stop that is close on the map but past the radius on foot", async () => {
+    const w = world({ stops, walkM: { near: 1300 } });
+    await planFor(w, [hub(3000, 0)], SUMMER_NOON);
+    expect(w.reads.board).not.toContain("near");
+    expect(w.reads.board).toEqual(expect.arrayContaining(["s1", "s2", "s3"]));
+  });
+
+  it("takes the three nearest on foot when fewer than three are in range", async () => {
+    const w = world({ stops, walkM: { near: 1300, s1: 900, s2: 950, s3: 2000 } });
+    await planFor(w, [hub(3000, 0)], SUMMER_NOON);
+    expect(w.reads.board.sort()).toEqual(["near", "s1", "s2"]);
+  });
+
+  it("falls back to the straight-line radius when the walking router is down", async () => {
+    const w = world({ stops, walkM: { near: 1300 }, walkingDown: true });
+    await planFor(w, [hub(3000, 0)], SUMMER_NOON);
+    expect(w.reads.board).toContain("near");
+  });
+});
+
+describe("plan: a failing read costs only its own options", () => {
+  // Two direct lines from two different stops: C from O1, E from O2.
+  const twoLines = (failing) => world({
+    stops: [
+      busStop("O1", 100, 0, ["C"]), busStop("O2", 0, 150, ["E"]),
+      busStop("D", 3000, 0, ["C", "E"]),
+    ],
+    routes: {
+      C: route("C", [busStop("O1", 100, 0), busStop("D", 3000, 0)]),
+      E: route("E", [busStop("O2", 0, 150), busStop("D", 3000, 0)]),
+    },
+    boards: { O1: board("O1", "C", 300), O2: board("O2", "E", 400) },
+    failing,
+  });
+  const lines = async (failing) =>
+    optionsOf(await planFor(twoLines(failing), [hub(3000, 0)], SUMMER_NOON)).map((o) => o.firstLeg.line).sort();
+
+  it("keeps the other line when one route fails", async () => {
+    expect(await lines(["route:C"])).toEqual(["E"]);
+  });
+
+  it("keeps the other stop when one board fails", async () => {
+    expect(await lines(["board:O2"])).toEqual(["C"]);
+  });
+
+  it("still plans when incidents cannot be read", async () => {
+    expect(await lines(["incidents"])).toEqual(["C", "E"]);
+  });
+});
+
+describe("plan: input", () => {
+  const empty = () => world({ stops: [] });
+  const hubs = (n) => Array.from({ length: n }, (_, i) => hub(1000 + i * 100, 0, { id: `h${i}` }));
+
+  it("takes up to three hubs on the free tier and twelve on paid", async () => {
+    expect((await planFor(empty(), hubs(3), SUMMER_NOON, "free")).maxDestinations).toBe(3);
+    await expect(planFor(empty(), hubs(4), SUMMER_NOON, "free")).rejects.toMatchObject({ kind: "bad_request" });
+    expect((await planFor(empty(), hubs(12), SUMMER_NOON, "paid")).destinations).toHaveLength(12);
+    await expect(planFor(empty(), hubs(13), SUMMER_NOON, "paid")).rejects.toMatchObject({ kind: "bad_request" });
+  });
+
+  it("treats an unknown tier as free", async () => {
+    await expect(planFor(empty(), hubs(4), SUMMER_NOON, "enterprise")).rejects.toMatchObject({ kind: "bad_request" });
+  });
+
+  it("rejects coordinates that are not on Earth", async () => {
+    await expect(plan({ origin: { lat: 91, lon: 0 }, destinations: hubs(1) },
+      { sources: empty().sources, tier: "free", now: SUMMER_NOON })).rejects.toMatchObject({ kind: "bad_request" });
+  });
+
+  it("stamps the plan with the time it was asked for", async () => {
+    expect((await planFor(empty(), hubs(1), SUMMER_NOON)).generatedAt).toBe(SUMMER_NOON.getTime());
   });
 });
