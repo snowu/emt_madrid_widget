@@ -6,6 +6,8 @@ going to any store.
 
 Design doc: `docs/superpowers/specs/2026-08-18-emt-madrid-web-design.md`.
 Implementation plan: `docs/superpowers/plans/2026-08-18-emt-arrivals-web-app.md`.
+Domain terms (Hub, Board, Planner, Account) are in `GLOSSARY.md`; architecture
+decisions are in `docs/adr/`.
 
 **The app is called Hubward** (after the Discworld direction: towards the
 Hub). It was Hubwise until 2026-09-25; internal names keep `hubwise` — the
@@ -43,7 +45,8 @@ web/                 static page, deployed to GitHub Pages. Holds no secrets.
   manifest.webmanifest, icon.svg    home-screen install
 api/                 Cloudflare Worker. Holds EMT and optional owner MPass credentials.
   src/index.js       routing, CORS, auth boundaries, every edge-cache decision
-  src/emt.js         EMT auth + buses: token, arrivals, detail, nearby, timetable, route
+  src/emt.js         emtClient (token, code-80 retry, success codes) + bus fetchers
+  src/emt-account.js per-user EMT connections; requestEmt() is each request's client
   src/bikes.js       BiciMAD stations + local distance filtering
   src/trip-monitor.js bounded 30-minute owner trip reconciliation monitor
   src/stops.js       Supabase REST for saved bus stops and saved bike stations
@@ -125,7 +128,7 @@ changes so old Cache API objects cannot serve an incompatible response.
 ```bash
 cd api
 npm install
-npm test          # web smoke check, then vitest under workerd; 124 tests, no network
+npm test          # web smoke check, then vitest under workerd; 185 tests, no network
 npm run check:web # just the browser-load check, on its own
 npm run dev       # wrangler dev, needs .dev.vars
 npm run deploy    # wrangler deploy
@@ -297,9 +300,12 @@ not found / invalid token, `81` no detail record. Handle
 both an HTTP error and a 200 carrying an error code.
 
 **Code 80 is ambiguous** — "stop not found" and "your token expired" are the
-same code — so every fetcher in `emt.js` re-logs in once with
-`getToken(env, {force: true})` and retries before believing the stop is bad.
-Any new endpoint needs that same three-line dance.
+same code — so `emt.call()` re-logs in once and retries before believing the
+stop is bad. Every EMT request goes through an `emtClient(env, {account,
+who})`, which owns the token, that retry, the 5xx retry, metrics, and the
+codes each endpoint counts as success (`ok`). A new endpoint is a path, its
+`ok` codes and a parser: `getArrivals(emt, stopId)` is the model. The Account
+travels on the client, never on `env` (ADR 0001).
 
 **Code 81 does not mean the stop is nonexistent.** EMT's detail table has
 holes for real stops: stop 30 (Plaza Castilla, lines 107/129/005/070) answers
@@ -316,8 +322,8 @@ on v1). When a call comes back empty on principle, try the other version.
 Cloudflare↔EMT quirk: outbound TLS from Workers to `openapi.emtmadrid.es`
 fails intermittently with HTTP 525 (same class as workerd#776 vs DeepL).
 `emtFetch` retries once on any 5xx and passes 4xx straight through — a 4xx is
-an answer, not a blip. Use it rather than bare `fetch` for anything EMT-bound;
-the token cache means most calls skip login entirely.
+an answer, not a blip. `emt.call()` sends through it; GBFS reads use it
+directly. The token cache means most calls skip login entirely.
 
 Endpoints, verified 2026-08-18 against `fermartv/EMTMadrid`, re-verified live
 2026-08-23:

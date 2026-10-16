@@ -1,6 +1,6 @@
 import { authenticatedUser, bearerToken } from "./auth.js";
 import { EmtError } from "./errors.js";
-import { getToken } from "./emt.js";
+import { emtClient, signIn } from "./emt.js";
 
 /* Per-user EMT connections.
  *
@@ -71,14 +71,17 @@ export async function accountRow(env, request, user, init = {}) {
   return init.method ? null : (await response.json())[0] ?? null;
 }
 
-/** An env whose EMT login is this user's. `sessionId` names their token in
- *  KV and in isolate memory, so no two users ever share a token. */
-export function scopedEnvironment(env, credentials, sessionId) {
-  return {
-    ...env, EMT_ACCOUNT_CONTEXT: undefined,
-    EMT_EMAIL: credentials.email, EMT_PASSWORD: credentials.password,
-    EMT_SESSION_ID: sessionId,
-  };
+/** A connected user's Account, ready for `emtClient`. The session
+ *  (`user:connection`) names their token in KV and in isolate memory, so no
+ *  two users, and no two connections of one user, ever share a token. */
+function connectedAccount(credentials, userId, connectionId) {
+  return { email: credentials.email, password: credentials.password, session: `${userId}:${connectionId}` };
+}
+
+/** Decrypt a stored connection (`{userId, connectionId, credentials}`, the
+ *  shape tracking runners and live sockets keep) into an Account. */
+export async function openAccount(env, { userId, connectionId, credentials }) {
+  return connectedAccount(await openCredentials(env, userId, credentials), userId, connectionId);
 }
 
 export function callerClass(request) {
@@ -90,19 +93,17 @@ export function callerClass(request) {
 /** Whether every user must bring their own EMT account. */
 export const accountRequired = (env) => env.EMT_ACCOUNT === "required" && Boolean(env.EMT_CREDENTIAL_KEY);
 
-/** The env for one request, resolving the caller's connection lazily: public
- *  cache hits and GBFS reads never pay for the lookup. Resolves to the
+/** The EMT client for one request, resolving the caller's connection lazily:
+ *  public cache hits and GBFS reads never pay for the lookup. Resolves to the
  *  caller's own login when they connected one. Without one it resolves to
  *  null — the shared login — only when accounts are optional; when they are
  *  required the request fails with `emt_account`, which the page turns into
  *  "connect your account". A connection that exists but cannot be used also
  *  fails. */
-export function withEmtAccount(env, request) {
-  let pending;
-  return {
-    ...env,
-    EMT_CALLER: callerClass(request),
-    EMT_ACCOUNT_CONTEXT: () => pending ??= (async () => {
+export function requestEmt(env, request) {
+  return emtClient(env, {
+    who: callerClass(request),
+    account: async () => {
       if (!env.EMT_CREDENTIAL_KEY) return null; // feature not configured
       const required = accountRequired(env);
       if (!request.headers.has("Authorization")) {
@@ -122,10 +123,9 @@ export function withEmtAccount(env, request) {
         if (required) throw new EmtError("emt_account", "Connect your EMT account from the account menu to load live times.");
         return null;
       }
-      const credentials = await openCredentials(env, user.id, row.credentials);
-      return scopedEnvironment(env, credentials, `${user.id}:${row.connection_id}`);
-    })(),
-  };
+      return openAccount(env, { userId: user.id, connectionId: row.connection_id, credentials: row.credentials });
+    },
+  });
 }
 
 async function credentialsBody(request) {
@@ -180,7 +180,7 @@ export async function manageEmtAccount(env, request, { onChange = async () => {}
   const credentials = await sealCredentials(env, user.id, input);
   const connectionId = crypto.randomUUID();
   // Log in with the new credentials before replacing a working connection.
-  await getToken(scopedEnvironment(env, input, `${user.id}:${connectionId}`));
+  await signIn(emtClient(env, { account: connectedAccount(input, user.id, connectionId), who: callerClass(request) }));
   const row = { user_id: user.id, connection_id: connectionId, credentials };
   await accountRow(env, request, user, { method: "POST", body: JSON.stringify(row) });
   await onChange(user, row);

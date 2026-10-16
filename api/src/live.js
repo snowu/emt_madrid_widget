@@ -1,7 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
-import { getArrivals } from "./emt.js";
+import { emtClient, getArrivals } from "./emt.js";
 import { authenticatedUser } from "./auth.js";
-import { accountRow, openCredentials, scopedEnvironment, accountRequired } from "./emt-account.js";
+import { accountRow, openAccount, accountRequired } from "./emt-account.js";
 import { EmtError } from "./errors.js";
 import { recordEdgeMetric } from "./metrics.js";
 
@@ -87,7 +87,7 @@ export class LiveStop extends DurableObject {
 
   /** Whose quota this tick may spend, in the order to try: connected viewers
    *  in turn, then the shared login when accounts are optional. */
-  async environments(sockets, now) {
+  async clients(sockets, now) {
     const byUser = new Map();
     for (const socket of sockets) {
       const account = socket.deserializeAttachment()?.account;
@@ -95,15 +95,14 @@ export class LiveStop extends DurableObject {
     }
     const accounts = [...byUser.values()].sort((a, b) => a.userId.localeCompare(b.userId));
     const start = accounts.length ? Math.floor(now / LIVE_INTERVAL) % accounts.length : 0;
-    const envs = [];
+    const clients = [];
     for (const account of [...accounts.slice(start), ...accounts.slice(0, start)]) {
       try {
-        const credentials = await openCredentials(this.env, account.userId, account.credentials);
-        envs.push(scopedEnvironment(this.env, credentials, `${account.userId}:${account.connectionId}`));
+        clients.push(emtClient(this.env, { account: await openAccount(this.env, account) }));
       } catch { /* undecryptable: skip this viewer's account */ }
     }
-    if (!accountRequired(this.env)) envs.push(this.env);
-    return envs;
+    if (!accountRequired(this.env)) clients.push(emtClient(this.env));
+    return clients;
   }
 
   async alarm() {
@@ -111,17 +110,17 @@ export class LiveStop extends DurableObject {
     const stop = await this.ctx.storage.get("stop");
     if (!sockets.length || !stop) return; // nobody watching: stop ticking
     const now = Date.now();
-    const envs = await this.environments(sockets, now);
-    if (!envs.length) {
+    const clients = await this.clients(sockets, now);
+    if (!clients.length) {
       // Nobody here can pay. Say so, and wait for a viewer who can.
       this.broadcast(sockets, { type: "error", stopId: stop, error: "emt_account", message: "Connect your EMT account to see live buses" });
       return;
     }
     await this.ctx.storage.setAlarm(now + LIVE_INTERVAL);
     let lastError;
-    for (const env of envs) {
+    for (const emt of clients) {
       try {
-        const board = await getArrivals(env, stop, "live");
+        const board = await getArrivals(emt, stop, "live");
         this.board = { type: "board", stopId: stop, arrivals: board.arrivals, fetchedAt: board.fetchedAt ?? now };
         this.broadcast(this.ctx.getWebSockets(), this.board);
         return;
