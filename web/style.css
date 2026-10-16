@@ -646,7 +646,7 @@ body.map-is-fullscreen { overflow: hidden; }
 
 .place-nearest-bike { margin-top: 0; border-radius: 17px; overflow: hidden; }
 .place-nearest-bike + .place-nearest-bike { margin-top: 0.55rem; }
-.place-nearest-bike .bike-counts { margin-inline: -1rem; margin-bottom: -0.75rem; padding: 0.35rem 0.45rem 0.4rem; background: color-mix(in srgb, var(--card) 88%, var(--active)); }
+.place-nearest-bike .bike-counts { background: color-mix(in srgb, var(--card) 88%, var(--active)); }
 
 
 .head { display: flex; align-items: center; justify-content: space-between; }
@@ -1408,26 +1408,26 @@ body[data-bus-list-mode="stops"] .stop > .age {
   justify-self: end;
   text-align: right;
 }
-#bikes > .stop .bike-counts {
+/* The nearest-bike block on the Hubward tab is the same card as the BiciMAD
+   tab's, so it takes the same compact counts. :is() lends both the id's
+   specificity, so no style layer can enlarge one and not the other. */
+:is(#bikes > .stop, .place-nearest-bike) { padding: 0; }
+:is(#bikes > .stop, .place-nearest-bike) .bike-counts {
   min-height: 47px;
   margin: 0;
   padding: 0.38rem 0.7rem;
-  border-top: 1px solid var(--separator);
 }
-#bikes > .stop .bike-metric { min-height: 30px; padding: 0; }
-#bikes > .stop .bike-metric span { font-size: 0.67rem; }
-#bikes > .stop .bike-metric strong { font-size: 1.05rem; font-weight: 800; }
-#bikes > .stop .bike-note { font-size: 0.64rem; }
+#bikes > .stop .bike-counts { border-top: 1px solid var(--separator); }
+:is(#bikes > .stop, .place-nearest-bike) .bike-metric { min-height: 30px; padding: 0; }
+:is(#bikes > .stop, .place-nearest-bike) .bike-metric span { font-size: 0.67rem; }
+:is(#bikes > .stop, .place-nearest-bike) .bike-metric strong { font-size: 1.05rem; font-weight: 800; }
+:is(#bikes > .stop, .place-nearest-bike) .bike-note { font-size: 0.64rem; }
 #bikes > .stop.station-unavailable {
   border-color: color-mix(in srgb, var(--warning) 62%, var(--line));
   background: color-mix(in srgb, var(--card) 94%, var(--warning));
 }
 
 .place-nearest-bike + .place-nearest-bike { margin-top: 0; }
-.place-nearest-bike .bike-counts {
-  margin: 0;
-  padding: 0.38rem 0.7rem;
-}
 
 #bike-age { margin: 0.55rem 0.1rem 0; font-size: 0.64rem; }
 
@@ -3099,25 +3099,10 @@ body.ui-hex.ui-hex-green {
    per line. */
 body .stop li.muted {
   display: block;
-  grid-column: 1 / -1;
   padding-block: 0.55rem;
-  color: var(--muted);
   font-size: 0.8rem;
   line-height: 1.4;
 }
 
 body .stop li.muted::before { content: none; }
 
-/* The nearest-bike block on the Hubward tab is the same card as the BiciMAD
-   tab's, so it takes the same compact counts. :is() lends both the id's
-   specificity, so no style layer can enlarge one and not the other. */
-:is(#bikes > .stop, .place-nearest-bike) .bike-counts {
-  min-height: 47px;
-  margin: 0;
-  padding: 0.38rem 0.7rem;
-}
-:is(#bikes > .stop, .place-nearest-bike) .bike-metric { min-height: 30px; padding: 0; }
-:is(#bikes > .stop, .place-nearest-bike) .bike-metric span { font-size: 0.67rem; }
-:is(#bikes > .stop, .place-nearest-bike) .bike-metric strong { font-size: 1.05rem; font-weight: 800; }
-:is(#bikes > .stop, .place-nearest-bike) .bike-note { font-size: 0.64rem; }
-:is(#bikes > .stop, .place-nearest-bike) { padding: 0; }
