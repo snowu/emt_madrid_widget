@@ -155,8 +155,8 @@ test("the tracked list says where each rack stands against the alert rule", asyn
   tracking.renderList(window.document.querySelector("main"));
   const lines = [...window.document.querySelectorAll(".tracking-item small")].map((el) => el.textContent);
   assert.match(lines[0], /^7 bikes · alerts once it drops below 6 · waiting for first check$/);
-  assert.match(lines[1], /^Empty · alerts when a bike arrives/);
-  assert.match(lines[2], /^2 bikes · alerts as more arrive/);
+  assert.match(lines[1], /^Empty · alerts on every change/);
+  assert.match(lines[2], /^2 bikes · alerts on every change/);
   assert.equal(lines[3], "Waiting for first check");
 });
 

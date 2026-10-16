@@ -219,13 +219,12 @@ export function createTracking({ api, signedIn, changed, locate = () => null }) 
   }
 
   /** Where a rack stands against the worker's rule: it arms below six bikes,
-   *  alerts on each bike docked until more than six are, and re-arms when it
-   *  drops below six again. */
+   *  alerts on every bike docked or taken until more than six are, and
+   *  re-arms when it drops below six again. */
   function rackState(rack) {
     if (!rack) return "";
-    const bikes = `${rack.bikes} ${rack.bikes === 1 ? "bike" : "bikes"}`;
-    if (rack.bikes === 0) return "Empty · alerts when a bike arrives";
-    if (rack.armed) return `${bikes} · alerts as more arrive`;
+    const bikes = rack.bikes === 0 ? "Empty" : `${rack.bikes} ${rack.bikes === 1 ? "bike" : "bikes"}`;
+    if (rack.armed) return `${bikes} · alerts on every change`;
     return `${bikes} · alerts once it drops below 6`;
   }
 
@@ -233,7 +232,7 @@ export function createTracking({ api, signedIn, changed, locate = () => null }) 
     container.replaceChildren();
     const intro = document.createElement("p");
     intro.className = "muted";
-    intro.textContent = "Buses: checked every 2 min; one alert per bus at 15 min or less. Bikes: checked every 30 sec; once a rack is below 6 bikes, one alert per bike docked until more than 6 are available.";
+    intro.textContent = "Buses: checked every 2 min; one alert per bus at 15 min or less. Bikes: checked every 30 sec; once a rack is below 6 bikes, an alert with the count for every bike docked or taken, until more than 6 are available.";
     container.append(intro);
     if (watches.length && !deviceCount) {
       const paused = document.createElement("p");

@@ -23,8 +23,13 @@ export async function subscriptionId(endpoint) {
   return Array.from(new Uint8Array(digest), (n) => n.toString(16).padStart(2, "0")).join("");
 }
 
-export async function sendPush(env, subscription, payload) {
-  const details = await buildPushPayload({ data: JSON.stringify(payload), options: { ttl: 120, urgency: "high" } }, subscription, {
+/** `ttl`: seconds the push service may hold the message for a phone that is
+ *  asleep or offline; past it the message is dropped without a trace, so it
+ *  should be as long as the news stays true. `topic` (at most 32 URL-safe
+ *  characters) lets a newer message replace one still waiting in the queue. */
+export async function sendPush(env, subscription, payload, { ttl = 120, topic } = {}) {
+  const options = { ttl, urgency: "high", ...(topic ? { topic } : {}) };
+  const details = await buildPushPayload({ data: JSON.stringify(payload), options }, subscription, {
     subject: env.VAPID_SUBJECT,
     publicKey: env.VAPID_PUBLIC_KEY,
     privateKey: env.VAPID_PRIVATE_KEY,

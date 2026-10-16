@@ -173,7 +173,14 @@ the whole GBFS status every 30 seconds, each on an aligned clock, and call
 every subscribed user's `TrackingRunner` with the result (`onBoard` /
 `onBikes`). Runners fetch nothing: they hold one user's watches, devices and
 alert state, keep their poller subscriptions in step via `sync()` (plus a daily
-re-sync alarm), and write storage only when state changes. A stop poller spends
+re-sync alarm), and write storage only when state changes. `sync()` always
+sends every poller the whole wanted state, never a diff against what the
+runner believes is there: a subscription a poller lost then comes back on the
+next app open instead of staying silent until the daily re-sync. A poll drops a
+runner that answered "nothing here" only if it did not subscribe again while
+the poll was out. Every poll logs one `poll` line, and Workers Logs keeps them
+(`[observability]`), so a missed alert can be traced to poll, rule or push
+service. A stop poller spends
 its watchers' own EMT quotas in turn — one connected watcher per 2-minute
 slot — trying the others if the chosen account fails, so one broken
 connection never silences everyone else's alerts. The shared login is a last

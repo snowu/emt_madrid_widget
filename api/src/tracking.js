@@ -28,6 +28,15 @@ function watchCoordinates(value) {
   return [Math.round(lon * 1e6) / 1e6, Math.round(lat * 1e6) / 1e6];
 }
 
+/** How long a push may wait for a sleeping phone. A bus alert is true until
+ *  the bus has come; a rack's count until the next one replaces it, which its
+ *  topic does even while both are still queued. Two minutes for everything
+ *  dropped alerts for a phone in Doze that the server had logged as sent. */
+async function pushOptions(watch, alert) {
+  if (watch.kind === "bus") return { ttl: Math.min(900, Math.max(60, alert.minutes * 60)) };
+  return { ttl: 900, topic: (await subscriptionId(watch.id)).slice(0, 32) };
+}
+
 /** How often a watch's last-check time is persisted while nothing else about
  *  it changes: enough for "checked 12:04" to stay roughly true after the
  *  object is evicted, without a write per poll. */
@@ -185,7 +194,11 @@ export class TrackingRunner extends DurableObject {
   }
 
   /** Subscribe to exactly the pollers this user's watches need, and nothing
-   *  when there is no device to notify. Pollers are told only what changed. */
+   *  when there is no device to notify. Every poller is told the whole
+   *  current state, not what changed since last time: a subscription a
+   *  poller lost is repaired by the next sync (every check-in, every change,
+   *  once a day), not left silent because this side believed it was there.
+   *  Pollers write only when their row actually changes. */
   async sync() {
     const userId = this.userId();
     if (!userId) return; // subscribes once a /tracking request identifies it
@@ -201,15 +214,11 @@ export class TrackingRunner extends DurableObject {
       stops: [...new Set(watches.filter((w) => w.kind === "bus").map((w) => w.targetId))].sort(),
       connection: account?.connectionId ?? null,
     };
-    const current = this.meta("subscriptions") ?? { bikes: [], stops: [], connection: null };
-    if (JSON.stringify(current.bikes) !== JSON.stringify(wanted.bikes)) {
-      await bikeFeed(this.env).subscribe(userId, wanted.bikes);
-    }
-    const accountChanged = current.connection !== wanted.connection;
-    for (const stop of wanted.stops) {
-      if (accountChanged || !current.stops.includes(stop)) await stopPoller(this.env, stop).subscribe(stop, userId, account);
-    }
-    for (const stop of current.stops) {
+    // Only to know which stops to leave; never to skip telling a poller.
+    const current = this.meta("subscriptions") ?? { stops: [] };
+    await bikeFeed(this.env).subscribe(userId, wanted.bikes);
+    for (const stop of wanted.stops) await stopPoller(this.env, stop).subscribe(stop, userId, account);
+    for (const stop of current.stops ?? []) {
       if (!wanted.stops.includes(stop)) await stopPoller(this.env, stop).unsubscribe(userId);
     }
     this.setMeta("subscriptions", wanted);
@@ -224,7 +233,6 @@ export class TrackingRunner extends DurableObject {
   async alarm() {
     // Runners from before the pollers still hold a 30-second alarm; the first
     // one lands here, subscribes, and is replaced by the daily re-sync.
-    this.setMeta("subscriptions", null);
     await this.ctx.storage.deleteAlarm();
     await this.sync();
   }
@@ -233,7 +241,7 @@ export class TrackingRunner extends DurableObject {
    *  `payload.error` when the feed failed. Returns whether this runner still
    *  wants bike counts, so the feed can drop runners that went quiet. */
   async onBikes(payload) {
-    if (!this.activeDevices().length) return this.pollerDropped({ bikes: [] });
+    if (!this.activeDevices().length) return { active: false };
     const watches = this.rows("watches").filter((w) => w.kind === "bike");
     await Promise.all(watches.map((watch) => this.evaluate(watch, payload.fetchedAt, () => {
       if (payload.error) throw new Error(payload.error);
@@ -246,24 +254,14 @@ export class TrackingRunner extends DurableObject {
 
   /** A stop's board from its poller, or `payload.error`. */
   async onBoard(stopId, payload) {
-    if (!this.activeDevices().length) {
-      const stops = this.meta("subscriptions")?.stops ?? [];
-      return this.pollerDropped({ stops: stops.filter((stop) => stop !== String(stopId)) });
-    }
+    // The poller drops this runner; the next check-in's sync() comes back.
+    if (!this.activeDevices().length) return { active: false };
     const watches = this.rows("watches").filter((w) => w.kind === "bus" && w.targetId === String(stopId));
     await Promise.all(watches.map((watch) => this.evaluate(watch, payload.fetchedAt, () => {
       if (payload.error) throw Object.assign(new Error(payload.error), payload.connect ? { userMessage: payload.error } : {});
       return busTransition(watch.state, payload.arrivals ?? [], watch, payload.fetchedAt);
     })));
     return { active: watches.length > 0 };
-  }
-
-  /** Nobody is left to notify: the poller drops this runner when told so.
-   *  Record that, so the next check-in's sync() subscribes again. */
-  pollerDropped(change) {
-    const current = this.meta("subscriptions");
-    if (current) this.setMeta("subscriptions", { ...current, ...change });
-    return { active: false };
   }
 
   /** Apply one poll to one watch: send what is news, then persist only what
@@ -279,6 +277,7 @@ export class TrackingRunner extends DurableObject {
       // A stable notification tag coalesces retries following an ambiguous
       // network failure or a crash after delivery but before the state write.
       let deliveryFailed = false;
+      if (result.alerts.length) console.log(JSON.stringify({ event: "alert", kind: watch.kind, alerts: result.alerts.length }));
       for (const alert of result.alerts) {
         const deliveryKey = alert.vehicle ?? alert.body;
         watch.delivered ??= {};
@@ -291,7 +290,7 @@ export class TrackingRunner extends DurableObject {
               ...notificationText(watch, alert),
               tag: `${watch.id}:${alert.vehicle ?? "bikes"}`, timestamp: now,
               target: { kind: watch.kind, id: watch.targetId, ...(watch.coordinates ? { coordinates: watch.coordinates } : {}) },
-            });
+            }, await pushOptions(watch, alert));
             console.log(JSON.stringify({ event: "push_sent", kind: watch.kind, status }));
             if (status === 404 || status === 410) this.expire(device.id);
             else if (status < 200 || status >= 300) {
