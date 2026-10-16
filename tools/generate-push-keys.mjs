@@ -8,6 +8,6 @@ const publicKey = Buffer.from(await crypto.subtle.exportKey("raw", key.publicKey
 await writeFile(path, JSON.stringify({
   VAPID_PUBLIC_KEY: publicKey,
   VAPID_PRIVATE_KEY: privateKey.d,
-  VAPID_SUBJECT: "https://snowu.github.io/emt_madrid_widget/",
+  VAPID_SUBJECT: "https://snowu.github.io/hubward/",
 }), { mode: 0o600, flag: "wx" });
 console.log("Push keys created. Keep the private file secret and preserve the keys across deployments.");

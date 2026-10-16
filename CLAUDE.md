@@ -15,9 +15,11 @@ manifest `id` (changing it makes every installed copy a different app), the
 `x-hubwise-emt` header, notification tags and the metrics dataset. The icon is
 drawn in `tools/icons/pixel-icon.mjs`.
 
-**The repo is named `emt_madrid_widget` and there is no widget.** This started
-as an Android home screen widget and became a webpage; the name was kept to
-avoid churn. Ignore it.
+**The repo is `hubward`; until 2026-10-16 it was `emt_madrid_widget`** (it
+started as an Android home screen widget). The page moved with it, from
+`snowu.github.io/emt_madrid_widget/` to `snowu.github.io/hubward/`, and the
+old address is gone: a home-screen copy installed before the rename has to be
+reinstalled from the new one.
 
 ## Scope
 

@@ -10,15 +10,15 @@ Real-time EMT arrivals for the stops you use, bike counts for the docks you
 care about, and "how do I get to my places from here" answered with live
 data. It's a phone-first web app that installs to your home screen.
 
-[**Open the app →**](https://snowu.github.io/emt_madrid_widget/)
+[**Open the app →**](https://snowu.github.io/hubward/)
 
 </div>
 
 > [!NOTE]
-> **The repo is called `emt_madrid_widget`, but there is no widget.** The
-> project started as an Android home-screen widget and became a web app. The
-> name stayed so links wouldn't break. The app was called *Hubwise* until
-> September 2026, so internal identifiers still say `hubwise`.
+> The project started as an Android home-screen widget in a repo called
+> `emt_madrid_widget`, renamed to `hubward` in October 2026. The app was
+> called *Hubwise* until September 2026, so internal identifiers still say
+> `hubwise`.
 
 ---
 
@@ -191,8 +191,8 @@ docs/                rollout notes, research, audits, original spec and plan
 Requirements: **Node 20+** and a Cloudflare account (for `wrangler`).
 
 ```bash
-git clone git@github.com:snowu/emt_madrid_widget.git
-cd emt_madrid_widget
+git clone git@github.com:snowu/hubward.git
+cd hubward
 git config core.hooksPath .githooks   # pre-push smoke check
 
 cd api
