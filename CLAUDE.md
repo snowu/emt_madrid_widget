@@ -45,6 +45,7 @@ web/                 static page, deployed to GitHub Pages. Holds no secrets.
   manifest.webmanifest, icon.svg    home-screen install
 api/                 Cloudflare Worker. Holds EMT and optional owner MPass credentials.
   src/index.js       routing, CORS, auth boundaries, every edge-cache decision
+  src/journey-planner.js  the Planner: plan() over its sources, budgets, night rules, scoring
   src/emt.js         emtClient (token, code-80 retry, success codes) + bus fetchers
   src/emt-account.js per-user EMT connections; requestEmt() is each request's client
   src/bikes.js       BiciMAD stations + local distance filtering
@@ -128,7 +129,7 @@ changes so old Cache API objects cannot serve an incompatible response.
 ```bash
 cd api
 npm install
-npm test          # web smoke check, then vitest under workerd; 185 tests, no network
+npm test          # web smoke check, then vitest under workerd; 200 tests, no network
 npm run check:web # just the browser-load check, on its own
 npm run dev       # wrangler dev, needs .dev.vars
 npm run deploy    # wrangler deploy
@@ -194,7 +195,8 @@ breaking the section.
 Worker invocation may make only 50 subrequests, so the page sends one hub per
 `/journeys` request and the planner rations routes, transfer boards and
 incident reads. `"paid"` (Workers Paid: 10,000 subrequests) takes every hub in
-one request and widens the search — see `PLANNER_BUDGETS` in `src/index.js`.
+one request and widens the search — see `PLANNER_BUDGETS` in
+`src/journey-planner.js`.
 The page learns the batch size from each response's `maxDestinations`, so
 flipping the var and redeploying the worker is the whole switch.
 
@@ -254,6 +256,9 @@ Conventions, worth matching:
   `Response` per call** — bodies are single-use, and the retry paths call twice.
 - `src/index.js` is exercised through `worker.fetch` with
   `createExecutionContext` / `waitOnExecutionContext`, not by importing routes.
+- The Planner is the exception: `plan()` is tested directly, with in-memory
+  sources (the `world()` helper in `journey-planner.test.js`) and a fixed
+  `now`, so night rules are checked at a chosen Madrid hour, not today's.
 - Seed `emt:token` in `beforeEach` unless the login path is what is under test;
   otherwise every test needs a login response in its mock.
 - A cache test asserts the *second* call makes no upstream request. That is the

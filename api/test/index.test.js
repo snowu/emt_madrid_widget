@@ -590,7 +590,7 @@ describe("journey planner budget", () => {
   it("keeps the free plan's three-hub limit, and says so to the page", async () => {
     // Explicitly free: wrangler.toml itself is on "paid" now.
     const tooMany = await plan(4, "free");
-    expect(tooMany.status).toBe(404);
+    expect(tooMany.status).toBe(400);
     expect((await tooMany.json()).message).toContain("1–3");
     const ok = await plan(1, "free");
     expect(ok.status).toBe(200);

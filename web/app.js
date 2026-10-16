@@ -596,11 +596,20 @@ function setPlaceReachability(card, waitSeconds, walkSeconds) {
     : margin < 120 ? "reachability-tight" : "reachability-comfortable");
 }
 
+// A deliberate copy of the planner's constants (api/src/journey-planner.js):
+// Pages deploys only web/, so the page cannot import the worker's module
+// (ADR 0001). Change them together.
+const WALK_METRES_PER_SECOND = 1.3;
+const DEFAULT_HEADWAY_SECONDS = 10 * 60;
+const MIN_HEADWAY_SECONDS = 3 * 60;
+const MAX_HEADWAY_SECONDS = 30 * 60;
+
 /** A hub card's first leg, timed from the boarding stop's board in the shared
- *  store, so the card and the stop sheet it opens never disagree. The pick
- *  mirrors the planner's nextDeparture(): the first bus you can still walk to,
- *  else one headway after the last one listed. The planner's own snapshot is
- *  only the fallback, for a worker too old to send boards. */
+ *  store, so the card and the stop sheet it opens never disagree. The pick is
+ *  a copy of the planner's nextDeparture() in api/src/journey-planner.js: the
+ *  first bus you can still walk to, else one headway after the last one
+ *  listed. The planner's own snapshot is only the fallback, for a worker too
+ *  old to send boards. */
 function firstLegTimes(option) {
   const leg = option.firstLeg;
   const board = arrivals[String(option.originStop.stopId)];
@@ -615,11 +624,13 @@ function firstLegTimes(option) {
   const times = board.arrivals
     .filter((bus) => ids.has(lineIdentity(bus.line)))
     .map((bus) => Number(bus.seconds)).filter(Number.isFinite).sort((a, b) => a - b);
-  const walk = Number(option.originStop.walkSeconds ?? (option.originStop.distanceM ?? 0) / 1.3);
+  const walk = Number(option.originStop.walkSeconds
+    ?? (option.originStop.distanceM ?? 0) / WALK_METRES_PER_SECOND);
   let wait = times.find((seconds) => seconds >= walk) ?? null;
   if (wait == null && times.length) {
-    const observed = times.length > 1 ? times.at(-1) - times.at(-2) : 600;
-    const headway = Math.min(1800, Math.max(180, observed || 600));
+    const observed = times.length > 1 ? times.at(-1) - times.at(-2) : DEFAULT_HEADWAY_SECONDS;
+    const headway = Math.min(MAX_HEADWAY_SECONDS,
+      Math.max(MIN_HEADWAY_SECONDS, observed || DEFAULT_HEADWAY_SECONDS));
     wait = times.at(-1) + Math.ceil((walk - times.at(-1)) / headway) * headway;
   }
   return { fetchedAt: board.fetchedAt, times, wait };
